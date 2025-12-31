@@ -28,12 +28,18 @@ impl PropertyProcessor {
         element: &Element,
         properties: &mut HashMap<String, String>,
     ) -> Result<(), XacroError> {
-        if element.name == "property" {
+        // Check if this is a property element (either <property> or <xacro:property>)
+        let is_property = element.name == "property"
+            && (element.prefix.is_none() || element.prefix.as_deref() == Some("xacro"));
+
+        if is_property {
             if let (Some(name), Some(value)) = (
                 element.attributes.get("name"),
                 element.attributes.get("value"),
             ) {
-                properties.insert(name.clone(), value.clone());
+                // Evaluate the value in case it contains expressions referencing other properties
+                let evaluated_value = Self::substitute_in_text(value, properties)?;
+                properties.insert(name.clone(), evaluated_value);
             }
         }
 
@@ -69,28 +75,23 @@ impl PropertyProcessor {
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        let mut result = text.to_string();
+        use crate::utils::eval::eval_text;
 
-        while let Some(start) = result.find("${") {
-            if let Some(end) = result[start..].find('}') {
-                let end = start + end + 1;
-                let prop_name = &result[start + 2..end - 1];
-
-                if let Some(value) = properties.get(prop_name) {
-                    result.replace_range(start..end, value);
-                } else {
-                    return Err(XacroError::PropertyNotFound(prop_name.to_string()));
-                }
-            }
-        }
-
-        Ok(result)
+        eval_text(text, properties).map_err(|e| XacroError::EvalError {
+            expr: text.to_string(),
+            source: e,
+        })
     }
 
     fn remove_property_elements(element: &mut Element) {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
-                if child_elem.name == "property" {
+                // Remove property elements (either <property> or <xacro:property>)
+                let is_property = child_elem.name == "property"
+                    && (child_elem.prefix.is_none()
+                        || child_elem.prefix.as_deref() == Some("xacro"));
+
+                if is_property {
                     return false;
                 }
                 Self::remove_property_elements(child_elem);

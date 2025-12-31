@@ -122,4 +122,23 @@ mod property_tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), expected);
     }
+
+    #[test]
+    fn test_property_arithmetic() {
+        env_logger::try_init().ok();
+        let property_processor = PropertyProcessor::new();
+        let path = Path::new("tests/data/eval_arithmetic.xacro");
+        let data = XacroProcessor::parse_file(path).unwrap();
+        let expected =
+            XacroProcessor::parse_file("tests/data/eval_arithmetic_expected.urdf").unwrap();
+
+        let result = property_processor.process(data);
+
+        if result.is_err() {
+            error!("{:?}", result);
+        }
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), expected);
+    }
 }

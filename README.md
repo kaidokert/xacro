@@ -2,7 +2,7 @@
 A xml preprocessor for xacro files to generate URDF files
 
 ## WIP
-Placeholder for the future xacro peprocessing tool. 
+Placeholder for the future xacro peprocessing tool.
 Reference: https://github.com/ros/xacro/wiki
 
 ## TODO

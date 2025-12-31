@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="width" value="0.5"/>
+  <xacro:property name="height" value="2.0"/>
+
+  <!-- Simple arithmetic -->
+  <link name="test1">
+    <box size="${width * 2}"/>
+  </link>
+
+  <!-- Multiple properties -->
+  <link name="test2">
+    <box size="${width * height}"/>
+  </link>
+
+  <!-- Complex expression -->
+  <link name="test3">
+    <box size="${(width + height) * 2}"/>
+  </link>
+
+  <!-- Built-in functions -->
+  <link name="test4">
+    <box size="${max(width, height)}"/>
+  </link>
+</robot>

@@ -1,3 +1,6 @@
+pub mod eval;
+pub mod lexer;
+
 use crate::{error::XacroError, XacroProcessor};
 use std::{collections::HashMap, fs::File};
 
