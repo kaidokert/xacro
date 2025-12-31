@@ -6,7 +6,6 @@
 pub mod error;
 pub mod features;
 pub mod processor;
-pub mod types;
 pub mod utils;
 
 pub use error::XacroError;

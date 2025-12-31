@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <!-- Property with invalid expression should fail -->
+  <xacro:property name="bad_property" value="${unknown_function(1, 2)}"/>
+
+  <!-- This should never be reached -->
+  <link name="test">
+    <box size="${bad_property}"/>
+  </link>
+</robot>
