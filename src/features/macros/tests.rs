@@ -10,33 +10,27 @@ mod macro_tests {
     use std::path::Path;
 
     #[test]
-    fn test_macro_basic() {
+    fn test_macro_basic() -> Result<(), XacroError> {
         env_logger::try_init().ok();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let path = Path::new("tests/data/macro_test.xacro");
-        let data = XacroProcessor::parse_file(path).unwrap();
-        let expected = XacroProcessor::parse_file("tests/data/macro_test_expected.xacro").unwrap();
+        let data = XacroProcessor::parse_file(path)?;
+        let expected = XacroProcessor::parse_file("tests/data/macro_test_expected.xacro")?;
 
         // For this test, no global properties needed
         let global_properties = HashMap::new();
-        let result = macro_processor.process(data, &global_properties);
+        let actual = macro_processor.process(data, &global_properties)?;
 
-        match result {
-            Ok(actual) => {
-                let expected_str = pretty_print_xml(&expected);
-                let actual_str = pretty_print_xml(&actual);
+        let expected_str = pretty_print_xml(&expected);
+        let actual_str = pretty_print_xml(&actual);
 
-                if actual != expected {
-                    error!("\nXML Difference (actual vs expected):");
-                    print_diff(&actual_str, &expected_str);
-                    panic!("XML documents are different");
-                }
-            }
-            Err(e) => {
-                error!("Processing failed: {:?}", e);
-                panic!("Macro processing failed");
-            }
+        if actual != expected {
+            error!("\nXML Difference (actual vs expected):");
+            print_diff(&actual_str, &expected_str);
+            assert!(false, "XML documents do not match expected output");
         }
+
+        Ok(())
     }
 
     #[test]
@@ -64,12 +58,11 @@ mod macro_tests {
 
         // Check that nested macro was expanded
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(item) = &result.children[0] {
-            assert_eq!(item.name, "item");
-            assert_eq!(item.attributes.get("value"), Some(&"5".to_string()));
-        } else {
-            panic!("Expected item element");
-        }
+        let item = result.children[0]
+            .as_element()
+            .expect("Expected 'item' element");
+        assert_eq!(item.name, "item");
+        assert_eq!(item.attributes.get("value"), Some(&"5".to_string()));
     }
 
     #[test]
@@ -189,12 +182,11 @@ mod macro_tests {
 
         // Test 3 levels of nesting all expanded correctly
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(item) = &result.children[0] {
-            assert_eq!(item.name, "item");
-            assert_eq!(item.attributes.get("value"), Some(&"42".to_string()));
-        } else {
-            panic!("Expected item element");
-        }
+        let item = result.children[0]
+            .as_element()
+            .expect("Expected 'item' element");
+        assert_eq!(item.name, "item");
+        assert_eq!(item.attributes.get("value"), Some(&"42".to_string()));
     }
 
     // ========== insert_block tests ==========

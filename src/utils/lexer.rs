@@ -120,7 +120,7 @@ impl<'a> Iterator for Lexer<'a> {
 
         // If we reach here, no regex matched - this should be impossible
         // with properly designed regexes (TEXT_REGEX should match everything else)
-        panic!(
+        unreachable!(
             "Lexer error: no regex matched at position {} with remaining input: {:?}",
             self.position,
             &self.input_str[self.position..]

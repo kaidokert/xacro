@@ -30,11 +30,10 @@ mod condition_tests {
 
         // Should only have <b/>, not <a/>
         assert_eq!(result.children.len(), 1); // Only one child (the <b/>)
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "b");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "b");
     }
 
     // Test from Python xacro: test_integer_if_statement (line 735)
@@ -64,11 +63,10 @@ mod condition_tests {
 
         // Should only have <d/> (1*2+3 = 5, which is truthy)
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "d");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "d");
     }
 
     // Test from Python xacro: test_float_if_statement (line 755)
@@ -93,11 +91,10 @@ mod condition_tests {
 
         // Should only have <b/> (3*0.1 = 0.3, non-zero float is truthy)
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "b");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "b");
     }
 
     // Test from Python xacro: test_property_if_statement (line 769)
@@ -119,11 +116,10 @@ mod condition_tests {
 
         // Should only have <b/> (condT is truthy)
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "b");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "b");
     }
 
     // Test from Python xacro: test_consecutive_if (line 782)
@@ -161,11 +157,10 @@ mod condition_tests {
 
         // Should have <foo>bar</foo>
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "foo");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "foo");
     }
 
     // Test xacro:unless (inverse of if)
@@ -189,11 +184,10 @@ mod condition_tests {
 
         // Should only have <included/> (unless false = true, so include)
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "included");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "included");
     }
 
     // Test from Python xacro: test_consider_non_elements_if (line 838)
@@ -254,15 +248,12 @@ mod condition_tests {
         let result = processor.process(input, &properties);
 
         // Should error (missing value attribute)
-        assert!(result.is_err());
         let err = result.unwrap_err();
-        match err {
-            crate::error::XacroError::MissingAttribute { element, attribute } => {
-                assert_eq!(element, "xacro:if");
-                assert_eq!(attribute, "value");
-            }
-            _ => panic!("Expected MissingAttribute error, got: {:?}", err),
-        }
+        assert!(matches!(
+            err,
+            crate::error::XacroError::MissingAttribute { ref element, ref attribute }
+                if element == "xacro:if" && attribute == "value"
+        ));
     }
 
     // Integration test: conditionals with properties
@@ -291,10 +282,9 @@ mod condition_tests {
 
         // Should have only <feature_enabled/> (use_feature is true, unless excludes, skip is false)
         assert_eq!(result.children.len(), 1);
-        if let xmltree::XMLNode::Element(elem) = &result.children[0] {
-            assert_eq!(elem.name, "feature_enabled");
-        } else {
-            panic!("Expected element child");
-        }
+        let elem = result.children[0]
+            .as_element()
+            .expect("Expected element child");
+        assert_eq!(elem.name, "feature_enabled");
     }
 }

@@ -8,11 +8,11 @@ Reference: https://github.com/ros/xacro/wiki
 ## Implemented Features
 - [X] include - Recursive file inclusion with relative path resolution
 - [X] property - Properties with Python-like expression evaluation (arithmetic, comparisons, functions)
-- [X] macro - Basic macro expansion with parameters
+- [X] macro - Macro expansion with parameters and block parameters
+- [X] insert_block - Block parameter insertion with nested support
 - [X] if/unless - Conditional inclusion with type-preserving boolean evaluation
 
 ## Planned Features
-- [ ] insert_block - Macro block insertion
 - [ ] element - Dynamic element/attribute creation
 - [ ] loop - For-loop iteration over lists
 
