@@ -10,9 +10,6 @@ pub enum EvalError {
         #[source]
         source: pyisheval::EvalError,
     },
-
-    #[error("Invalid expression syntax: {0}")]
-    InvalidSyntax(String),
 }
 
 /// Remove quotes from string values (handles both single and double quotes)
