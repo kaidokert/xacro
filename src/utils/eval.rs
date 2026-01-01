@@ -36,6 +36,19 @@ pub fn eval_text(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<String, EvalError> {
+    let interp = Interpreter::new();
+    eval_text_with_interpreter(text, properties, &interp)
+}
+
+/// Evaluate text containing ${...} expressions using a provided interpreter
+///
+/// This version allows reusing an Interpreter instance for better performance
+/// when processing multiple text blocks with the same properties context.
+pub fn eval_text_with_interpreter(
+    text: &str,
+    properties: &HashMap<String, String>,
+    interp: &Interpreter,
+) -> Result<String, EvalError> {
     // Build context for pyisheval
     let mut context = HashMap::new();
     for (name, value) in properties {
@@ -47,9 +60,6 @@ pub fn eval_text(
             context.insert(name.clone(), Value::StringLit(value.clone()));
         }
     }
-
-    // Create interpreter once, reuse for all expressions (performance optimization)
-    let interp = Interpreter::new();
 
     // Tokenize the input text
     let lexer = Lexer::new(text);

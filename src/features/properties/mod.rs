@@ -1,16 +1,21 @@
 use crate::error::XacroError;
+use pyisheval::Interpreter;
 use std::collections::HashMap;
 use xmltree::{
     Element,
     XMLNode::{Element as NodeElement, Text as TextElement},
 };
 
-pub struct PropertyProcessor {}
+pub struct PropertyProcessor {
+    interpreter: Interpreter,
+}
 
 impl PropertyProcessor {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {}
+        Self {
+            interpreter: Interpreter::new(),
+        }
     }
 
     pub fn process(
@@ -18,13 +23,14 @@ impl PropertyProcessor {
         mut xml: Element,
     ) -> Result<Element, XacroError> {
         let mut properties = HashMap::new();
-        Self::collect_properties(&xml, &mut properties)?;
-        Self::substitute_properties(&mut xml, &properties)?;
+        self.collect_properties(&xml, &mut properties)?;
+        self.substitute_properties(&mut xml, &properties)?;
         Self::remove_property_elements(&mut xml);
         Ok(xml)
     }
 
     fn collect_properties(
+        &self,
         element: &Element,
         properties: &mut HashMap<String, String>,
     ) -> Result<(), XacroError> {
@@ -38,14 +44,14 @@ impl PropertyProcessor {
                 element.attributes.get("value"),
             ) {
                 // Evaluate the value in case it contains expressions referencing other properties
-                let evaluated_value = Self::substitute_in_text(value, properties)?;
+                let evaluated_value = self.substitute_in_text(value, properties)?;
                 properties.insert(name.clone(), evaluated_value);
             }
         }
 
         for child in &element.children {
             if let NodeElement(child_elem) = child {
-                Self::collect_properties(child_elem, properties)?;
+                self.collect_properties(child_elem, properties)?;
             }
         }
 
@@ -53,18 +59,19 @@ impl PropertyProcessor {
     }
 
     pub(crate) fn substitute_properties(
+        &self,
         element: &mut Element,
         properties: &HashMap<String, String>,
     ) -> Result<(), XacroError> {
         for value in element.attributes.values_mut() {
-            *value = Self::substitute_in_text(value, properties)?;
+            *value = self.substitute_in_text(value, properties)?;
         }
 
         for child in &mut element.children {
             if let NodeElement(child_elem) = child {
-                Self::substitute_properties(child_elem, properties)?;
+                self.substitute_properties(child_elem, properties)?;
             } else if let TextElement(text) = child {
-                *text = Self::substitute_in_text(text, properties)?;
+                *text = self.substitute_in_text(text, properties)?;
             }
         }
 
@@ -72,14 +79,17 @@ impl PropertyProcessor {
     }
 
     fn substitute_in_text(
+        &self,
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use crate::utils::eval::eval_text;
+        use crate::utils::eval::eval_text_with_interpreter;
 
-        eval_text(text, properties).map_err(|e| XacroError::EvalError {
-            expr: text.to_string(),
-            source: e,
+        eval_text_with_interpreter(text, properties, &self.interpreter).map_err(|e| {
+            XacroError::EvalError {
+                expr: text.to_string(),
+                source: e,
+            }
         })
     }
 
