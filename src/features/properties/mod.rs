@@ -1,5 +1,5 @@
 use crate::error::XacroError;
-use crate::utils::xml::is_xacro_element;
+use crate::utils::xml::{is_xacro_element, XACRO_NAMESPACE};
 use pyisheval::Interpreter;
 use std::collections::HashMap;
 use xmltree::{
@@ -40,8 +40,10 @@ impl PropertyProcessor {
         properties: &mut HashMap<String, String>,
     ) -> Result<(), XacroError> {
         // Check if this is a property element (either <property> or <xacro:property>)
+        // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
         let is_property = element.name == "property"
-            && (element.prefix.is_none() || element.prefix.as_deref() == Some("xacro"));
+            && (element.namespace.is_none()
+                || element.namespace.as_deref() == Some(XACRO_NAMESPACE));
 
         if is_property {
             if let (Some(name), Some(value)) = (
@@ -122,9 +124,10 @@ impl PropertyProcessor {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
                 // Remove property elements (either <property> or <xacro:property>)
+                // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
                 let is_property = child_elem.name == "property"
-                    && (child_elem.prefix.is_none()
-                        || child_elem.prefix.as_deref() == Some("xacro"));
+                    && (child_elem.namespace.is_none()
+                        || child_elem.namespace.as_deref() == Some(XACRO_NAMESPACE));
 
                 if is_property {
                     return false;

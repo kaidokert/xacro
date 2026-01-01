@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod include_tests {
     use crate::{features::includes::IncludeProcessor, XacroProcessor};
-    use log::error;
+    use log::{debug, error};
     use std::path::Path;
 
     #[test]
@@ -35,7 +35,7 @@ mod include_tests {
         let result = include_processor.process(data, path);
 
         if result.is_err() {
-            println!("{:?}", result);
+            debug!("{:?}", result);
         }
 
         assert!(result.is_ok());
@@ -54,7 +54,7 @@ mod include_tests {
         let result = include_processor.process(data, path);
 
         if result.is_err() {
-            println!("{:?}", result);
+            debug!("{:?}", result);
         }
 
         assert!(result.is_ok());
@@ -73,7 +73,7 @@ mod include_tests {
         let result = include_processor.process(data, path);
 
         if result.is_err() {
-            println!("{:?}", result);
+            debug!("{:?}", result);
         }
 
         assert!(result.is_ok());

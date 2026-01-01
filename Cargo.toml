@@ -9,12 +9,12 @@ repository = "https://github.com/deniz-hofmeister/xacro"
 
 [dependencies]
 xml = "0.8"
-xmltree = "0.11.0"
+xmltree = "0.12"
 thiserror = "2.0"
-pyisheval = "0.9.0"
+pyisheval = "0.9"
 regex = "1.12"
+log = "0.4"
 
 [dev-dependencies]
-log = "0.4.25"
-env_logger = "0.11.6"
-similar = "2.7.0"
+env_logger = "0.11"
+similar = "2.7"

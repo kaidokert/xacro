@@ -39,7 +39,8 @@ impl XacroProcessor {
         // The HashMap contains all properties for use by subsequent processors
         let (xml, properties) = self.properties.process(xml)?;
 
-        let xml = self.macros.process(xml)?;
+        // Pass properties to MacroProcessor so macros can reference global properties
+        let xml = self.macros.process(xml, &properties)?;
 
         // Pass properties to ConditionProcessor for expression evaluation
         let xml = self.conditions.process(xml, &properties)?;
