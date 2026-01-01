@@ -3,7 +3,7 @@ pub mod lexer;
 pub mod xml;
 
 use crate::{error::XacroError, XacroProcessor};
-use std::{collections::HashMap, fs::File};
+use std::collections::HashMap;
 
 #[cfg(test)]
 use similar::{ChangeTag, TextDiff};
@@ -16,19 +16,10 @@ impl XacroProcessor {
         Ok(xmltree::Element::parse(file)?)
     }
 
-    pub(crate) fn serialize<P: AsRef<std::path::Path>>(
-        xml: xmltree::Element,
-        path: P,
-    ) -> Result<String, XacroError> {
-        let output_path = format!(
-            "{}.urdf",
-            path.as_ref().to_string_lossy().trim_end_matches(".xacro")
-        );
-
-        let mut file = File::create(&output_path)?;
-        xml.write(&mut file)?;
-
-        Ok(output_path)
+    pub(crate) fn serialize(xml: xmltree::Element) -> Result<String, XacroError> {
+        let mut writer = Vec::new();
+        xml.write(&mut writer)?;
+        Ok(String::from_utf8(writer)?)
     }
 }
 
