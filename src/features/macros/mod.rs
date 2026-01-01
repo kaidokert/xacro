@@ -129,18 +129,44 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
                 // Store the stripped parameter name
                 let param_name = stripped.to_string();
+
+                // Detect duplicate declarations
+                if params.contains_key(&param_name) {
+                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
+                }
+
                 params.insert(param_name.clone(), None);
                 param_order.push(param_name.clone());
                 block_params.insert(param_name);
             } else if let Some((name, value)) = token.split_once(":=") {
                 // Regular parameter with default value
+                // Validate parameter name is not empty
+                if name.is_empty() {
+                    return Err(XacroError::InvalidParameterName {
+                        param: token.to_string(),
+                    });
+                }
+
                 let param_name = name.to_string();
+
+                // Detect duplicate declarations
+                if params.contains_key(&param_name) {
+                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
+                }
+
                 params.insert(param_name.clone(), Some(value.to_string()));
                 param_order.push(param_name);
             } else {
                 // Regular parameter without default
-                params.insert(token.to_string(), None);
-                param_order.push(token.to_string());
+                let param_name = token.to_string();
+
+                // Detect duplicate declarations
+                if params.contains_key(&param_name) {
+                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
+                }
+
+                params.insert(param_name.clone(), None);
+                param_order.push(param_name);
             }
         }
 
@@ -362,9 +388,13 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
         // Extract regular parameters from attributes
         for (name, value) in &element.attributes {
-            if !macro_def.block_params.contains(name) {
-                param_values.insert(name.clone(), value.clone());
+            if macro_def.block_params.contains(name) {
+                // Block parameters cannot be specified as attributes
+                return Err(XacroError::BlockParameterAttributeCollision {
+                    param: name.clone(),
+                });
             }
+            param_values.insert(name.clone(), value.clone());
         }
 
         // Extract block parameters from child elements IN ORDER

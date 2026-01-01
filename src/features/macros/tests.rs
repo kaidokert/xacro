@@ -596,4 +596,104 @@ mod macro_tests {
             XacroError::InvalidParameterName { ref param } if param == "*"
         ));
     }
+
+    // ========== Parameter validation error tests ==========
+
+    #[test]
+    fn test_empty_param_name_with_default() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="invalid" params=":=foo">
+    <wrapper/>
+  </xacro:macro>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new());
+
+        // Should error - empty parameter name with ":=foo"
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            XacroError::InvalidParameterName { ref param } if param == ":=foo"
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_param_block_and_regular() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="invalid" params="*foo foo">
+    <wrapper/>
+  </xacro:macro>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new());
+
+        // Should error - duplicate parameter "foo" (once as block, once as regular)
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            XacroError::DuplicateParamDeclaration { ref param } if param == "foo"
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_param_with_defaults() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="invalid" params="foo foo:=1">
+    <wrapper/>
+  </xacro:macro>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new());
+
+        // Should error - duplicate parameter "foo"
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            XacroError::DuplicateParamDeclaration { ref param } if param == "foo"
+        ));
+    }
+
+    #[test]
+    fn test_block_param_attribute_collision() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test" params="*content">
+    <wrapper>
+      <xacro:insert_block name="content"/>
+    </wrapper>
+  </xacro:macro>
+
+  <xacro:test content="bar">
+    <item/>
+  </xacro:test>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new());
+
+        // Should error - "content" is a block param but specified as attribute
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            XacroError::BlockParameterAttributeCollision { ref param } if param == "content"
+        ));
+    }
 }

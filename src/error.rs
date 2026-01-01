@@ -51,4 +51,10 @@ pub enum XacroError {
 
     #[error("Undefined block '{name}'")]
     UndefinedBlock { name: String },
+
+    #[error("Duplicate parameter declaration: '{param}' (parameter declared multiple times or with conflicting block/non-block forms)")]
+    DuplicateParamDeclaration { param: String },
+
+    #[error("Block parameter '{param}' cannot be specified as an attribute (it must be provided as a child element)")]
+    BlockParameterAttributeCollision { param: String },
 }
