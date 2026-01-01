@@ -31,6 +31,9 @@ pub enum XacroError {
     #[error("XML write error: {0}")]
     XmlWrite(#[from] xmltree::Error),
 
+    #[error("UTF-8 conversion error: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
+
     #[error("Macro recursion limit exceeded: depth {depth} > {limit} (possible infinite loop)")]
     MacroRecursionLimit { depth: usize, limit: usize },
 
