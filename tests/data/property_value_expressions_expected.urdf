@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <!-- Test recursive property evaluation with expressions -->
+  <!-- Use the computed properties -->
+  <link name="test1">
+    <box size="1.5" />
+  </link>
+  <link name="test2">
+    <box size="3" />
+  </link>
+  <link name="test3">
+    <box size="6" />
+  </link>
+  <link name="test4">
+    <box size="7" />
+  </link>
+</robot>

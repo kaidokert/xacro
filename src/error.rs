@@ -18,6 +18,13 @@ pub enum XacroError {
     #[error("Macro error: {0}")]
     PropertyNotFound(String),
 
+    #[error("Evaluation error in '{expr}': {source}")]
+    EvalError {
+        expr: String,
+        #[source]
+        source: crate::utils::eval::EvalError,
+    },
+
     #[error("XML write error: {0}")]
     XmlWrite(#[from] xmltree::Error),
 }

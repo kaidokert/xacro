@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" xmlns:foo="http://example.com/foo" name="test">
+  <!-- These should be processed -->
+  <!-- This should NOT be processed (different namespace) -->
+  <foo:property name="ignored" value="999.0"/>
+
+  <!-- Use properties -->
+  <link name="test1">
+    <box size="1" />
+  </link>
+  <link name="test2">
+    <box size="2" />
+  </link>
+
+  <!-- Keep the foo:property element in output -->
+  <foo:property name="ignored" value="999.0"/>
+</robot>
