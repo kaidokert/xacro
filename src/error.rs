@@ -15,6 +15,9 @@ pub enum XacroError {
     #[error("Missing parameter '{param}' in macro '{macro_name}'")]
     MissingParameter { macro_name: String, param: String },
 
+    #[error("Missing attribute '{attribute}' in element '{element}'")]
+    MissingAttribute { element: String, attribute: String },
+
     #[error("Macro error: {0}")]
     PropertyNotFound(String),
 

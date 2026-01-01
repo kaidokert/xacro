@@ -20,7 +20,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -39,7 +40,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -58,7 +60,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -79,7 +82,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -99,7 +103,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -120,7 +125,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -139,7 +145,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     /// Test 3.1: Expressions in property values with recursive evaluation
@@ -162,7 +169,8 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), expected);
+        let (output, _properties) = result.unwrap();
+        assert_eq!(output, expected);
     }
 
     /// Test 3.2: Error propagation from property value expressions
@@ -214,7 +222,7 @@ mod property_tests {
         }
 
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let (output, _properties) = result.unwrap();
 
         // Verify that foo:property was NOT removed (should remain in output)
         let mut buf = Vec::new();
@@ -226,5 +234,108 @@ mod property_tests {
         );
 
         assert_eq!(output, expected);
+    }
+
+    /// Test 3.4: Property flow - HashMap is returned from process()
+    /// PropertyProcessor should return both the processed Element and the HashMap
+    /// so subsequent processors can use the properties.
+    #[test]
+    fn test_property_flow_returns_hashmap() {
+        env_logger::try_init().ok();
+        let property_processor = PropertyProcessor::new();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:property name="width" value="0.5"/>
+    <xacro:property name="height" value="1.0"/>
+    <xacro:property name="computed" value="${width * 2}"/>
+</robot>
+        "#;
+        let data = xmltree::Element::parse(input.as_bytes()).unwrap();
+
+        let result = property_processor.process(data);
+        assert!(result.is_ok());
+
+        let (_output, properties) = result.unwrap();
+
+        // Verify properties HashMap contains all properties
+        assert_eq!(properties.get("width"), Some(&"0.5".to_string()));
+        // Note: pyisheval may format 1.0 as "1.0" or "1" depending on how it's computed
+        assert!(
+            properties.get("height") == Some(&"1".to_string())
+                || properties.get("height") == Some(&"1.0".to_string())
+        );
+        assert!(
+            properties.get("computed") == Some(&"1".to_string())
+                || properties.get("computed") == Some(&"1.0".to_string())
+        ); // 0.5 * 2 = 1.0
+    }
+
+    /// Test 3.5: Conditional value preservation
+    /// PropertyProcessor must NOT substitute the 'value' attribute on xacro:if/unless
+    /// elements, preserving raw expressions for ConditionProcessor to handle.
+    #[test]
+    fn test_conditional_value_preservation() {
+        env_logger::try_init().ok();
+        let property_processor = PropertyProcessor::new();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:property name="x" value="5"/>
+    <xacro:if value="${x > 3}">
+        <foo/>
+    </xacro:if>
+    <xacro:unless value="${x &lt; 0}">
+        <bar/>
+    </xacro:unless>
+</robot>
+        "#;
+        let data = xmltree::Element::parse(input.as_bytes()).unwrap();
+
+        let result = property_processor.process(data);
+        assert!(result.is_ok());
+
+        let (output, _properties) = result.unwrap();
+
+        // Find the xacro:if element in output
+        let if_elem = output
+            .children
+            .iter()
+            .find_map(|child| {
+                if let xmltree::XMLNode::Element(elem) = child {
+                    if elem.name == "if" && elem.prefix.as_deref() == Some("xacro") {
+                        return Some(elem);
+                    }
+                }
+                None
+            })
+            .expect("Should find xacro:if element");
+
+        // CRITICAL: The 'value' attribute should still contain "${x > 3}"
+        // NOT "5 > 3" or "True" or any substituted value
+        assert_eq!(
+            if_elem.attributes.get("value"),
+            Some(&"${x > 3}".to_string()),
+            "xacro:if value attribute should preserve raw expression"
+        );
+
+        // Find the xacro:unless element
+        let unless_elem = output
+            .children
+            .iter()
+            .find_map(|child| {
+                if let xmltree::XMLNode::Element(elem) = child {
+                    if elem.name == "unless" && elem.prefix.as_deref() == Some("xacro") {
+                        return Some(elem);
+                    }
+                }
+                None
+            })
+            .expect("Should find xacro:unless element");
+
+        // Verify unless also preserves expression (with XML entity escaped)
+        assert_eq!(
+            unless_elem.attributes.get("value"),
+            Some(&"${x < 0}".to_string()),
+            "xacro:unless value attribute should preserve raw expression"
+        );
     }
 }
