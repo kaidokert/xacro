@@ -1,35 +1,41 @@
 # xacro
 An XML preprocessor for xacro files to generate URDF files
 
-## WIP
-Placeholder for the future xacro preprocessing tool.
+## Status
+Active development. Core expression evaluation and conditional processing implemented.
 Reference: https://github.com/ros/xacro/wiki
 
-## TODO
-The following functionality shall be implemented:
-- [ ] macro
-- [X] include
-- [ ] insert_block
-- [X] property
-- [ ] element
-- [ ] if
-- [ ] unless
-- [ ] loop
+## Implemented Features
+- [X] include - Recursive file inclusion with relative path resolution
+- [X] property - Properties with Python-like expression evaluation (arithmetic, comparisons, functions)
+- [X] macro - Basic macro expansion with parameters
+- [X] if/unless - Conditional inclusion with type-preserving boolean evaluation
 
-These seem like the core functionalities required for proper xacro file handling.
+## Planned Features
+- [ ] insert_block - Macro block insertion
+- [ ] element - Dynamic element/attribute creation
+- [ ] loop - For-loop iteration over lists
 
+## Expression Evaluation
+Expressions in `${...}` are evaluated using pyisheval (Python-compatible expression evaluator):
+- Arithmetic: `${width * 2 + offset}`
+- Comparisons: `${x > 3}`, `${name == 'base'}`
+- Built-in functions: `${radians(45)}`, `${len(items)}`
+- List comprehensions: `${[x*2 for x in range(5)]}`
+- Conditional expressions: `${width if width > 0.5 else 0.5}`
+
+Type information is preserved for correct truthiness in conditionals.
+
+## Optional Features
 The following might be implemented:
-- [ ] load_yaml, unsure if yaml & xacro split is the right way to do things. Why not have a xacro with the properties?
-- [ ] eval-comments, not sure how useful this will be vs the amount of effort required to implement this.
+- [ ] load_yaml - YAML property loading
+- [ ] eval-comments - Comment-based evaluation
 
-Fundamentally these feel like scope creep or nice-to-haves
+These are considered scope expansion beyond core xacro functionality.
 
+## Non-Goals
 The following shall not be implemented:
-- [ ] Python-based evaluation
-- [ ] Rospack-based evaluation
-- [ ] Windows compatibility
+- Rospack-based path resolution
+- Python subprocess evaluation
 
-If needed, the following alternative can be developed
-- [ ] Rust-based evaluation / mathematical expressions, to match the python evaluation
-
-Because this package is meant to be as dependency free as possible, so no python or ros dependencies.
+This package aims for minimal dependencies. No Python or ROS runtime dependencies required.
