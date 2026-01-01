@@ -111,62 +111,46 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         let mut block_params = HashSet::new();
 
         for token in params_str.split_whitespace() {
-            if let Some(stripped) = token.strip_prefix('*') {
-                // Block parameter (e.g., *origin)
-                // Block parameters CANNOT have defaults
-                if token.contains(":=") {
-                    return Err(XacroError::BlockParameterWithDefault {
-                        param: token.to_string(),
-                    });
-                }
+            // Parse token to determine parameter type and components
+            let (param_name_str, is_block, default_value_str) =
+                if let Some(stripped) = token.strip_prefix('*') {
+                    // Block parameter (e.g., *origin)
+                    // Block parameters CANNOT have defaults
+                    if token.contains(":=") {
+                        return Err(XacroError::BlockParameterWithDefault {
+                            param: token.to_string(),
+                        });
+                    }
+                    (stripped, true, None)
+                } else if let Some((name, value)) = token.split_once(":=") {
+                    // Regular parameter with default value
+                    (name, false, Some(value))
+                } else {
+                    // Regular parameter without default
+                    (token, false, None)
+                };
 
-                // Validate parameter name is not empty
-                if stripped.is_empty() {
-                    return Err(XacroError::InvalidParameterName {
-                        param: token.to_string(),
-                    });
-                }
+            // Validate parameter name is not empty
+            if param_name_str.is_empty() {
+                return Err(XacroError::InvalidParameterName {
+                    param: token.to_string(),
+                });
+            }
 
-                // Store the stripped parameter name
-                let param_name = stripped.to_string();
+            let param_name = param_name_str.to_string();
 
-                // Detect duplicate declarations
-                if params.contains_key(&param_name) {
-                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
-                }
+            // Detect duplicate declarations
+            if params.contains_key(&param_name) {
+                return Err(XacroError::DuplicateParamDeclaration { param: param_name });
+            }
 
-                params.insert(param_name.clone(), None);
-                param_order.push(param_name.clone());
-                block_params.insert(param_name);
-            } else if let Some((name, value)) = token.split_once(":=") {
-                // Regular parameter with default value
-                // Validate parameter name is not empty
-                if name.is_empty() {
-                    return Err(XacroError::InvalidParameterName {
-                        param: token.to_string(),
-                    });
-                }
-
-                let param_name = name.to_string();
-
-                // Detect duplicate declarations
-                if params.contains_key(&param_name) {
-                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
-                }
-
-                params.insert(param_name.clone(), Some(value.to_string()));
-                param_order.push(param_name);
+            // Insert into appropriate data structures
+            param_order.push(param_name.clone());
+            if is_block {
+                block_params.insert(param_name.clone());
+                params.insert(param_name, None);
             } else {
-                // Regular parameter without default
-                let param_name = token.to_string();
-
-                // Detect duplicate declarations
-                if params.contains_key(&param_name) {
-                    return Err(XacroError::DuplicateParamDeclaration { param: param_name });
-                }
-
-                params.insert(param_name.clone(), None);
-                param_order.push(param_name);
+                params.insert(param_name, default_value_str.map(String::from));
             }
         }
 
