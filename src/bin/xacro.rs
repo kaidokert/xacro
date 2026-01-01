@@ -58,36 +58,58 @@ impl Args {
     }
 
     fn parse_mappings(&self) -> HashMap<String, String> {
-        let mut mappings = HashMap::new();
-        for arg in &self.extra_args {
-            if let Some((key, value)) = arg.split_once(":=") {
-                mappings.insert(key.to_string(), value.to_string());
-            }
-        }
-        mappings
+        self.extra_args
+            .iter()
+            .filter_map(|arg| {
+                if let Some((key, value)) = arg.split_once(":=") {
+                    if key.is_empty() {
+                        eprintln!("Warning: ignoring mapping with empty key: '{}'", arg);
+                        None
+                    } else {
+                        Some((key.to_string(), value.to_string()))
+                    }
+                } else {
+                    if arg.contains('=') {
+                        eprintln!("Warning: use ':=' instead of '=' for mappings: '{}'", arg);
+                    } else {
+                        eprintln!("Warning: ignoring unrecognized argument (expected key:=value format): '{}'", arg);
+                    }
+                    None
+                }
+            })
+            .collect()
     }
 }
 
 fn init_logging(verbosity: u8) {
-    use env_logger::Builder;
+    use env_logger::{Builder, Env};
     use log::LevelFilter;
 
-    let level = match verbosity {
-        0 => LevelFilter::Off,
-        1 => LevelFilter::Warn,
-        2 => LevelFilter::Info,
-        3 => LevelFilter::Debug,
-        _ => LevelFilter::Trace,
+    // Start from environment configuration (e.g., RUST_LOG)
+    let mut builder = Builder::from_env(Env::default());
+
+    // If a verbosity flag is provided (> 0), override the env-based level
+    let level_override = match verbosity {
+        0 => None,
+        1 => Some(LevelFilter::Warn),
+        2 => Some(LevelFilter::Info),
+        3 => Some(LevelFilter::Debug),
+        _ => Some(LevelFilter::Trace),
     };
 
-    Builder::new().filter_level(level).init();
+    if let Some(level) = level_override {
+        builder.filter_level(level);
+    }
+
+    // Avoid panicking if a logger was already initialized
+    let _ = builder.try_init();
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Handle deprecated --inorder flag
-    if args.inorder {
+    if args.inorder && !args.quiet {
         eprintln!(
             "xacro: in-order processing became default in ROS Melodic. You can drop the option."
         );
@@ -101,7 +123,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("--deps flag not yet implemented");
     }
 
-    // Parse xacro:arg mappings from command line (for future xacro:arg support)
+    // TODO: Wire mappings to xacro:arg substitution when implemented
     let _mappings = args.parse_mappings();
 
     // Process file
@@ -112,8 +134,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(output_path) = &args.output {
         fs::write(output_path, result)?;
     } else {
-        print!("{}", result);
-        io::stdout().flush()?;
+        io::stdout().write_all(result.as_bytes())?;
     }
 
     Ok(())

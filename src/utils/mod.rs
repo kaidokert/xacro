@@ -16,10 +16,7 @@ impl XacroProcessor {
         Ok(xmltree::Element::parse(file)?)
     }
 
-    pub(crate) fn serialize<P: AsRef<std::path::Path>>(
-        xml: xmltree::Element,
-        _path: P,
-    ) -> Result<String, XacroError> {
+    pub(crate) fn serialize(xml: xmltree::Element) -> Result<String, XacroError> {
         let mut writer = Vec::new();
         xml.write(&mut writer)?;
         Ok(String::from_utf8(writer)?)

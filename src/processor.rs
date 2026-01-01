@@ -46,6 +46,6 @@ impl XacroProcessor {
         let xml = self.conditions.process(xml, &properties)?;
         let xml = self.loops.process(xml)?;
 
-        XacroProcessor::serialize(xml, &path)
+        XacroProcessor::serialize(xml)
     }
 }
