@@ -91,10 +91,8 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         let mut params = HashMap::new();
         for param in params_str.split_whitespace() {
             if param.contains(":=") {
-                let parts: Vec<&str> = param.split(":=").collect();
-                if parts.len() == 2 {
-                    params.insert(parts[0].to_string(), Some(parts[1].to_string()));
-                }
+                let parts: Vec<&str> = param.splitn(2, ":=").collect();
+                params.insert(parts[0].to_string(), Some(parts[1].to_string()));
             } else {
                 params.insert(param.to_string(), None);
             }
