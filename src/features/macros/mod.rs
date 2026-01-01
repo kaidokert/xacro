@@ -263,7 +263,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         property_processor.substitute_properties(&mut content, &substitutions)?;
 
         // Process insert_block elements, replacing them with the block content
-        Self::process_insert_blocks(&mut content, blocks, &substitutions, &property_processor)?;
+        Self::process_insert_blocks(&mut content, blocks, &substitutions, &property_processor, 0)?;
 
         Ok(content)
     }
@@ -273,7 +273,16 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         blocks: &HashMap<String, Element>,
         substitutions: &HashMap<String, String>,
         property_processor: &PropertyProcessor,
+        depth: usize,
     ) -> Result<(), XacroError> {
+        // Check recursion depth to prevent infinite loops with circular block references
+        if depth > MAX_DEPTH {
+            return Err(XacroError::BlockInsertRecursionLimit {
+                depth,
+                limit: MAX_DEPTH,
+            });
+        }
+
         let mut new_children = Vec::new();
 
         for child in core::mem::take(&mut element.children) {
@@ -309,6 +318,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             blocks,
                             substitutions,
                             property_processor,
+                            depth + 1,
                         )?;
 
                         // Insert the block element itself (not just its children)
@@ -321,6 +331,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             blocks,
                             substitutions,
                             property_processor,
+                            depth,
                         )?;
                         new_children.push(NodeElement(elem_copy));
                     }

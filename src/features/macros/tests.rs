@@ -696,4 +696,35 @@ mod macro_tests {
             XacroError::BlockParameterAttributeCollision { ref param } if param == "content"
         ));
     }
+
+    #[test]
+    fn test_circular_block_references() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="circular" params="*block1 *block2">
+    <wrapper>
+      <xacro:insert_block name="block1"/>
+    </wrapper>
+  </xacro:macro>
+
+  <xacro:circular>
+    <a>
+      <xacro:insert_block name="block2"/>
+    </a>
+    <b>
+      <xacro:insert_block name="block1"/>
+    </b>
+  </xacro:circular>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new());
+
+        // Should error - circular block references (block1 -> block2 -> block1)
+        let err = result.unwrap_err();
+        assert!(matches!(err, XacroError::BlockInsertRecursionLimit { .. }));
+    }
 }
