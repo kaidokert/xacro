@@ -1,7 +1,10 @@
 use crate::{
     error::XacroError,
     features::properties::PropertyProcessor,
-    utils::{pretty_print_hashmap, pretty_print_xml},
+    utils::{
+        pretty_print_hashmap, pretty_print_xml,
+        xml::{is_xacro_element, XACRO_NAMESPACE},
+    },
 };
 use std::collections::HashMap;
 use xmltree::{Element, XMLNode::Element as NodeElement};
@@ -23,6 +26,7 @@ impl MacroProcessor {
     pub fn process(
         &self,
         mut xml: Element,
+        global_properties: &HashMap<String, String>,
     ) -> Result<Element, XacroError> {
         let mut macros = HashMap::new();
 
@@ -33,7 +37,7 @@ impl MacroProcessor {
         println!("Collected macros:");
         println!("{}", pretty_print_hashmap(&macros));
 
-        Self::expand_macros(&mut xml, &macros)?;
+        Self::expand_macros(&mut xml, &macros, global_properties)?;
         println!("Expanded XML:");
         println!("{}", pretty_print_xml(&xml));
 
@@ -91,6 +95,7 @@ impl MacroProcessor {
     fn expand_macros(
         element: &mut Element,
         macros: &HashMap<String, MacroDefinition>,
+        global_properties: &HashMap<String, String>,
     ) -> Result<(), XacroError> {
         let mut new_children = Vec::new();
 
@@ -101,13 +106,18 @@ impl MacroProcessor {
                         let macro_name = Self::get_macro_name(&child_elem)?;
                         if let Some(macro_def) = macros.get(&macro_name) {
                             let args = Self::collect_macro_args(&child_elem)?;
-                            let expanded = Self::expand_macro_content(macro_def, &args)?;
+                            let mut expanded =
+                                Self::expand_macro_content(macro_def, &args, global_properties)?;
+
+                            // CRITICAL FIX: Re-scan the expanded content for nested macros
+                            Self::expand_macros(&mut expanded, macros, global_properties)?;
+
                             new_children.extend(expanded.children);
                         } else {
                             return Err(XacroError::UndefinedMacro(macro_name));
                         }
                     } else {
-                        Self::expand_macros(&mut child_elem, macros)?;
+                        Self::expand_macros(&mut child_elem, macros, global_properties)?;
                         new_children.push(NodeElement(child_elem));
                     }
                 }
@@ -122,6 +132,7 @@ impl MacroProcessor {
     fn expand_macro_content(
         macro_def: &MacroDefinition,
         args: &HashMap<String, String>,
+        global_properties: &HashMap<String, String>,
     ) -> Result<Element, XacroError> {
         let mut content = macro_def.content.clone();
 
@@ -134,7 +145,11 @@ impl MacroProcessor {
             }
         }
 
-        let mut substitutions = HashMap::new();
+        // CRITICAL: Build merged scope (global properties + macro parameters)
+        // Start with global properties as the base
+        let mut substitutions = global_properties.clone();
+
+        // Add macro parameters, which override globals if there's a conflict
         for (param_name, default_value) in &macro_def.params {
             let value = args
                 .get(param_name)
@@ -147,7 +162,7 @@ impl MacroProcessor {
             substitutions.insert(param_name.clone(), value);
         }
 
-        // Create a temporary PropertyProcessor for substitution
+        // Create a temporary PropertyProcessor for substitution with merged scope
         let property_processor = PropertyProcessor::new();
         property_processor.substitute_properties(&mut content, &substitutions)?;
 
@@ -168,11 +183,17 @@ impl MacroProcessor {
     }
 
     fn is_macro_call(element: &Element) -> bool {
-        element.prefix.as_ref().is_some_and(|x| x == "xacro") && !element.name.eq("macro")
+        // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
+        element.namespace.as_deref() == Some(XACRO_NAMESPACE)
+            && !element.name.eq("macro")
+            && !element.name.eq("property")
+            && !element.name.eq("if")
+            && !element.name.eq("unless")
+            && !element.name.eq("insert_block")
     }
 
     fn is_macro_definition(element: &Element) -> bool {
-        element.prefix.as_ref().is_some_and(|x| x == "xacro") && element.name.eq("macro")
+        is_xacro_element(element, "macro")
     }
 
     fn get_macro_name(element: &Element) -> Result<String, XacroError> {

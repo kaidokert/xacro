@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod property_tests {
-    use crate::{features::properties::PropertyProcessor, XacroProcessor};
+    use crate::{
+        features::properties::PropertyProcessor, utils::xml::is_xacro_element, XacroProcessor,
+    };
     use log::error;
     use std::path::Path;
 
@@ -301,7 +303,7 @@ mod property_tests {
             .iter()
             .find_map(|child| {
                 if let xmltree::XMLNode::Element(elem) = child {
-                    if elem.name == "if" && elem.prefix.as_deref() == Some("xacro") {
+                    if is_xacro_element(elem, "if") {
                         return Some(elem);
                     }
                 }
@@ -323,7 +325,7 @@ mod property_tests {
             .iter()
             .find_map(|child| {
                 if let xmltree::XMLNode::Element(elem) = child {
-                    if elem.name == "unless" && elem.prefix.as_deref() == Some("xacro") {
+                    if is_xacro_element(elem, "unless") {
                         return Some(elem);
                     }
                 }
