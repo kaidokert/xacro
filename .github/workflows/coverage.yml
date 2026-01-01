@@ -1,0 +1,39 @@
+
+# SPDX-License-Identifier: MIT
+
+on:
+  push:
+    branches:
+      - master
+      - dev*
+      - 'feature/**'
+  pull_request:
+
+name: Coverage
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensures Git history is available for Coveralls
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools  # Needed for cargo-llvm-cov
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate coverage data
+        run: |
+          cargo llvm-cov --lcov --output-path lcov.info
+
+      - name: Coveralls GitHub Action
+        uses: coverallsapp/github-action@v2

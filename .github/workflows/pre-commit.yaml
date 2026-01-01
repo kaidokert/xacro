@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+
+on:
+    push:
+      branches:
+        - master
+        - dev*
+        - 'feature/**'
+    pull_request:
+
+name: pre-commit
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    - uses: pre-commit/action@v3.0.1
