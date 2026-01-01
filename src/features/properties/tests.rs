@@ -191,17 +191,15 @@ mod property_tests {
         let err = result.unwrap_err();
 
         // Ensure the error variant is EvalError so error propagation is covered
-        match err {
-            crate::error::XacroError::EvalError { expr, .. } => {
-                // The error should mention the failing expression
-                assert!(
-                    expr.contains("unknown_function"),
-                    "EvalError should mention the failing expression, got: {}",
-                    expr
-                );
-            }
-            _ => panic!("expected XacroError::EvalError, got {:?}", err),
-        }
+        assert!(
+            matches!(
+                err,
+                crate::error::XacroError::EvalError { ref expr, .. }
+                    if expr.contains("unknown_function")
+            ),
+            "Expected EvalError with 'unknown_function' in expr, got: {:?}",
+            err
+        );
     }
 
     /// Test 3.3: Namespace handling for property elements
