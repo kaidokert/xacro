@@ -27,7 +27,7 @@ mod macro_tests {
         if actual != expected {
             error!("\nXML Difference (actual vs expected):");
             print_diff(&actual_str, &expected_str);
-            assert!(false, "XML documents do not match expected output");
+            panic!("XML documents do not match expected output");
         }
 
         Ok(())

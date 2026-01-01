@@ -14,7 +14,6 @@ Reference: https://github.com/ros/xacro/wiki
 
 ## Planned Features
 - [ ] element - Dynamic element/attribute creation
-- [ ] loop - For-loop iteration over lists
 
 ## Expression Evaluation
 Expressions in `${...}` are evaluated using pyisheval (Python-compatible expression evaluator):

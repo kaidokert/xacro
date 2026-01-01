@@ -32,7 +32,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1); // Only one child (the <b/>)
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <b/> element in test_if_boolean_literals");
         assert_eq!(elem.name, "b");
     }
 
@@ -65,7 +65,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1);
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <d/> element in test_if_integer_truthiness");
         assert_eq!(elem.name, "d");
     }
 
@@ -93,7 +93,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1);
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <b/> element in test_if_float_truthiness");
         assert_eq!(elem.name, "b");
     }
 
@@ -118,7 +118,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1);
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <b/> element in test_if_with_properties");
         assert_eq!(elem.name, "b");
     }
 
@@ -159,7 +159,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1);
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <foo> element in test_if_with_expressions");
         assert_eq!(elem.name, "foo");
     }
 
@@ -186,7 +186,7 @@ mod condition_tests {
         assert_eq!(result.children.len(), 1);
         let elem = result.children[0]
             .as_element()
-            .expect("Expected element child");
+            .expect("Expected <included/> element in test_unless_basic");
         assert_eq!(elem.name, "included");
     }
 
@@ -249,11 +249,15 @@ mod condition_tests {
 
         // Should error (missing value attribute)
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            crate::error::XacroError::MissingAttribute { ref element, ref attribute }
-                if element == "xacro:if" && attribute == "value"
-        ));
+        assert!(
+            matches!(
+                err,
+                crate::error::XacroError::MissingAttribute { ref element, ref attribute }
+                    if element == "xacro:if" && attribute == "value"
+            ),
+            "Expected MissingAttribute error for 'xacro:if' element's 'value' attribute, but got: {:?}",
+            err
+        );
     }
 
     // Integration test: conditionals with properties
@@ -282,9 +286,9 @@ mod condition_tests {
 
         // Should have only <feature_enabled/> (use_feature is true, unless excludes, skip is false)
         assert_eq!(result.children.len(), 1);
-        let elem = result.children[0]
-            .as_element()
-            .expect("Expected element child");
+        let elem = result.children[0].as_element().expect(
+            "Expected <feature_enabled/> element in test_integration_conditionals_with_properties",
+        );
         assert_eq!(elem.name, "feature_enabled");
     }
 }
