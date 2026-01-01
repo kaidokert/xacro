@@ -1,4 +1,5 @@
 use crate::error::XacroError;
+use crate::utils::xml::is_xacro_element;
 use pyisheval::Interpreter;
 use std::collections::HashMap;
 use xmltree::{
@@ -72,9 +73,7 @@ impl PropertyProcessor {
         // 1. ConditionProcessor needs the raw expression like "${3*0.1}"
         // 2. If we substitute, it becomes "0.3" string, losing type information
         // 3. This breaks float truthiness in eval_boolean
-        let is_conditional = (element.name == "if" || element.name == "unless")
-            && (element.prefix.as_deref() == Some("xacro")
-                || element.namespace.as_deref() == Some("http://www.ros.org/wiki/xacro"));
+        let is_conditional = is_xacro_element(element, "if") || is_xacro_element(element, "unless");
 
         // Process attributes
         for (key, value) in element.attributes.iter_mut() {

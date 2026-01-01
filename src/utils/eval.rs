@@ -46,6 +46,26 @@ pub fn eval_text(
     eval_text_with_interpreter(text, properties, &interp)
 }
 
+/// Build a pyisheval context HashMap from properties
+///
+/// Converts string properties to pyisheval Values, parsing numbers when possible.
+/// This allows properties to be used in expressions with correct types.
+fn build_pyisheval_context(properties: &HashMap<String, String>) -> HashMap<String, Value> {
+    properties
+        .iter()
+        .map(|(name, value)| {
+            // Try to parse as number, otherwise treat as string
+            let val = if let Ok(num) = value.parse::<f64>() {
+                Value::Number(num)
+            } else {
+                // Store strings without quotes - pyisheval's StringLit handles this
+                Value::StringLit(value.clone())
+            };
+            (name.clone(), val)
+        })
+        .collect()
+}
+
 /// Evaluate text containing ${...} expressions using a provided interpreter
 ///
 /// This version allows reusing an Interpreter instance for better performance
@@ -56,16 +76,7 @@ pub fn eval_text_with_interpreter(
     interp: &Interpreter,
 ) -> Result<String, EvalError> {
     // Build context for pyisheval
-    let mut context = HashMap::new();
-    for (name, value) in properties {
-        // Try to parse as number, otherwise treat as string
-        if let Ok(num) = value.parse::<f64>() {
-            context.insert(name.clone(), Value::Number(num));
-        } else {
-            // Store strings without quotes - pyisheval's StringLit handles this
-            context.insert(name.clone(), Value::StringLit(value.clone()));
-        }
-    }
+    let context = build_pyisheval_context(properties);
 
     // Tokenize the input text
     let lexer = Lexer::new(text);
@@ -160,14 +171,7 @@ pub fn eval_boolean(
     let interp = Interpreter::new();
 
     // Build context for pyisheval
-    let mut context = HashMap::new();
-    for (name, value) in properties {
-        if let Ok(num) = value.parse::<f64>() {
-            context.insert(name.clone(), Value::Number(num));
-        } else {
-            context.insert(name.clone(), Value::StringLit(value.clone()));
-        }
-    }
+    let context = build_pyisheval_context(properties);
 
     // Tokenize input to detect structure
     let lexer = Lexer::new(text);
@@ -185,7 +189,7 @@ pub fn eval_boolean(
 
         // Apply Python truthiness based on Value type
         return match value {
-            Value::Number(n) => Ok(n != 0.0), // Float/int truthiness (includes True=1.0, False=0.0)
+            Value::Number(n) => Ok(n != 0.0), // Float/int truthiness (includes bools: True=1.0, False=0.0)
             Value::StringLit(s) => {
                 // String: must be "true"/"false" or parseable as int
                 apply_string_truthiness(&s, text)
@@ -442,6 +446,47 @@ mod tests {
 
         // Note: pyisheval doesn't support 'in' operator for strings yet
         // That would require extending pyisheval or using a different evaluator
+    }
+
+    /// Test that pyisheval returns Value::Number for boolean expressions
+    ///
+    /// CRITICAL: This test documents that pyisheval v0.9.0 does NOT have Value::Bool.
+    /// Boolean comparison expressions like ${1 == 1} return Value::Number(1.0), not Value::Bool(true).
+    /// This is similar to Python where bool is a subclass of int (True == 1, False == 0).
+    ///
+    /// This test exists to:
+    /// 1. Verify our Number-based truthiness handling works for comparisons
+    /// 2. Document pyisheval's current behavior (see notes/PYISHEVAL_ISSUES.md)
+    /// 3. Catch if pyisheval adds Value::Bool in future (this would fail, prompting us to update)
+    #[test]
+    fn test_eval_boolean_comparison_expressions() {
+        let mut props = HashMap::new();
+        props.insert("x".to_string(), "5".to_string());
+        props.insert("y".to_string(), "10".to_string());
+
+        // Equality comparisons
+        assert_eq!(eval_boolean("${1 == 1}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${1 == 2}", &props).unwrap(), false);
+        assert_eq!(eval_boolean("${x == 5}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${x == y}", &props).unwrap(), false);
+
+        // Inequality comparisons
+        assert_eq!(eval_boolean("${1 != 2}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${1 != 1}", &props).unwrap(), false);
+
+        // Less than / greater than
+        assert_eq!(eval_boolean("${x < y}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${x > y}", &props).unwrap(), false);
+        assert_eq!(eval_boolean("${x <= 5}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${y >= 10}", &props).unwrap(), true);
+
+        // NOTE: pyisheval v0.9.0 does NOT support `and`/`or` operators
+        // These would fail: ${1 and 1}, ${x > 3 and y < 15}
+        // Fortunately, real xacro files don't use these - they use simpler expressions
+        // See notes/PYISHEVAL_ISSUES.md for details
+
+        // Note: All these comparison expressions are evaluated by pyisheval as Value::Number(1.0) or Value::Number(0.0)
+        // Our eval_boolean correctly applies != 0.0 truthiness to convert to bool
     }
 
     // Test from Python xacro: test_invalid_if_statement (line 729)

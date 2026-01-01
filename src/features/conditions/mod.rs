@@ -1,5 +1,6 @@
 use crate::error::XacroError;
 use crate::utils::eval::eval_boolean;
+use crate::utils::xml::is_xacro_element;
 use std::collections::HashMap;
 use xmltree::{Element, XMLNode};
 
@@ -34,67 +35,59 @@ impl ConditionProcessor {
 ///
 /// Conditionals are replaced by their children (if condition is true) or removed entirely.
 /// This is "flattening" - the xacro:if element disappears, only its children remain.
+///
+/// Uses drain() to take ownership of children, avoiding clones for better performance.
 fn process_element(
     element: &mut Element,
     properties: &HashMap<String, String>,
 ) -> Result<(), XacroError> {
     let mut new_children = Vec::new();
 
-    for child in &element.children {
+    // Use drain() to take ownership and avoid cloning every element
+    for child in element.children.drain(..) {
         match child {
-            XMLNode::Element(elem) => {
-                // Check if this is xacro:if
-                if is_xacro_element(elem, "if") {
+            XMLNode::Element(mut elem) => {
+                let is_if = is_xacro_element(&elem, "if");
+                let is_unless = is_xacro_element(&elem, "unless");
+
+                if is_if || is_unless {
+                    // This is a conditional element (xacro:if or xacro:unless)
+                    let tag_name = if is_if { "xacro:if" } else { "xacro:unless" };
+
                     // Get the condition expression
                     let value = elem.attributes.get("value").ok_or_else(|| {
                         XacroError::MissingAttribute {
-                            element: "xacro:if".to_string(),
+                            element: tag_name.to_string(),
                             attribute: "value".to_string(),
                         }
                     })?;
 
                     // Evaluate condition using eval_boolean (with type preservation!)
-                    if eval_boolean(value, properties).map_err(|e| XacroError::EvalError {
-                        expr: value.clone(),
-                        source: e,
-                    })? {
-                        // Condition is TRUE: process children first, then include them (flattened)
-                        // CRITICAL: Must process children to handle nested conditionals
-                        let mut elem_clone = elem.clone();
-                        process_element(&mut elem_clone, properties)?;
-                        new_children.extend(elem_clone.children);
-                    }
-                    // Condition is FALSE: skip entirely (add nothing)
-                } else if is_xacro_element(elem, "unless") {
-                    // xacro:unless is the inverse of xacro:if
-                    let value = elem.attributes.get("value").ok_or_else(|| {
-                        XacroError::MissingAttribute {
-                            element: "xacro:unless".to_string(),
-                            attribute: "value".to_string(),
-                        }
-                    })?;
+                    let condition =
+                        eval_boolean(value, properties).map_err(|e| XacroError::EvalError {
+                            expr: value.clone(),
+                            source: e,
+                        })?;
 
-                    // Evaluate condition (note the ! for inverse)
-                    if !eval_boolean(value, properties).map_err(|e| XacroError::EvalError {
-                        expr: value.clone(),
-                        source: e,
-                    })? {
-                        // Condition is FALSE: process children first, then include them (flattened)
-                        let mut elem_clone = elem.clone();
-                        process_element(&mut elem_clone, properties)?;
-                        new_children.extend(elem_clone.children);
+                    // Determine whether to include children (if: condition, unless: !condition)
+                    let should_include = if is_if { condition } else { !condition };
+
+                    if should_include {
+                        // Condition is met: process children first, then include them (flattened)
+                        // CRITICAL: Must process children to handle nested conditionals
+                        process_element(&mut elem, properties)?;
+                        new_children.extend(elem.children);
                     }
-                    // Condition is TRUE: skip entirely (add nothing)
+                    // Condition not met: skip entirely (add nothing)
                 } else {
                     // Regular element: keep and recurse into it
-                    let mut elem_clone = elem.clone();
-                    process_element(&mut elem_clone, properties)?;
-                    new_children.push(XMLNode::Element(elem_clone));
+                    process_element(&mut elem, properties)?;
+                    new_children.push(XMLNode::Element(elem));
                 }
             }
-            _ => {
+            node => {
                 // Text nodes, comments, etc. - keep as-is
-                new_children.push(child.clone());
+                new_children.push(node);
             }
         }
     }
@@ -102,21 +95,6 @@ fn process_element(
     // Replace children with flattened version
     element.children = new_children;
     Ok(())
-}
-
-/// Check if element is a xacro element with given name
-///
-/// Handles namespace prefixes correctly (not string matching on "xacro:if").
-/// Checks both:
-/// - element.prefix == "xacro"
-/// - element.namespace == "http://www.ros.org/wiki/xacro" (when no prefix, default namespace)
-fn is_xacro_element(
-    element: &Element,
-    tag_name: &str,
-) -> bool {
-    element.name == tag_name
-        && (element.prefix.as_deref() == Some("xacro")
-            || element.namespace.as_deref() == Some("http://www.ros.org/wiki/xacro"))
 }
 
 #[cfg(test)]

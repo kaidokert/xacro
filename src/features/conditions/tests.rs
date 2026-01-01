@@ -9,13 +9,6 @@ mod condition_tests {
         Element::parse(xml.as_bytes()).unwrap()
     }
 
-    /// Helper to serialize Element to string
-    fn serialize_xml(elem: &Element) -> String {
-        let mut buf = Vec::new();
-        elem.write(&mut buf).unwrap();
-        String::from_utf8(buf).unwrap()
-    }
-
     // Test from Python xacro: test_boolean_if_statement (line 715)
     #[test]
     fn test_if_boolean_literals() {
