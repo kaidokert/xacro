@@ -394,13 +394,10 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
         // Extract block parameters from child elements IN ORDER
         // Use iterator to avoid double-cloning (Vec allocation + insertion)
-        let mut children_iter = element.children.iter().filter_map(|node| {
-            if let xmltree::XMLNode::Element(e) = node {
-                Some(e)
-            } else {
-                None
-            }
-        });
+        let mut children_iter = element
+            .children
+            .iter()
+            .filter_map(xmltree::XMLNode::as_element);
 
         // Iterate through params in order they were declared
         // Block params consume child elements sequentially from the iterator
