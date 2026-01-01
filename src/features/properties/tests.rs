@@ -340,4 +340,83 @@ mod property_tests {
             "xacro:unless value attribute should preserve raw expression"
         );
     }
+
+    #[test]
+    fn test_property_alternative_namespace_prefix() {
+        // Test namespace-based detection with alternative prefix (xmlns:x instead of xmlns:xacro)
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:x="http://www.ros.org/wiki/xacro">
+  <x:property name="width" value="2"/>
+  <x:property name="height" value="3"/>
+
+  <link name="base">
+    <box size="${width} ${height} 1"/>
+  </link>
+
+  <x:if value="${width > 1}">
+    <link name="conditional"/>
+  </x:if>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let property_processor = PropertyProcessor::new();
+        let (result, properties) = property_processor.process(xml).unwrap();
+
+        // Verify properties were collected despite using 'x:' prefix
+        assert_eq!(properties.get("width"), Some(&"2".to_string()));
+        assert_eq!(properties.get("height"), Some(&"3".to_string()));
+
+        // Verify property elements were removed (x:property)
+        let has_property_elem = result.children.iter().any(|child| {
+            if let xmltree::XMLNode::Element(elem) = child {
+                elem.name == "property"
+            } else {
+                false
+            }
+        });
+        assert!(!has_property_elem, "x:property elements should be removed");
+
+        // Verify x:if element is still present (not processed by PropertyProcessor)
+        let has_if_elem = result.children.iter().any(|child| {
+            if let xmltree::XMLNode::Element(elem) = child {
+                is_xacro_element(elem, "if")
+            } else {
+                false
+            }
+        });
+        assert!(has_if_elem, "x:if element should still be present");
+
+        // Verify expression substitution worked in box element
+        let link = result
+            .children
+            .iter()
+            .find_map(|child| {
+                if let xmltree::XMLNode::Element(elem) = child {
+                    if elem.name == "link"
+                        && elem.attributes.get("name") == Some(&"base".to_string())
+                    {
+                        return Some(elem);
+                    }
+                }
+                None
+            })
+            .expect("Should find base link");
+
+        let box_elem = link
+            .children
+            .iter()
+            .find_map(|child| {
+                if let xmltree::XMLNode::Element(elem) = child {
+                    if elem.name == "box" {
+                        return Some(elem);
+                    }
+                }
+                None
+            })
+            .expect("Should find box element");
+
+        assert_eq!(box_elem.attributes.get("size"), Some(&"2 3 1".to_string()));
+    }
 }

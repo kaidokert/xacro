@@ -12,7 +12,7 @@ mod macro_tests {
     #[test]
     fn test_macro_basic() {
         env_logger::try_init().ok();
-        let macro_processor = MacroProcessor::new();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
         let path = Path::new("tests/data/macro_test.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected = XacroProcessor::parse_file("tests/data/macro_test_expected.xacro").unwrap();
@@ -58,7 +58,7 @@ mod macro_tests {
         "#;
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
-        let macro_processor = MacroProcessor::new();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
         let result = macro_processor.process(xml, &global_properties).unwrap();
 
@@ -89,7 +89,7 @@ mod macro_tests {
         "#;
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
-        let macro_processor = MacroProcessor::new();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
 
         // Simulate global properties from PropertyProcessor
         let mut global_properties = HashMap::new();
@@ -134,7 +134,7 @@ mod macro_tests {
         "#;
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
-        let macro_processor = MacroProcessor::new();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
 
         // Global property x=1
         let mut global_properties = HashMap::new();
@@ -183,7 +183,7 @@ mod macro_tests {
         "#;
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
-        let macro_processor = MacroProcessor::new();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
         let result = macro_processor.process(xml, &global_properties).unwrap();
 

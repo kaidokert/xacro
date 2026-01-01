@@ -6,6 +6,7 @@ use crate::{
         xml::{is_xacro_element, XACRO_NAMESPACE},
     },
 };
+use log::debug;
 use std::collections::HashMap;
 use xmltree::{Element, XMLNode::Element as NodeElement};
 
@@ -15,9 +16,22 @@ struct MacroDefinition {
     content: Element,
 }
 
-pub struct MacroProcessor {}
+/// Macro processor with configurable recursion depth limit
+///
+/// The `MAX_DEPTH` const generic allows users to override the default recursion
+/// limit (100) without modifying the crate, useful for deeply nested macro structures.
+///
+/// # Examples
+/// ```
+/// // Use default depth limit of 100
+/// let processor = MacroProcessor::new();
+///
+/// // Use custom depth limit of 200
+/// let processor = MacroProcessor::<200>::new();
+/// ```
+pub struct MacroProcessor<const MAX_DEPTH: usize = 100> {}
 
-impl MacroProcessor {
+impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {}
@@ -30,20 +44,16 @@ impl MacroProcessor {
     ) -> Result<Element, XacroError> {
         let mut macros = HashMap::new();
 
-        println!("Input XML:");
-        println!("{}", pretty_print_xml(&xml));
+        debug!("Input XML:\n{}", pretty_print_xml(&xml));
 
         Self::collect_macros(&xml, &mut macros)?;
-        println!("Collected macros:");
-        println!("{}", pretty_print_hashmap(&macros));
+        debug!("Collected macros:\n{}", pretty_print_hashmap(&macros));
 
-        Self::expand_macros(&mut xml, &macros, global_properties)?;
-        println!("Expanded XML:");
-        println!("{}", pretty_print_xml(&xml));
+        Self::expand_macros(&mut xml, &macros, global_properties, 0)?;
+        debug!("Expanded XML:\n{}", pretty_print_xml(&xml));
 
         Self::remove_macro_definitions(&mut xml);
-        println!("Output XML:");
-        println!("{}", pretty_print_xml(&xml));
+        debug!("Output XML:\n{}", pretty_print_xml(&xml));
         Ok(xml)
     }
 
@@ -96,7 +106,16 @@ impl MacroProcessor {
         element: &mut Element,
         macros: &HashMap<String, MacroDefinition>,
         global_properties: &HashMap<String, String>,
+        depth: usize,
     ) -> Result<(), XacroError> {
+        // Check recursion depth to prevent infinite loops with self-referential macros
+        if depth > MAX_DEPTH {
+            return Err(XacroError::MacroRecursionLimit {
+                depth,
+                limit: MAX_DEPTH,
+            });
+        }
+
         let mut new_children = Vec::new();
 
         for child in core::mem::take(&mut element.children) {
@@ -110,14 +129,20 @@ impl MacroProcessor {
                                 Self::expand_macro_content(macro_def, &args, global_properties)?;
 
                             // CRITICAL FIX: Re-scan the expanded content for nested macros
-                            Self::expand_macros(&mut expanded, macros, global_properties)?;
+                            // Increment depth to prevent infinite recursion
+                            Self::expand_macros(
+                                &mut expanded,
+                                macros,
+                                global_properties,
+                                depth + 1,
+                            )?;
 
                             new_children.extend(expanded.children);
                         } else {
                             return Err(XacroError::UndefinedMacro(macro_name));
                         }
                     } else {
-                        Self::expand_macros(&mut child_elem, macros, global_properties)?;
+                        Self::expand_macros(&mut child_elem, macros, global_properties, depth)?;
                         new_children.push(NodeElement(child_elem));
                     }
                 }
@@ -146,8 +171,14 @@ impl MacroProcessor {
         }
 
         // CRITICAL: Build merged scope (global properties + macro parameters)
-        // Start with global properties as the base
-        let mut substitutions = global_properties.clone();
+        // Use with_capacity to avoid reallocation during extend
+        let mut substitutions =
+            HashMap::with_capacity(global_properties.len() + macro_def.params.len());
+        substitutions.extend(
+            global_properties
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
 
         // Add macro parameters, which override globals if there's a conflict
         for (param_name, default_value) in &macro_def.params {
@@ -173,7 +204,7 @@ impl MacroProcessor {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
                 if Self::is_macro_definition(child_elem) {
-                    println!("Removing macro definition: {:?}", child_elem);
+                    debug!("Removing macro definition: {:?}", child_elem);
                     return false;
                 }
                 Self::remove_macro_definitions(child_elem);
@@ -183,13 +214,12 @@ impl MacroProcessor {
     }
 
     fn is_macro_call(element: &Element) -> bool {
+        // List of xacro tags that are NOT macro calls
+        const NON_CALL_TAGS: &[&str] = &["macro", "property", "if", "unless", "insert_block"];
+
         // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
         element.namespace.as_deref() == Some(XACRO_NAMESPACE)
-            && !element.name.eq("macro")
-            && !element.name.eq("property")
-            && !element.name.eq("if")
-            && !element.name.eq("unless")
-            && !element.name.eq("insert_block")
+            && !NON_CALL_TAGS.contains(&element.name.as_str())
     }
 
     fn is_macro_definition(element: &Element) -> bool {
