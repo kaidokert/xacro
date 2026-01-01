@@ -33,4 +33,19 @@ pub enum XacroError {
 
     #[error("Macro recursion limit exceeded: depth {depth} > {limit} (possible infinite loop)")]
     MacroRecursionLimit { depth: usize, limit: usize },
+
+    #[error("Block parameter '{param}' cannot have a default value")]
+    BlockParameterWithDefault { param: String },
+
+    #[error("Missing block parameter '{param}' in macro '{macro_name}'")]
+    MissingBlockParameter { macro_name: String, param: String },
+
+    #[error("Unused block in macro '{macro_name}' (provided {extra_count} extra child elements)")]
+    UnusedBlock {
+        macro_name: String,
+        extra_count: usize,
+    },
+
+    #[error("Undefined block '{name}'")]
+    UndefinedBlock { name: String },
 }

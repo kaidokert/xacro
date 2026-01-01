@@ -7,12 +7,24 @@ use crate::{
     },
 };
 use log::debug;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use xmltree::{Element, XMLNode::Element as NodeElement};
+
+// Type aliases to simplify complex return types
+type ParamsMap = HashMap<String, Option<String>>;
+type ParamOrder = Vec<String>;
+type BlockParamsSet = HashSet<String>;
+type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet);
+
+type MacroArgs = HashMap<String, String>;
+type MacroBlocks = HashMap<String, Element>;
+type CollectedArgs = (MacroArgs, MacroBlocks);
 
 #[derive(Debug, Clone)]
 struct MacroDefinition {
-    params: HashMap<String, Option<String>>,
+    params: ParamsMap,            // Regular params with optional defaults
+    param_order: ParamOrder,      // Parameter declaration order (critical for block params!)
+    block_params: BlockParamsSet, // Block params (names without * prefix)
     content: Element,
 }
 
@@ -68,12 +80,14 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                 element.attributes.get("name"),
                 element.attributes.get("params"),
             ) {
-                let params_map = Self::parse_params(params)?;
+                let (params_map, param_order, block_params_set) = Self::parse_params(params)?;
                 let content = element.clone();
                 macros.insert(
                     name.clone(),
                     MacroDefinition {
                         params: params_map,
+                        param_order,
+                        block_params: block_params_set,
                         content,
                     },
                 );
@@ -89,17 +103,39 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         Ok(())
     }
 
-    fn parse_params(params_str: &str) -> Result<HashMap<String, Option<String>>, XacroError> {
+    fn parse_params(params_str: &str) -> Result<ParsedParams, XacroError> {
         let mut params = HashMap::new();
-        for param in params_str.split_whitespace() {
-            if param.contains(":=") {
-                let parts: Vec<&str> = param.splitn(2, ":=").collect();
+        let mut param_order = Vec::new();
+        let mut block_params = HashSet::new();
+
+        for token in params_str.split_whitespace() {
+            if let Some(stripped) = token.strip_prefix('*') {
+                // Block parameter (e.g., *origin)
+                // Block parameters CANNOT have defaults
+                if token.contains(":=") {
+                    return Err(XacroError::BlockParameterWithDefault {
+                        param: token.to_string(),
+                    });
+                }
+
+                // Store the stripped parameter name
+                let param_name = stripped.to_string();
+                params.insert(param_name.clone(), None);
+                param_order.push(param_name.clone());
+                block_params.insert(param_name);
+            } else if token.contains(":=") {
+                // Regular parameter with default value
+                let parts: Vec<&str> = token.splitn(2, ":=").collect();
                 params.insert(parts[0].to_string(), Some(parts[1].to_string()));
+                param_order.push(parts[0].to_string());
             } else {
-                params.insert(param.to_string(), None);
+                // Regular parameter without default
+                params.insert(token.to_string(), None);
+                param_order.push(token.to_string());
             }
         }
-        Ok(params)
+
+        Ok((params, param_order, block_params))
     }
 
     fn expand_macros(
@@ -124,9 +160,13 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                     if Self::is_macro_call(&child_elem) {
                         let macro_name = Self::get_macro_name(&child_elem)?;
                         if let Some(macro_def) = macros.get(&macro_name) {
-                            let args = Self::collect_macro_args(&child_elem)?;
-                            let mut expanded =
-                                Self::expand_macro_content(macro_def, &args, global_properties)?;
+                            let (args, blocks) = Self::collect_macro_args(&child_elem, macro_def)?;
+                            let mut expanded = Self::expand_macro_content(
+                                macro_def,
+                                &args,
+                                &blocks,
+                                global_properties,
+                            )?;
 
                             // CRITICAL FIX: Re-scan the expanded content for nested macros
                             // Increment depth to prevent infinite recursion
@@ -157,6 +197,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
     fn expand_macro_content(
         macro_def: &MacroDefinition,
         args: &HashMap<String, String>,
+        blocks: &HashMap<String, Element>,
         global_properties: &HashMap<String, String>,
     ) -> Result<Element, XacroError> {
         let mut content = macro_def.content.clone();
@@ -182,6 +223,11 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
         // Add macro parameters, which override globals if there's a conflict
         for (param_name, default_value) in &macro_def.params {
+            // Skip block parameters (they're not string substitutions)
+            if macro_def.block_params.contains(param_name) {
+                continue;
+            }
+
             let value = args
                 .get(param_name)
                 .cloned()
@@ -197,7 +243,65 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         let property_processor = PropertyProcessor::new();
         property_processor.substitute_properties(&mut content, &substitutions)?;
 
+        // Process insert_block elements, replacing them with the block content
+        Self::process_insert_blocks(&mut content, blocks, &substitutions)?;
+
         Ok(content)
+    }
+
+    fn process_insert_blocks(
+        element: &mut Element,
+        blocks: &HashMap<String, Element>,
+        substitutions: &HashMap<String, String>,
+    ) -> Result<(), XacroError> {
+        let mut new_children = Vec::new();
+
+        for child in core::mem::take(&mut element.children) {
+            match child {
+                NodeElement(elem) => {
+                    if is_xacro_element(&elem, "insert_block") {
+                        // This is an insert_block element - replace with block content
+                        let block_name = elem.attributes.get("name").ok_or_else(|| {
+                            XacroError::MissingAttribute {
+                                element: "xacro:insert_block".to_string(),
+                                attribute: "name".to_string(),
+                            }
+                        })?;
+
+                        // Look up the block
+                        let block =
+                            blocks
+                                .get(block_name)
+                                .ok_or_else(|| XacroError::UndefinedBlock {
+                                    name: block_name.clone(),
+                                })?;
+
+                        // Clone the block (allows multiple inserts of same block)
+                        let mut block_copy = block.clone();
+
+                        // Recursively process the block:
+                        // 1. Apply property substitutions (block can contain ${...} expressions)
+                        let property_processor = PropertyProcessor::new();
+                        property_processor.substitute_properties(&mut block_copy, substitutions)?;
+
+                        // 2. Recursively process any nested insert_block calls
+                        Self::process_insert_blocks(&mut block_copy, blocks, substitutions)?;
+
+                        // Insert the block element itself (not just its children)
+                        new_children.push(NodeElement(block_copy));
+                    } else {
+                        // Regular element: recurse into it
+                        let mut elem_copy = elem;
+                        Self::process_insert_blocks(&mut elem_copy, blocks, substitutions)?;
+                        new_children.push(NodeElement(elem_copy));
+                    }
+                }
+                other => new_children.push(other),
+            }
+        }
+
+        element.children = new_children;
+        Ok(())
     }
 
     fn remove_macro_definitions(element: &mut Element) {
@@ -230,8 +334,60 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         Ok(element.name.clone())
     }
 
-    fn collect_macro_args(element: &Element) -> Result<HashMap<String, String>, XacroError> {
-        Ok(element.attributes.clone())
+    fn collect_macro_args(
+        element: &Element,
+        macro_def: &MacroDefinition,
+    ) -> Result<CollectedArgs, XacroError> {
+        let mut param_values = HashMap::new();
+        let mut block_values = HashMap::new();
+
+        // Extract regular parameters from attributes
+        for (name, value) in &element.attributes {
+            if !macro_def.block_params.contains(name) {
+                param_values.insert(name.clone(), value.clone());
+            }
+        }
+
+        // Extract block parameters from child elements IN ORDER
+        // Only count Element children, not text/comment nodes
+        let children: Vec<Element> = element
+            .children
+            .iter()
+            .filter_map(|c| {
+                if let xmltree::XMLNode::Element(e) = c {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut child_idx = 0;
+
+        // Iterate through params in order they were declared
+        // Block params consume child elements sequentially
+        for param_name in &macro_def.param_order {
+            if macro_def.block_params.contains(param_name) {
+                if child_idx >= children.len() {
+                    return Err(XacroError::MissingBlockParameter {
+                        macro_name: macro_def.content.name.clone(),
+                        param: param_name.clone(),
+                    });
+                }
+                block_values.insert(param_name.clone(), children[child_idx].clone());
+                child_idx += 1;
+            }
+        }
+
+        // Error if extra children provided
+        if child_idx < children.len() {
+            return Err(XacroError::UnusedBlock {
+                macro_name: macro_def.content.name.clone(),
+                extra_count: children.len() - child_idx,
+            });
+        }
+
+        Ok((param_values, block_values))
     }
 }
 
