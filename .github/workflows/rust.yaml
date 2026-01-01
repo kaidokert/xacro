@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+
+on:
+    push:
+      branches:
+        - master
+        - dev*
+        - 'feature/**'
+    pull_request:
+
+name: Rust
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+          toolchain: stable
+          components: rustfmt, clippy
+    - name: Check formatting
+      run: cargo fmt -- --check
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Run doc tests
+      run: cargo test --doc --verbose
