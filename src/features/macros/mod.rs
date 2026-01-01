@@ -22,6 +22,7 @@ type CollectedArgs = (MacroArgs, MacroBlocks);
 
 #[derive(Debug, Clone)]
 struct MacroDefinition {
+    name: String,                 // Macro name from 'name' attribute (for error messages)
     params: ParamsMap,            // Regular params with optional defaults
     param_order: ParamOrder,      // Parameter declaration order (critical for block params!)
     block_params: BlockParamsSet, // Block params (names without * prefix)
@@ -85,6 +86,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                 macros.insert(
                     name.clone(),
                     MacroDefinition {
+                        name: name.clone(),
                         params: params_map,
                         param_order,
                         block_params: block_params_set,
@@ -118,16 +120,23 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                     });
                 }
 
+                // Validate parameter name is not empty
+                if stripped.is_empty() {
+                    return Err(XacroError::InvalidParameterName {
+                        param: token.to_string(),
+                    });
+                }
+
                 // Store the stripped parameter name
                 let param_name = stripped.to_string();
                 params.insert(param_name.clone(), None);
                 param_order.push(param_name.clone());
                 block_params.insert(param_name);
-            } else if token.contains(":=") {
+            } else if let Some((name, value)) = token.split_once(":=") {
                 // Regular parameter with default value
-                let parts: Vec<&str> = token.splitn(2, ":=").collect();
-                params.insert(parts[0].to_string(), Some(parts[1].to_string()));
-                param_order.push(parts[0].to_string());
+                let param_name = name.to_string();
+                params.insert(param_name.clone(), Some(value.to_string()));
+                param_order.push(param_name);
             } else {
                 // Regular parameter without default
                 params.insert(token.to_string(), None);
@@ -205,7 +214,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         for param_name in args.keys() {
             if !macro_def.params.contains_key(param_name) {
                 return Err(XacroError::MissingParameter {
-                    macro_name: content.name.clone(),
+                    macro_name: macro_def.name.clone(),
                     param: param_name.clone(),
                 });
             }
@@ -233,7 +242,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                 .cloned()
                 .or_else(|| default_value.clone())
                 .ok_or_else(|| XacroError::MissingParameter {
-                    macro_name: content.name.clone(),
+                    macro_name: macro_def.name.clone(),
                     param: param_name.clone(),
                 })?;
             substitutions.insert(param_name.clone(), value);
@@ -244,7 +253,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         property_processor.substitute_properties(&mut content, &substitutions)?;
 
         // Process insert_block elements, replacing them with the block content
-        Self::process_insert_blocks(&mut content, blocks, &substitutions)?;
+        Self::process_insert_blocks(&mut content, blocks, &substitutions, &property_processor)?;
 
         Ok(content)
     }
@@ -253,6 +262,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         element: &mut Element,
         blocks: &HashMap<String, Element>,
         substitutions: &HashMap<String, String>,
+        property_processor: &PropertyProcessor,
     ) -> Result<(), XacroError> {
         let mut new_children = Vec::new();
 
@@ -281,18 +291,27 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
                         // Recursively process the block:
                         // 1. Apply property substitutions (block can contain ${...} expressions)
-                        let property_processor = PropertyProcessor::new();
                         property_processor.substitute_properties(&mut block_copy, substitutions)?;
 
                         // 2. Recursively process any nested insert_block calls
-                        Self::process_insert_blocks(&mut block_copy, blocks, substitutions)?;
+                        Self::process_insert_blocks(
+                            &mut block_copy,
+                            blocks,
+                            substitutions,
+                            property_processor,
+                        )?;
 
                         // Insert the block element itself (not just its children)
                         new_children.push(NodeElement(block_copy));
                     } else {
                         // Regular element: recurse into it
                         let mut elem_copy = elem;
-                        Self::process_insert_blocks(&mut elem_copy, blocks, substitutions)?;
+                        Self::process_insert_blocks(
+                            &mut elem_copy,
+                            blocks,
+                            substitutions,
+                            property_processor,
+                        )?;
                         new_children.push(NodeElement(elem_copy));
                     }
                 }
@@ -349,41 +368,36 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         }
 
         // Extract block parameters from child elements IN ORDER
-        // Only count Element children, not text/comment nodes
-        let children: Vec<Element> = element
-            .children
-            .iter()
-            .filter_map(|c| {
-                if let xmltree::XMLNode::Element(e) = c {
-                    Some(e.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let mut child_idx = 0;
+        // Use iterator to avoid double-cloning (Vec allocation + insertion)
+        let mut children_iter = element.children.iter().filter_map(|node| {
+            if let xmltree::XMLNode::Element(e) = node {
+                Some(e)
+            } else {
+                None
+            }
+        });
 
         // Iterate through params in order they were declared
-        // Block params consume child elements sequentially
+        // Block params consume child elements sequentially from the iterator
         for param_name in &macro_def.param_order {
             if macro_def.block_params.contains(param_name) {
-                if child_idx >= children.len() {
-                    return Err(XacroError::MissingBlockParameter {
-                        macro_name: macro_def.content.name.clone(),
-                        param: param_name.clone(),
-                    });
-                }
-                block_values.insert(param_name.clone(), children[child_idx].clone());
-                child_idx += 1;
+                let child_element =
+                    children_iter
+                        .next()
+                        .ok_or_else(|| XacroError::MissingBlockParameter {
+                            macro_name: macro_def.name.clone(),
+                            param: param_name.clone(),
+                        })?;
+                block_values.insert(param_name.clone(), child_element.clone());
             }
         }
 
         // Error if extra children provided
-        if child_idx < children.len() {
+        if children_iter.next().is_some() {
+            let extra_count = 1 + children_iter.count();
             return Err(XacroError::UnusedBlock {
-                macro_name: macro_def.content.name.clone(),
-                extra_count: children.len() - child_idx,
+                macro_name: macro_def.name.clone(),
+                extra_count,
             });
         }
 

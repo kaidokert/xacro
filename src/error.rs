@@ -37,6 +37,9 @@ pub enum XacroError {
     #[error("Block parameter '{param}' cannot have a default value")]
     BlockParameterWithDefault { param: String },
 
+    #[error("Invalid parameter name: '{param}' (parameter names cannot be empty)")]
+    InvalidParameterName { param: String },
+
     #[error("Missing block parameter '{param}' in macro '{macro_name}'")]
     MissingBlockParameter { macro_name: String, param: String },
 

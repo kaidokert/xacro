@@ -529,4 +529,71 @@ mod macro_tests {
             .expect("Expected text content in 'item'");
         assert_eq!(text.trim(), "42");
     }
+
+    #[test]
+    fn test_insert_block_multiple_block_params_ordering() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="pair" params="*first *second">
+    <container>
+      <xacro:insert_block name="first"/>
+      <xacro:insert_block name="second"/>
+    </container>
+  </xacro:macro>
+
+  <xacro:pair>
+    <one/>
+    <two/>
+  </xacro:pair>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor.process(xml, &HashMap::new()).unwrap();
+
+        // Verify positional ordering: first child -> "first" param, second child -> "second" param
+        assert_eq!(result.children.len(), 1);
+
+        let container = result.children[0]
+            .as_element()
+            .expect("Expected 'container' element");
+        assert_eq!(container.name, "container");
+        assert_eq!(container.children.len(), 2);
+
+        let first_elem = container.children[0]
+            .as_element()
+            .expect("Expected first element");
+        assert_eq!(first_elem.name, "one");
+
+        let second_elem = container.children[1]
+            .as_element()
+            .expect("Expected second element");
+        assert_eq!(second_elem.name, "two");
+    }
+
+    #[test]
+    fn test_insert_block_empty_param_name() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="invalid" params="*">
+    <wrapper/>
+  </xacro:macro>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let global_properties = HashMap::new();
+        let result = macro_processor.process(xml, &global_properties);
+
+        // Should error - empty parameter name (just "*")
+        let err = result.unwrap_err();
+        assert!(matches!(
+            err,
+            XacroError::InvalidParameterName { ref param } if param == "*"
+        ));
+    }
 }
