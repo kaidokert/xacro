@@ -87,7 +87,10 @@ impl PropertyProcessor {
 
         eval_text_with_interpreter(text, properties, &self.interpreter).map_err(|e| {
             XacroError::EvalError {
-                expr: text.to_string(),
+                // Preserve the specific failing expression from EvalError
+                expr: match &e {
+                    crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                },
                 source: e,
             }
         })

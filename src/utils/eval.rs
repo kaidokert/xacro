@@ -107,8 +107,8 @@ pub fn eval_boolean(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<bool, EvalError> {
-    let text_result = eval_text(text, properties)?;
     let interp = Interpreter::new();
+    let text_result = eval_text_with_interpreter(text, properties, &interp)?;
 
     interp
         .eval_boolean(&text_result)
