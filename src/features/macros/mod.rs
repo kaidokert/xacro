@@ -23,11 +23,13 @@ struct MacroDefinition {
 ///
 /// # Examples
 /// ```
+/// use xacro::features::macros::MacroProcessor;
+///
 /// // Use default depth limit of 100
-/// let processor = MacroProcessor::new();
+/// let processor: MacroProcessor = MacroProcessor::new();
 ///
 /// // Use custom depth limit of 200
-/// let processor = MacroProcessor::<200>::new();
+/// let processor: MacroProcessor<200> = MacroProcessor::<200>::new();
 /// ```
 pub struct MacroProcessor<const MAX_DEPTH: usize = 100> {}
 
