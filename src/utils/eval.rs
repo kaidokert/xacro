@@ -10,6 +10,12 @@ pub enum EvalError {
         #[source]
         source: pyisheval::EvalError,
     },
+
+    #[error("Xacro conditional \"{condition}\" evaluated to \"{evaluated}\", which is not a boolean expression.")]
+    InvalidBoolean {
+        condition: String,
+        evaluated: String,
+    },
 }
 
 /// Remove quotes from string values (handles both single and double quotes)
@@ -102,20 +108,100 @@ pub fn eval_text_with_interpreter(
     Ok(result.join(""))
 }
 
-/// Evaluate expression as boolean (for conditionals)
+/// Apply Python xacro's STRICT string truthiness rules
+///
+/// Accepts: "true", "True", "false", "False", or parseable integers
+/// Rejects: Everything else (including "nonsense", empty string, floats as strings)
+fn apply_string_truthiness(
+    s: &str,
+    original: &str,
+) -> Result<bool, EvalError> {
+    let trimmed = s.trim();
+
+    // Exact string matches for boolean literals
+    if trimmed == "true" || trimmed == "True" {
+        return Ok(true);
+    }
+    if trimmed == "false" || trimmed == "False" {
+        return Ok(false);
+    }
+
+    // Try integer conversion (Python's bool(int(value)))
+    if let Ok(i) = trimmed.parse::<i64>() {
+        return Ok(i != 0);
+    }
+
+    // Everything else is an error (STRICT mode)
+    Err(EvalError::InvalidBoolean {
+        condition: original.to_string(),
+        evaluated: s.to_string(),
+    })
+}
+
+/// Evaluate expression as boolean following Python xacro's STRICT rules
+///
+/// Python xacro's get_boolean_value() logic (ref/xacro/src/xacro/__init__.py:856):
+/// - Accepts: "true", "True", "false", "False"
+/// - Accepts: Any string convertible to int: "1", "0", "42", "-5"
+/// - REJECTS: "nonsense", empty string, anything else → Error
+///
+/// CRITICAL: This preserves type information from pyisheval!
+/// ${3*0.1} evaluates to float 0.3 (truthy), NOT string "0.3" (would error)
+///
+/// Examples:
+///   eval_boolean("true", &props) → Ok(true)
+///   eval_boolean("${3*0.1}", &props) → Ok(true)  // Float 0.3 != 0.0
+///   eval_boolean("${0}", &props) → Ok(false)     // Integer 0
+///   eval_boolean("nonsense", &props) → Err(InvalidBoolean)
 pub fn eval_boolean(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<bool, EvalError> {
     let interp = Interpreter::new();
-    let text_result = eval_text_with_interpreter(text, properties, &interp)?;
 
-    interp
-        .eval_boolean(&text_result)
-        .map_err(|e| EvalError::PyishEval {
-            expr: text.to_string(),
-            source: e,
-        })
+    // Build context for pyisheval
+    let mut context = HashMap::new();
+    for (name, value) in properties {
+        if let Ok(num) = value.parse::<f64>() {
+            context.insert(name.clone(), Value::Number(num));
+        } else {
+            context.insert(name.clone(), Value::StringLit(value.clone()));
+        }
+    }
+
+    // Tokenize input to detect structure
+    let lexer = Lexer::new(text);
+    let tokens: Vec<_> = lexer.collect();
+
+    // CASE 1: Single ${expr} token → Preserve type, apply truthiness on Value
+    // This is CRITICAL for float truthiness: ${3*0.1} → float 0.3 → true
+    if tokens.len() == 1 && tokens[0].0 == TokenType::Expr {
+        let value = interp
+            .eval_with_context(&tokens[0].1, &context)
+            .map_err(|e| EvalError::PyishEval {
+                expr: text.to_string(),
+                source: e,
+            })?;
+
+        // Apply Python truthiness based on Value type
+        return match value {
+            Value::Number(n) => Ok(n != 0.0), // Float/int truthiness (includes True=1.0, False=0.0)
+            Value::StringLit(s) => {
+                // String: must be "true"/"false" or parseable as int
+                apply_string_truthiness(&s, text)
+            }
+            // Other types (Lambda, List, etc.) - error for now
+            _ => Err(EvalError::InvalidBoolean {
+                condition: text.to_string(),
+                evaluated: format!("{:?}", value),
+            }),
+        };
+    }
+
+    // CASE 2: Multiple tokens or plain text → Evaluate to string, then parse
+    // Example: "text ${expr} more" or just "true"
+    let evaluated = eval_text_with_interpreter(text, properties, &interp)?;
+    apply_string_truthiness(&evaluated, text)
 }
 
 #[cfg(test)]
@@ -278,5 +364,157 @@ mod tests {
         // Test $$ escape in context
         let result = eval_text("prefix_$${literal}_suffix", &props).unwrap();
         assert_eq!(result, "prefix_${literal}_suffix");
+    }
+
+    // ===== NEW TESTS FOR eval_boolean =====
+
+    // Test from Python xacro: test_boolean_if_statement (line 715)
+    #[test]
+    fn test_eval_boolean_literals() {
+        let props = HashMap::new();
+
+        // Boolean string literals
+        assert_eq!(eval_boolean("true", &props).unwrap(), true);
+        assert_eq!(eval_boolean("false", &props).unwrap(), false);
+        assert_eq!(eval_boolean("True", &props).unwrap(), true);
+        assert_eq!(eval_boolean("False", &props).unwrap(), false);
+    }
+
+    // Test from Python xacro: test_integer_if_statement (line 735)
+    #[test]
+    fn test_eval_boolean_integer_truthiness() {
+        let props = HashMap::new();
+
+        // Integer literals as strings
+        assert_eq!(eval_boolean("0", &props).unwrap(), false);
+        assert_eq!(eval_boolean("1", &props).unwrap(), true);
+        assert_eq!(eval_boolean("42", &props).unwrap(), true);
+        assert_eq!(eval_boolean("-5", &props).unwrap(), true);
+
+        // Integer expressions
+        assert_eq!(eval_boolean("${0*42}", &props).unwrap(), false); // 0
+        assert_eq!(eval_boolean("${0}", &props).unwrap(), false);
+        assert_eq!(eval_boolean("${1*2+3}", &props).unwrap(), true); // 5
+    }
+
+    // Test from Python xacro: test_float_if_statement (line 755)
+    #[test]
+    fn test_eval_boolean_float_truthiness() {
+        let props = HashMap::new();
+
+        // CRITICAL: Float expressions must preserve type
+        assert_eq!(eval_boolean("${3*0.0}", &props).unwrap(), false); // 0.0
+        assert_eq!(eval_boolean("${3*0.1}", &props).unwrap(), true); // 0.3 (non-zero float)
+        assert_eq!(eval_boolean("${0.5}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${-0.1}", &props).unwrap(), true);
+    }
+
+    // Test from Python xacro: test_property_if_statement (line 769)
+    #[test]
+    fn test_eval_boolean_with_properties() {
+        let mut props = HashMap::new();
+        props.insert("condT".to_string(), "1".to_string()); // True as number
+        props.insert("condF".to_string(), "0".to_string()); // False as number
+        props.insert("num".to_string(), "5".to_string());
+
+        assert_eq!(eval_boolean("${condT}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${condF}", &props).unwrap(), false);
+        assert_eq!(eval_boolean("${num}", &props).unwrap(), true); // 5 != 0
+
+        // Note: pyisheval doesn't have True/False as built-in constants
+        // They would need to be defined as properties with value 1/0
+    }
+
+    // Test from Python xacro: test_equality_expression_in_if_statement (line 788)
+    #[test]
+    fn test_eval_boolean_expressions() {
+        let mut props = HashMap::new();
+        props.insert("var".to_string(), "useit".to_string());
+
+        // Equality
+        assert_eq!(eval_boolean("${var == 'useit'}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${var == 'other'}", &props).unwrap(), false);
+
+        // Comparison
+        props.insert("x".to_string(), "5".to_string());
+        assert_eq!(eval_boolean("${x > 3}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${x < 3}", &props).unwrap(), false);
+
+        // Note: pyisheval doesn't support 'in' operator for strings yet
+        // That would require extending pyisheval or using a different evaluator
+    }
+
+    // Test from Python xacro: test_invalid_if_statement (line 729)
+    #[test]
+    fn test_eval_boolean_invalid_values() {
+        let props = HashMap::new();
+
+        // STRICT mode: "nonsense" should error
+        let result = eval_boolean("nonsense", &props);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not a boolean expression"));
+
+        // Empty string should error
+        let result = eval_boolean("", &props);
+        assert!(result.is_err());
+
+        // Random text should error
+        let result = eval_boolean("random text", &props);
+        assert!(result.is_err());
+    }
+
+    // Test edge case: whitespace handling
+    #[test]
+    fn test_eval_boolean_whitespace() {
+        let props = HashMap::new();
+
+        // Should trim whitespace
+        assert_eq!(eval_boolean(" true ", &props).unwrap(), true);
+        assert_eq!(eval_boolean("\tfalse\n", &props).unwrap(), false);
+        assert_eq!(eval_boolean("  0  ", &props).unwrap(), false);
+        assert_eq!(eval_boolean("  1  ", &props).unwrap(), true);
+    }
+
+    // Test case sensitivity
+    #[test]
+    fn test_eval_boolean_case_sensitivity() {
+        let props = HashMap::new();
+
+        // "true" and "True" are accepted
+        assert_eq!(eval_boolean("true", &props).unwrap(), true);
+        assert_eq!(eval_boolean("True", &props).unwrap(), true);
+
+        // But not other cases (should error)
+        assert!(eval_boolean("TRUE", &props).is_err());
+        assert!(eval_boolean("tRuE", &props).is_err());
+    }
+
+    // Test type preservation: the key feature!
+    #[test]
+    fn test_eval_boolean_type_preservation() {
+        let props = HashMap::new();
+
+        // Single expression: type preserved
+        // ${3*0.1} → Value::Number(0.3) → != 0.0 → true
+        assert_eq!(eval_boolean("${3*0.1}", &props).unwrap(), true);
+
+        // Multiple tokens: becomes string
+        // "result: ${3*0.1}" → "result: 0.3" → can't parse as int → error
+        let result = eval_boolean("result: ${3*0.1}", &props);
+        assert!(result.is_err());
+    }
+
+    // Test Boolean value type from pyisheval
+    #[test]
+    fn test_eval_boolean_bool_values() {
+        let props = HashMap::new();
+
+        // pyisheval returns Value::Bool directly
+        assert_eq!(eval_boolean("${1 == 1}", &props).unwrap(), true);
+        assert_eq!(eval_boolean("${1 == 2}", &props).unwrap(), false);
+        assert_eq!(eval_boolean("${5 > 3}", &props).unwrap(), true);
     }
 }

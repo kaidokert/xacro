@@ -34,9 +34,15 @@ impl XacroProcessor {
 
         // 2. Process features in order
         let xml = self.includes.process(xml, path.as_ref())?;
-        let xml = self.properties.process(xml)?;
+
+        // CRITICAL: PropertyProcessor now returns (Element, HashMap)
+        // The HashMap contains all properties for use by subsequent processors
+        let (xml, properties) = self.properties.process(xml)?;
+
         let xml = self.macros.process(xml)?;
-        let xml = self.conditions.process(xml)?;
+
+        // Pass properties to ConditionProcessor for expression evaluation
+        let xml = self.conditions.process(xml, &properties)?;
         let xml = self.loops.process(xml)?;
 
         XacroProcessor::serialize(xml, &path)

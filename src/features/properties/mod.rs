@@ -18,15 +18,19 @@ impl PropertyProcessor {
         }
     }
 
+    /// Process properties in XML tree, returning both the processed tree and the properties map
+    ///
+    /// CRITICAL: Returns (Element, HashMap) so that properties can be passed to subsequent
+    /// processors (like ConditionProcessor) that need them for expression evaluation.
     pub fn process(
         &self,
         mut xml: Element,
-    ) -> Result<Element, XacroError> {
+    ) -> Result<(Element, HashMap<String, String>), XacroError> {
         let mut properties = HashMap::new();
         self.collect_properties(&xml, &mut properties)?;
         self.substitute_properties(&mut xml, &properties)?;
         Self::remove_property_elements(&mut xml);
-        Ok(xml)
+        Ok((xml, properties)) // Return both Element and properties!
     }
 
     fn collect_properties(
@@ -63,10 +67,26 @@ impl PropertyProcessor {
         element: &mut Element,
         properties: &HashMap<String, String>,
     ) -> Result<(), XacroError> {
-        for value in element.attributes.values_mut() {
+        // CRITICAL: Check if this is a conditional element (xacro:if or xacro:unless)
+        // We must NOT substitute the 'value' attribute on conditionals because:
+        // 1. ConditionProcessor needs the raw expression like "${3*0.1}"
+        // 2. If we substitute, it becomes "0.3" string, losing type information
+        // 3. This breaks float truthiness in eval_boolean
+        let is_conditional = (element.name == "if" || element.name == "unless")
+            && (element.prefix.as_deref() == Some("xacro")
+                || element.namespace.as_deref() == Some("http://www.ros.org/wiki/xacro"));
+
+        // Process attributes
+        for (key, value) in element.attributes.iter_mut() {
+            // Skip 'value' attribute on conditionals - preserve raw expression
+            if is_conditional && key == "value" {
+                continue; // Keep original expression unchanged
+            }
+            // Normal substitution for all other attributes
             *value = self.substitute_in_text(value, properties)?;
         }
 
+        // Recurse into children
         for child in &mut element.children {
             if let NodeElement(child_elem) = child {
                 self.substitute_properties(child_elem, properties)?;
@@ -90,6 +110,9 @@ impl PropertyProcessor {
                 // Preserve the specific failing expression from EvalError
                 expr: match &e {
                     crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                    crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
+                        condition.clone()
+                    }
                 },
                 source: e,
             }
