@@ -83,8 +83,8 @@ pub fn eval_text(
                 result.push(format!("$({})", token_value));
             }
             TokenType::DollarDollarBrace => {
-                // $$ escape - just output single $
-                result.push("$".to_string());
+                // $$ escape - output $ followed by the delimiter ({ or ()
+                result.push(format!("${}", token_value));
             }
         }
     }
@@ -251,5 +251,22 @@ mod tests {
         // Test multiple string properties
         let result = eval_text("${link_name} ${joint_type}", &props).unwrap();
         assert_eq!(result, "base_link revolute");
+    }
+
+    #[test]
+    fn test_double_dollar_escape() {
+        let props = HashMap::new();
+
+        // Test $$ escape with brace - should produce literal ${
+        let result = eval_text("$${expr}", &props).unwrap();
+        assert_eq!(result, "${expr}");
+
+        // Test $$ escape with paren - should produce literal $(
+        let result = eval_text("$$(command)", &props).unwrap();
+        assert_eq!(result, "$(command)");
+
+        // Test $$ escape in context
+        let result = eval_text("prefix_$${literal}_suffix", &props).unwrap();
+        assert_eq!(result, "prefix_${literal}_suffix");
     }
 }
