@@ -63,16 +63,19 @@ impl Args {
             .filter_map(|arg| {
                 if let Some((key, value)) = arg.split_once(":=") {
                     if key.is_empty() {
-                        eprintln!("Warning: ignoring mapping with empty key: '{}'", arg);
+                        log::warn!("Ignoring mapping with empty key: '{}'", arg);
                         None
                     } else {
                         Some((key.to_string(), value.to_string()))
                     }
                 } else {
                     if arg.contains('=') {
-                        eprintln!("Warning: use ':=' instead of '=' for mappings: '{}'", arg);
+                        log::warn!("Use ':=' instead of '=' for mappings: '{}'", arg);
                     } else {
-                        eprintln!("Warning: ignoring unrecognized argument (expected key:=value format): '{}'", arg);
+                        log::warn!(
+                            "Ignoring unrecognized argument (expected key:=value format): '{}'",
+                            arg
+                        );
                     }
                     None
                 }
@@ -88,18 +91,16 @@ fn init_logging(verbosity: u8) {
     // Start from environment configuration (e.g., RUST_LOG)
     let mut builder = Builder::from_env(Env::default());
 
-    // If a verbosity flag is provided (> 0), override the env-based level
-    let level_override = match verbosity {
-        0 => None,
-        1 => Some(LevelFilter::Warn),
-        2 => Some(LevelFilter::Info),
-        3 => Some(LevelFilter::Debug),
-        _ => Some(LevelFilter::Trace),
+    // Override based on verbosity flag
+    let level = match verbosity {
+        0 => LevelFilter::Off,
+        1 => LevelFilter::Warn,
+        2 => LevelFilter::Info,
+        3 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
     };
 
-    if let Some(level) = level_override {
-        builder.filter_level(level);
-    }
+    builder.filter_level(level);
 
     // Avoid panicking if a logger was already initialized
     let _ = builder.try_init();
@@ -108,15 +109,13 @@ fn init_logging(verbosity: u8) {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Handle deprecated --inorder flag
-    if args.inorder && !args.quiet {
-        eprintln!(
-            "xacro: in-order processing became default in ROS Melodic. You can drop the option."
-        );
-    }
-
     let verbosity = args.get_verbosity();
     init_logging(verbosity);
+
+    // Handle deprecated --inorder flag
+    if args.inorder {
+        log::warn!("in-order processing became default in ROS Melodic. You can drop the option.");
+    }
 
     if args.deps {
         // TODO: Implement dependency tracking
