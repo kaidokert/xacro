@@ -273,22 +273,32 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         // PropertyProcessor skips <xacro:macro> elements to avoid evaluating during definition
         // But here we're expanding, so we need to substitute into the children
         let property_processor = PropertyProcessor::new();
+
+        // COLLECT properties defined inside the macro body FIRST
+        // Start with a copy of current substitutions so property values can reference
+        // macro parameters and global properties
+        let mut macro_local_properties = substitutions.clone();
+        for child in &content.children {
+            if let xmltree::XMLNode::Element(child_elem) = child {
+                property_processor.collect_properties(child_elem, &mut macro_local_properties)?;
+            }
+        }
+
+        // Update substitutions with newly collected properties
+        // (macro_local_properties now contains: globals + params + collected properties)
+        substitutions = macro_local_properties;
+
+        // SUBSTITUTE with complete substitutions map (globals + params + macro-local)
         for child in &mut content.children {
             if let xmltree::XMLNode::Element(child_elem) = child {
                 property_processor.substitute_properties(child_elem, &substitutions)?;
             } else if let xmltree::XMLNode::Text(text) = child {
-                // Also substitute in text nodes at this level
-                *text = property_processor
-                    .substitute_in_text(text, &substitutions)
-                    .map_err(|e| {
-                        if let XacroError::EvalError { expr, source } = e {
-                            XacroError::EvalError { expr, source }
-                        } else {
-                            e
-                        }
-                    })?;
+                *text = property_processor.substitute_in_text(text, &substitutions)?;
             }
         }
+
+        // Remove property elements from expanded content
+        PropertyProcessor::remove_property_elements(&mut content);
 
         // Process insert_block elements, replacing them with the block content
         Self::process_insert_blocks(&mut content, blocks, &substitutions, &property_processor, 0)?;

@@ -11,6 +11,13 @@ pub struct PropertyProcessor {
     interpreter: Interpreter,
 }
 
+/// Helper: Check if we should skip processing this element's body
+/// Macro definition bodies should NOT be processed during property collection/substitution
+/// because macro parameters (like ${name}) don't exist until expansion time.
+fn should_skip_macro_body(element: &Element) -> bool {
+    is_xacro_element(element, "macro")
+}
+
 impl PropertyProcessor {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -34,15 +41,14 @@ impl PropertyProcessor {
         Ok((xml, properties)) // Return both Element and properties!
     }
 
-    fn collect_properties(
+    pub(crate) fn collect_properties(
         &self,
         element: &Element,
         properties: &mut HashMap<String, String>,
     ) -> Result<(), XacroError> {
         // CRITICAL: Skip macro definition bodies
-        // Macro parameters (like ${name}, ${size}) don't exist during definition
-        // They'll be substituted by MacroProcessor during expansion
-        if is_xacro_element(element, "macro") {
+        // Macro parameters don't exist during definition, only during expansion
+        if should_skip_macro_body(element) {
             return Ok(()); // Don't recurse into macro bodies
         }
 
@@ -80,7 +86,7 @@ impl PropertyProcessor {
         // CRITICAL: Skip macro definition bodies
         // Macro parameters (like ${name}, ${size}) don't exist during definition
         // They'll be substituted by MacroProcessor during expansion
-        if is_xacro_element(element, "macro") {
+        if should_skip_macro_body(element) {
             return Ok(()); // Don't recurse into macro bodies
         }
 
@@ -134,7 +140,7 @@ impl PropertyProcessor {
         })
     }
 
-    fn remove_property_elements(element: &mut Element) {
+    pub(crate) fn remove_property_elements(element: &mut Element) {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
                 // Remove property elements (either <property> or <xacro:property>)
@@ -146,7 +152,12 @@ impl PropertyProcessor {
                 if is_property {
                     return false;
                 }
-                Self::remove_property_elements(child_elem);
+
+                // CRITICAL: Don't recurse into macro bodies
+                // Properties inside macros need to stay until macro expansion
+                if !should_skip_macro_body(child_elem) {
+                    Self::remove_property_elements(child_elem);
+                }
             }
             true
         });
