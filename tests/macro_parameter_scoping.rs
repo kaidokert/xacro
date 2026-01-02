@@ -105,13 +105,7 @@ fn test_property_inside_macro_referencing_parameter() {
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
 
-    assert!(
-        result.is_ok(),
-        "Property inside macro should reference macro parameter. Error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
+    let output = result.expect("Property inside macro should reference macro parameter");
     assert!(
         output.contains(r#"name="link_base""#),
         "Property should have been evaluated with macro parameter"
