@@ -315,3 +315,49 @@ fn test_implemented_features_work_with_macros() {
         parsed.err()
     );
 }
+
+#[test]
+fn test_nonstandard_prefix_with_known_uri() {
+    // Test that we can handle xmlns:foo="http://www.ros.org/wiki/xacro" (non-standard prefix)
+    // This goes beyond Python xacro's capabilities (which only accepts "xacro" prefix)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:foo="http://www.ros.org/wiki/xacro" name="test">
+  <foo:property name="width" value="2"/>
+  <foo:property name="height" value="3"/>
+  <link name="base">
+    <visual>
+      <geometry>
+        <box size="${width} ${height} 1"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should process successfully
+    assert!(output.contains(r#"name="base""#), "Link should be present");
+    assert!(output.contains("2 3 1"), "Properties should be substituted");
+
+    // The xmlns:foo should be removed since we detected it's a xacro namespace
+    assert!(
+        !output.contains("xmlns:foo"),
+        "Non-standard xacro prefix should be removed, but got:\n{}",
+        output
+    );
+
+    // No foo:property elements should remain
+    assert!(
+        !output.contains("foo:property"),
+        "foo:property should be removed"
+    );
+
+    // Verify output is valid XML
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
+}

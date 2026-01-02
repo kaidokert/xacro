@@ -24,9 +24,10 @@ impl ConditionProcessor {
         &self,
         mut xml: Element,
         properties: &HashMap<String, String>,
+        xacro_ns: &str,
     ) -> Result<Element, XacroError> {
         // Process the tree, flattening conditionals
-        process_element(&mut xml, properties)?;
+        process_element(&mut xml, properties, xacro_ns)?;
         Ok(xml)
     }
 }
@@ -40,6 +41,7 @@ impl ConditionProcessor {
 fn process_element(
     element: &mut Element,
     properties: &HashMap<String, String>,
+    xacro_ns: &str,
 ) -> Result<(), XacroError> {
     let mut new_children = Vec::new();
 
@@ -47,8 +49,8 @@ fn process_element(
     for child in element.children.drain(..) {
         match child {
             XMLNode::Element(mut elem) => {
-                let is_if = is_xacro_element(&elem, "if");
-                let is_unless = is_xacro_element(&elem, "unless");
+                let is_if = is_xacro_element(&elem, "if", xacro_ns);
+                let is_unless = is_xacro_element(&elem, "unless", xacro_ns);
 
                 if is_if || is_unless {
                     // This is a conditional element (xacro:if or xacro:unless)
@@ -75,13 +77,13 @@ fn process_element(
                     if should_include {
                         // Condition is met: process children first, then include them (flattened)
                         // CRITICAL: Must process children to handle nested conditionals
-                        process_element(&mut elem, properties)?;
+                        process_element(&mut elem, properties, xacro_ns)?;
                         new_children.extend(elem.children);
                     }
                     // Condition not met: skip entirely (add nothing)
                 } else {
                     // Regular element: keep and recurse into it
-                    process_element(&mut elem, properties)?;
+                    process_element(&mut elem, properties, xacro_ns)?;
                     new_children.push(XMLNode::Element(elem));
                 }
             }

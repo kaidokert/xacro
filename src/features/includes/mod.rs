@@ -14,6 +14,7 @@ impl IncludeProcessor {
         &self,
         mut xml: Element,
         xml_path: &Path,
+        _xacro_ns: &str,
     ) -> Result<Element, XacroError> {
         IncludeProcessor::process_element(&mut xml, xml_path)?;
         Ok(xml)

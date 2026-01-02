@@ -4,6 +4,9 @@ mod condition_tests {
     use std::collections::HashMap;
     use xmltree::Element;
 
+    /// Standard xacro namespace for tests
+    const XACRO_NS: &str = "http://www.ros.org/wiki/xacro";
+
     /// Helper to parse XML string
     fn parse_xml(xml: &str) -> Element {
         Element::parse(xml.as_bytes()).unwrap()
@@ -26,7 +29,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should only have <b/>, not <a/>
         assert_eq!(result.children.len(), 1); // Only one child (the <b/>)
@@ -59,7 +62,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should only have <d/> (1*2+3 = 5, which is truthy)
         assert_eq!(result.children.len(), 1);
@@ -87,7 +90,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should only have <b/> (3*0.1 = 0.3, non-zero float is truthy)
         assert_eq!(result.children.len(), 1);
@@ -112,7 +115,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should only have <b/> (condT is truthy)
         assert_eq!(result.children.len(), 1);
@@ -134,7 +137,7 @@ mod condition_tests {
 </a>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should have no children (outer if is true, but inner if is false)
         assert_eq!(result.children.len(), 0);
@@ -153,7 +156,7 @@ mod condition_tests {
 </a>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should have <foo>bar</foo>
         assert_eq!(result.children.len(), 1);
@@ -180,7 +183,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should only have <included/> (unless false = true, so include)
         assert_eq!(result.children.len(), 1);
@@ -202,7 +205,7 @@ mod condition_tests {
 </a>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should preserve comment, text, and element
         // Note: xmltree may normalize whitespace/comments
@@ -221,7 +224,7 @@ mod condition_tests {
 </a>"#,
         );
 
-        let result = processor.process(input, &properties);
+        let result = processor.process(input, &properties, XACRO_NS);
 
         // Should error (strict boolean evaluation)
         assert!(result.is_err());
@@ -245,7 +248,7 @@ mod condition_tests {
 </a>"#,
         );
 
-        let result = processor.process(input, &properties);
+        let result = processor.process(input, &properties, XACRO_NS);
 
         // Should error (missing value attribute)
         let err = result.unwrap_err();
@@ -282,7 +285,7 @@ mod condition_tests {
 </robot>"#,
         );
 
-        let result = processor.process(input, &properties).unwrap();
+        let result = processor.process(input, &properties, XACRO_NS).unwrap();
 
         // Should have only <feature_enabled/> (use_feature is true, unless excludes, skip is false)
         assert_eq!(result.children.len(), 1);

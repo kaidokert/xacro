@@ -1,10 +1,7 @@
 use crate::{
     error::XacroError,
     features::properties::PropertyProcessor,
-    utils::{
-        pretty_print_hashmap, pretty_print_xml,
-        xml::{is_xacro_element, XACRO_NAMESPACE},
-    },
+    utils::{pretty_print_hashmap, pretty_print_xml, xml::is_xacro_element},
 };
 use log::debug;
 use std::collections::{HashMap, HashSet};
@@ -56,18 +53,19 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         &self,
         mut xml: Element,
         global_properties: &HashMap<String, String>,
+        xacro_ns: &str,
     ) -> Result<Element, XacroError> {
         let mut macros = HashMap::new();
 
         debug!("Input XML:\n{}", pretty_print_xml(&xml));
 
-        Self::collect_macros(&xml, &mut macros)?;
+        Self::collect_macros(&xml, &mut macros, xacro_ns)?;
         debug!("Collected macros:\n{}", pretty_print_hashmap(&macros));
 
-        Self::expand_macros(&mut xml, &macros, global_properties, 0)?;
+        Self::expand_macros(&mut xml, &macros, global_properties, xacro_ns, 0)?;
         debug!("Expanded XML:\n{}", pretty_print_xml(&xml));
 
-        Self::remove_macro_definitions(&mut xml);
+        Self::remove_macro_definitions(&mut xml, xacro_ns);
         debug!("Output XML:\n{}", pretty_print_xml(&xml));
         Ok(xml)
     }
@@ -75,8 +73,9 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
     fn collect_macros(
         element: &Element,
         macros: &mut HashMap<String, MacroDefinition>,
+        xacro_ns: &str,
     ) -> Result<(), XacroError> {
-        if Self::is_macro_definition(element) {
+        if Self::is_macro_definition(element, xacro_ns) {
             if let (Some(name), Some(params)) = (
                 element.attributes.get("name"),
                 element.attributes.get("params"),
@@ -98,7 +97,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
         for child in &element.children {
             if let NodeElement(child_elem) = child {
-                Self::collect_macros(child_elem, macros)?;
+                Self::collect_macros(child_elem, macros, xacro_ns)?;
             }
         }
 
@@ -161,6 +160,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         element: &mut Element,
         macros: &HashMap<String, MacroDefinition>,
         global_properties: &HashMap<String, String>,
+        xacro_ns: &str,
         depth: usize,
     ) -> Result<(), XacroError> {
         // Check recursion depth to prevent infinite loops with self-referential macros
@@ -176,7 +176,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         for child in core::mem::take(&mut element.children) {
             match child {
                 NodeElement(mut child_elem) => {
-                    if Self::is_macro_call(&child_elem) {
+                    if Self::is_macro_call(&child_elem, xacro_ns) {
                         let macro_name = Self::get_macro_name(&child_elem)?;
                         if let Some(macro_def) = macros.get(&macro_name) {
                             let (args, blocks) = Self::collect_macro_args(&child_elem, macro_def)?;
@@ -185,6 +185,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                                 &args,
                                 &blocks,
                                 global_properties,
+                                xacro_ns,
                             )?;
 
                             // CRITICAL FIX: Re-scan the expanded content for nested macros
@@ -193,6 +194,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                                 &mut expanded,
                                 macros,
                                 global_properties,
+                                xacro_ns,
                                 depth + 1,
                             )?;
 
@@ -211,7 +213,13 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             }
                         }
                     } else {
-                        Self::expand_macros(&mut child_elem, macros, global_properties, depth)?;
+                        Self::expand_macros(
+                            &mut child_elem,
+                            macros,
+                            global_properties,
+                            xacro_ns,
+                            depth,
+                        )?;
                         new_children.push(NodeElement(child_elem));
                     }
                 }
@@ -228,6 +236,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         args: &HashMap<String, String>,
         blocks: &HashMap<String, Element>,
         global_properties: &HashMap<String, String>,
+        xacro_ns: &str,
     ) -> Result<Element, XacroError> {
         let mut content = macro_def.content.clone();
 
@@ -280,7 +289,11 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         let mut macro_local_properties = substitutions.clone();
         for child in &content.children {
             if let xmltree::XMLNode::Element(child_elem) = child {
-                property_processor.collect_properties(child_elem, &mut macro_local_properties)?;
+                property_processor.collect_properties(
+                    child_elem,
+                    &mut macro_local_properties,
+                    xacro_ns,
+                )?;
             }
         }
 
@@ -291,17 +304,24 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         // SUBSTITUTE with complete substitutions map (globals + params + macro-local)
         for child in &mut content.children {
             if let xmltree::XMLNode::Element(child_elem) = child {
-                property_processor.substitute_properties(child_elem, &substitutions)?;
+                property_processor.substitute_properties(child_elem, &substitutions, xacro_ns)?;
             } else if let xmltree::XMLNode::Text(text) = child {
                 *text = property_processor.substitute_in_text(text, &substitutions)?;
             }
         }
 
         // Remove property elements from expanded content
-        PropertyProcessor::remove_property_elements(&mut content);
+        PropertyProcessor::remove_property_elements(&mut content, xacro_ns);
 
         // Process insert_block elements, replacing them with the block content
-        Self::process_insert_blocks(&mut content, blocks, &substitutions, &property_processor, 0)?;
+        Self::process_insert_blocks(
+            &mut content,
+            blocks,
+            &substitutions,
+            &property_processor,
+            xacro_ns,
+            0,
+        )?;
 
         Ok(content)
     }
@@ -311,6 +331,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         blocks: &HashMap<String, Element>,
         substitutions: &HashMap<String, String>,
         property_processor: &PropertyProcessor,
+        xacro_ns: &str,
         depth: usize,
     ) -> Result<(), XacroError> {
         // Check recursion depth to prevent infinite loops with circular block references
@@ -326,7 +347,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         for child in core::mem::take(&mut element.children) {
             match child {
                 NodeElement(elem) => {
-                    if is_xacro_element(&elem, "insert_block") {
+                    if is_xacro_element(&elem, "insert_block", xacro_ns) {
                         // This is an insert_block element - replace with block content
                         let block_name = elem.attributes.get("name").ok_or_else(|| {
                             XacroError::MissingAttribute {
@@ -348,7 +369,11 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
                         // Recursively process the block:
                         // 1. Apply property substitutions (block can contain ${...} expressions)
-                        property_processor.substitute_properties(&mut block_copy, substitutions)?;
+                        property_processor.substitute_properties(
+                            &mut block_copy,
+                            substitutions,
+                            xacro_ns,
+                        )?;
 
                         // 2. Recursively process any nested insert_block calls
                         Self::process_insert_blocks(
@@ -356,6 +381,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             blocks,
                             substitutions,
                             property_processor,
+                            xacro_ns,
                             depth + 1,
                         )?;
 
@@ -369,6 +395,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             blocks,
                             substitutions,
                             property_processor,
+                            xacro_ns,
                             depth,
                         )?;
                         new_children.push(NodeElement(elem_copy));
@@ -382,30 +409,39 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         Ok(())
     }
 
-    fn remove_macro_definitions(element: &mut Element) {
+    fn remove_macro_definitions(
+        element: &mut Element,
+        xacro_ns: &str,
+    ) {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
-                if Self::is_macro_definition(child_elem) {
+                if Self::is_macro_definition(child_elem, xacro_ns) {
                     debug!("Removing macro definition: {:?}", child_elem);
                     return false;
                 }
-                Self::remove_macro_definitions(child_elem);
+                Self::remove_macro_definitions(child_elem, xacro_ns);
             }
             true
         });
     }
 
-    fn is_macro_call(element: &Element) -> bool {
+    fn is_macro_call(
+        element: &Element,
+        xacro_ns: &str,
+    ) -> bool {
         // List of xacro tags that are NOT macro calls
         const NON_CALL_TAGS: &[&str] = &["macro", "property", "if", "unless", "insert_block"];
 
         // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
-        element.namespace.as_deref() == Some(XACRO_NAMESPACE)
+        element.namespace.as_deref() == Some(xacro_ns)
             && !NON_CALL_TAGS.contains(&element.name.as_str())
     }
 
-    fn is_macro_definition(element: &Element) -> bool {
-        is_xacro_element(element, "macro")
+    fn is_macro_definition(
+        element: &Element,
+        xacro_ns: &str,
+    ) -> bool {
+        is_xacro_element(element, "macro", xacro_ns)
     }
 
     fn get_macro_name(element: &Element) -> Result<String, XacroError> {

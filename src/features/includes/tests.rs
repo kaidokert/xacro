@@ -4,6 +4,9 @@ mod include_tests {
     use log::{debug, error};
     use std::path::Path;
 
+    /// Standard xacro namespace for tests
+    const XACRO_NS: &str = "http://www.ros.org/wiki/xacro";
+
     #[test]
     fn test_include_basic() {
         env_logger::try_init().ok();
@@ -13,7 +16,7 @@ mod include_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/include_test_expected.xacro").unwrap();
 
-        let result = include_processor.process(data, path);
+        let result = include_processor.process(data, path, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -32,7 +35,7 @@ mod include_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/include_test_multi_expected.xacro").unwrap();
 
-        let result = include_processor.process(data, path);
+        let result = include_processor.process(data, path, XACRO_NS);
 
         if result.is_err() {
             debug!("{:?}", result);
@@ -51,7 +54,7 @@ mod include_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/include_test_nested_expected.xacro").unwrap();
 
-        let result = include_processor.process(data, path);
+        let result = include_processor.process(data, path, XACRO_NS);
 
         if result.is_err() {
             debug!("{:?}", result);
@@ -70,7 +73,7 @@ mod include_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/include_test_directory_expected.xacro").unwrap();
 
-        let result = include_processor.process(data, path);
+        let result = include_processor.process(data, path, XACRO_NS);
 
         if result.is_err() {
             debug!("{:?}", result);
