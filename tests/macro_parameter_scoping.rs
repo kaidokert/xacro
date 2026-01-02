@@ -26,8 +26,6 @@ fn test_macro_with_parameters_full_pipeline() {
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
 
-    // This SHOULD succeed but currently fails with:
-    // "Evaluation error in '${name}': Undefined variable: name"
     assert!(
         result.is_ok(),
         "Macro parameters should be evaluated during expansion, not definition. Error: {:?}",
@@ -89,6 +87,29 @@ fn test_macro_with_global_property_full_pipeline() {
     let output = result.unwrap();
     assert!(output.contains(r#"name="base_link""#));
     assert!(output.contains(r#"0.5 0.5 0.5"#));
+}
+
+/// Test property defined inside macro that references macro parameter
+#[test]
+fn test_property_inside_macro_referencing_parameter() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="link" params="name">
+    <xacro:property name="full_name" value="link_${name}"/>
+    <link name="${full_name}"/>
+  </xacro:macro>
+
+  <xacro:link name="base"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    let output = result.expect("Property inside macro should reference macro parameter");
+    assert!(
+        output.contains(r#"name="link_base""#),
+        "Property should have been evaluated with macro parameter"
+    );
 }
 
 /// Test mixed macro parameters and global properties
