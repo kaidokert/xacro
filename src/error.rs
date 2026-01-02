@@ -67,3 +67,27 @@ pub enum XacroError {
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 }
+
+// Feature lists for consistent error messages
+pub const IMPLEMENTED_FEATURES: &[&str] = &[
+    "xacro:property",
+    "xacro:macro",
+    "xacro:if",
+    "xacro:unless",
+    "xacro:include",
+];
+
+pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:arg", "xacro:element", "xacro:attribute"];
+
+/// Helper function to create consistent UnimplementedFeature error messages
+pub fn unimplemented_feature_error(feature: &str) -> XacroError {
+    XacroError::UnimplementedFeature(format!(
+        "<xacro:{}> is not implemented yet.\n\
+         \n\
+         Currently implemented: {}\n\
+         Not yet implemented: {}",
+        feature,
+        IMPLEMENTED_FEATURES.join(", "),
+        UNIMPLEMENTED_FEATURES.join(", ")
+    ))
+}

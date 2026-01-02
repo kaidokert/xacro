@@ -136,6 +136,33 @@ fn test_unimplemented_feature_detection_element() {
 }
 
 #[test]
+fn test_unimplemented_feature_detection_attribute() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:attribute name="some_attr" value="some_value"/>
+  <link name="base_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Should error on unimplemented xacro:attribute"
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("xacro:attribute"),
+        "Error should mention xacro:attribute"
+    );
+    assert!(
+        err.contains("not implemented"),
+        "Error should say not implemented"
+    );
+}
+
+#[test]
 fn test_no_invalid_xml_from_unprocessed_elements() {
     // Simulates a bug where processor fails to remove a xacro:* element
     // The finalize_tree should catch this and error instead of producing invalid XML
@@ -151,6 +178,15 @@ fn test_no_invalid_xml_from_unprocessed_elements() {
 
     // Should error, not produce invalid XML
     assert!(result.is_err(), "Should error on unknown xacro element");
+
+    // Verify it errors (either as undefined macro or unprocessed element)
+    // Unknown xacro elements are caught by MacroProcessor as undefined macros
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unknown_feature") || err.contains("This element was not processed"),
+        "Error should mention the unknown xacro element: {}",
+        err
+    );
 }
 
 #[test]
@@ -196,6 +232,14 @@ fn test_implemented_features_work_without_macros() {
         "xacro:property should be removed"
     );
     assert!(!output.contains("xacro:if"), "xacro:if should be removed");
+
+    // Verify output is valid XML (consistent with other tests)
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
 }
 
-// TODO: Add macro test once macro parameter scoping bug is fixed
+// TODO: Add macro test once macro parameter scoping bug is fixed, high priority

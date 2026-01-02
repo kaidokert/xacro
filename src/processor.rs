@@ -36,6 +36,10 @@ impl XacroProcessor {
     }
 
     /// Process xacro content from a string
+    ///
+    /// # Note
+    /// Any `<xacro:include>` directives with relative paths will be resolved
+    /// relative to the current working directory.
     pub fn run_from_string(
         &self,
         content: &str,
@@ -72,17 +76,23 @@ impl XacroProcessor {
     }
 
     fn finalize_tree(element: &mut xmltree::Element) -> Result<(), XacroError> {
-        // Check if this element has xacro: prefix (indicates unimplemented feature)
-        if let Some(ref prefix) = element.prefix {
-            if prefix == "xacro" {
-                return Err(XacroError::UnimplementedFeature(format!(
-                    "<xacro:{}>\n\
-                         This element was not processed. Either:\n\
-                         1. The feature is not implemented yet (e.g., xacro:arg, xacro:element)\n\
-                         2. There's a bug in the processor\n",
-                    element.name
-                )));
-            }
+        // Check if this element is in the xacro namespace (indicates unprocessed feature)
+        // Must check namespace URI, not prefix, to handle namespace aliasing (e.g., xmlns:x="...")
+        use crate::utils::xml::XACRO_NAMESPACE;
+        if element.namespace.as_deref() == Some(XACRO_NAMESPACE) {
+            // Use centralized feature lists for consistent error messages
+            use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
+            return Err(XacroError::UnimplementedFeature(format!(
+                "<xacro:{}>\n\
+                     This element was not processed. Either:\n\
+                     1. The feature is not implemented yet (known unimplemented: {})\n\
+                     2. There's a bug in the processor\n\
+                     \n\
+                     Currently implemented: {}",
+                element.name,
+                UNIMPLEMENTED_FEATURES.join(", "),
+                IMPLEMENTED_FEATURES.join(", ")
+            )));
         }
 
         // Remove xacro namespace declaration

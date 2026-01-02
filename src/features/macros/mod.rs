@@ -201,14 +201,8 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             // Check if this is a known xacro feature that's not implemented yet
                             match macro_name.as_str() {
                                 "arg" | "element" | "attribute" => {
-                                    return Err(XacroError::UnimplementedFeature(
-                                        format!(
-                                            "<xacro:{}> is not implemented yet.\n\
-                                             \n\
-                                             Currently implemented: xacro:property, xacro:macro, xacro:if, xacro:unless, xacro:include\n\
-                                             Not yet implemented: xacro:arg, xacro:element, xacro:attribute",
-                                            macro_name
-                                        )
+                                    return Err(crate::error::unimplemented_feature_error(
+                                        &macro_name,
                                     ));
                                 }
                                 _ => {
