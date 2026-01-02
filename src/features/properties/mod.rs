@@ -39,6 +39,13 @@ impl PropertyProcessor {
         element: &Element,
         properties: &mut HashMap<String, String>,
     ) -> Result<(), XacroError> {
+        // CRITICAL: Skip macro definition bodies
+        // Macro parameters (like ${name}, ${size}) don't exist during definition
+        // They'll be substituted by MacroProcessor during expansion
+        if is_xacro_element(element, "macro") {
+            return Ok(()); // Don't recurse into macro bodies
+        }
+
         // Check if this is a property element (either <property> or <xacro:property>)
         // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
         let is_property = element.name == "property"
@@ -70,6 +77,13 @@ impl PropertyProcessor {
         element: &mut Element,
         properties: &HashMap<String, String>,
     ) -> Result<(), XacroError> {
+        // CRITICAL: Skip macro definition bodies
+        // Macro parameters (like ${name}, ${size}) don't exist during definition
+        // They'll be substituted by MacroProcessor during expansion
+        if is_xacro_element(element, "macro") {
+            return Ok(()); // Don't recurse into macro bodies
+        }
+
         // CRITICAL: Check if this is a conditional element (xacro:if or xacro:unless)
         // We must NOT substitute the 'value' attribute on conditionals because:
         // 1. ConditionProcessor needs the raw expression like "${3*0.1}"
@@ -99,7 +113,7 @@ impl PropertyProcessor {
         Ok(())
     }
 
-    fn substitute_in_text(
+    pub(crate) fn substitute_in_text(
         &self,
         text: &str,
         properties: &HashMap<String, String>,

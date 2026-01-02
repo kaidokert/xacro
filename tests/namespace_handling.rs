@@ -242,4 +242,76 @@ fn test_implemented_features_work_without_macros() {
     );
 }
 
-// TODO: Add macro test once macro parameter scoping bug is fixed, high priority
+#[test]
+fn test_implemented_features_work_with_macros() {
+    // Test that macros with parameters work correctly after parameter scoping bug fix
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       xmlns:gazebo="http://gazebo.org/schema"
+       name="test">
+  <xacro:property name="length" value="0.5"/>
+
+  <xacro:macro name="box_link" params="name size">
+    <link name="${name}">
+      <visual>
+        <geometry>
+          <box size="${size} ${size} ${size}"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:macro>
+
+  <xacro:box_link name="macro_link" size="${length}"/>
+
+  <gazebo reference="macro_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should process successfully with macros
+    assert!(
+        output.contains(r#"name="macro_link""#),
+        "Macro should expand with name parameter"
+    );
+    assert!(
+        output.contains(r#"0.5 0.5 0.5"#),
+        "Macro should expand with size parameter (using global property)"
+    );
+
+    // xacro namespace should be removed
+    assert!(
+        !output.contains("xmlns:xacro"),
+        "xacro namespace should be removed"
+    );
+
+    // Other namespaces should be preserved
+    assert!(
+        output.contains("xmlns:gazebo"),
+        "gazebo namespace should be preserved"
+    );
+
+    // No xacro:* elements should remain
+    assert!(
+        !output.contains("xacro:property"),
+        "xacro:property should be removed"
+    );
+    assert!(
+        !output.contains("xacro:macro"),
+        "xacro:macro should be removed"
+    );
+    assert!(
+        !output.contains("xacro:box_link"),
+        "xacro:box_link should be removed"
+    );
+
+    // Verify output is valid XML
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
+}
