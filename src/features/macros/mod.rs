@@ -198,7 +198,17 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
 
                             new_children.extend(expanded.children);
                         } else {
-                            return Err(XacroError::UndefinedMacro(macro_name));
+                            // Check if this is a known xacro feature that's not implemented yet
+                            match macro_name.as_str() {
+                                "arg" | "element" | "attribute" => {
+                                    return Err(crate::error::unimplemented_feature_error(
+                                        &macro_name,
+                                    ));
+                                }
+                                _ => {
+                                    return Err(XacroError::UndefinedMacro(macro_name));
+                                }
+                            }
                         }
                     } else {
                         Self::expand_macros(&mut child_elem, macros, global_properties, depth)?;

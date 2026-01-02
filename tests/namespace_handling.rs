@@ -1,0 +1,245 @@
+use xacro::XacroProcessor;
+
+#[test]
+fn test_xacro_namespace_removed() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="wheel_radius" value="0.1"/>
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="0.05"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should not contain xmlns:xacro anywhere
+    assert!(
+        !output.contains("xmlns:xacro"),
+        "Output should not contain xmlns:xacro"
+    );
+
+    // Should be valid XML
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(parsed.is_ok(), "Output should be valid XML");
+}
+
+#[test]
+fn test_other_namespaces_preserved() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       xmlns:gazebo="http://gazebo.org/schema"
+       xmlns:ignition="http://ignitionrobotics.org/schema"
+       name="test">
+  <xacro:property name="wheel_radius" value="0.1"/>
+
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="0.05"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="base_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
+  <ignition:plugin filename="libMyPlugin.so" name="my_plugin">
+    <param>value</param>
+  </ignition:plugin>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // xacro namespace should be removed
+    assert!(
+        !output.contains("xmlns:xacro"),
+        "xacro namespace should be removed"
+    );
+
+    // Other namespaces should be preserved
+    assert!(
+        output.contains("xmlns:gazebo"),
+        "gazebo namespace should be preserved"
+    );
+    assert!(
+        output.contains("xmlns:ignition"),
+        "ignition namespace should be preserved"
+    );
+
+    // Elements using those namespaces should be present
+    assert!(
+        output.contains("<gazebo"),
+        "gazebo element should be present"
+    );
+    assert!(
+        output.contains("ignition:plugin"),
+        "ignition:plugin should be present"
+    );
+
+    // Should be valid XML
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
+}
+
+#[test]
+fn test_unimplemented_feature_detection_arg() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="robot_name" default="my_robot"/>
+  <link name="base_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(result.is_err(), "Should error on unimplemented xacro:arg");
+
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("xacro:arg"), "Error should mention xacro:arg");
+    assert!(
+        err.contains("not implemented"),
+        "Error should say not implemented"
+    );
+}
+
+#[test]
+fn test_unimplemented_feature_detection_element() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:element xacro:name="link" name="base"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Should error on unimplemented xacro:element"
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("xacro:element"),
+        "Error should mention xacro:element"
+    );
+}
+
+#[test]
+fn test_unimplemented_feature_detection_attribute() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:attribute name="some_attr" value="some_value"/>
+  <link name="base_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Should error on unimplemented xacro:attribute"
+    );
+
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("xacro:attribute"),
+        "Error should mention xacro:attribute"
+    );
+    assert!(
+        err.contains("not implemented"),
+        "Error should say not implemented"
+    );
+}
+
+#[test]
+fn test_no_invalid_xml_from_unprocessed_elements() {
+    // Simulates a bug where processor fails to remove a xacro:* element
+    // The finalize_tree should catch this and error instead of producing invalid XML
+
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:unknown_feature/>
+  <link name="base_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should error, not produce invalid XML
+    assert!(result.is_err(), "Should error on unknown xacro element");
+
+    // Verify it errors (either as undefined macro or unprocessed element)
+    // Unknown xacro elements are caught by MacroProcessor as undefined macros
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unknown_feature") || err.contains("This element was not processed"),
+        "Error should mention the unknown xacro element: {}",
+        err
+    );
+}
+
+#[test]
+fn test_implemented_features_work_without_macros() {
+    // Test implemented features that don't hit the macro parameter scoping bug
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="length" value="0.5"/>
+
+  <link name="my_link">
+    <visual>
+      <geometry>
+        <box size="${length} 0.1 0.1"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <xacro:if value="true">
+    <link name="conditional_link"/>
+  </xacro:if>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should process successfully
+    assert!(output.contains("my_link"), "Link should be present");
+    assert!(
+        output.contains("conditional_link"),
+        "Conditional should be processed"
+    );
+    assert!(output.contains("0.5"), "Property should be substituted");
+
+    // xacro namespace should be removed
+    assert!(
+        !output.contains("xmlns:xacro"),
+        "xacro namespace should be removed"
+    );
+
+    // No xacro:* elements should remain
+    assert!(
+        !output.contains("xacro:property"),
+        "xacro:property should be removed"
+    );
+    assert!(!output.contains("xacro:if"), "xacro:if should be removed");
+
+    // Verify output is valid XML (consistent with other tests)
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
+}
+
+// TODO: Add macro test once macro parameter scoping bug is fixed, high priority

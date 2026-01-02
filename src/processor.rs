@@ -26,16 +26,38 @@ impl XacroProcessor {
         }
     }
 
+    /// Process xacro content from a file path
     pub fn run<P: AsRef<std::path::Path>>(
         &self,
         path: P,
     ) -> Result<String, XacroError> {
         let xml = XacroProcessor::parse_file(&path)?;
+        self.run_impl(xml, path.as_ref())
+    }
 
-        // 2. Process features in order
-        let xml = self.includes.process(xml, path.as_ref())?;
+    /// Process xacro content from a string
+    ///
+    /// # Note
+    /// Any `<xacro:include>` directives with relative paths will be resolved
+    /// relative to the current working directory.
+    pub fn run_from_string(
+        &self,
+        content: &str,
+    ) -> Result<String, XacroError> {
+        let xml = xmltree::Element::parse(content.as_bytes())?;
+        // Use current directory as base path for any includes in test content
+        self.run_impl(xml, std::path::Path::new("."))
+    }
 
-        // CRITICAL: PropertyProcessor now returns (Element, HashMap)
+    /// Internal implementation
+    fn run_impl(
+        &self,
+        xml: xmltree::Element,
+        base_path: &std::path::Path,
+    ) -> Result<String, XacroError> {
+        // Process features in order
+        let xml = self.includes.process(xml, base_path)?;
+
         // The HashMap contains all properties for use by subsequent processors
         let (xml, properties) = self.properties.process(xml)?;
 
@@ -44,8 +66,48 @@ impl XacroProcessor {
 
         // Pass properties to ConditionProcessor for expression evaluation
         let xml = self.conditions.process(xml, &properties)?;
-        let xml = self.loops.process(xml)?;
+        let mut xml = self.loops.process(xml)?;
+
+        // Final cleanup: check for unprocessed xacro:* elements and remove xacro namespace
+        // Does both in a single recursive pass for efficiency
+        Self::finalize_tree(&mut xml)?;
 
         XacroProcessor::serialize(xml)
+    }
+
+    fn finalize_tree(element: &mut xmltree::Element) -> Result<(), XacroError> {
+        // Check if this element is in the xacro namespace (indicates unprocessed feature)
+        // Must check namespace URI, not prefix, to handle namespace aliasing (e.g., xmlns:x="...")
+        use crate::utils::xml::XACRO_NAMESPACE;
+        if element.namespace.as_deref() == Some(XACRO_NAMESPACE) {
+            // Use centralized feature lists for consistent error messages
+            use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
+            return Err(XacroError::UnimplementedFeature(format!(
+                "<xacro:{}>\n\
+                     This element was not processed. Either:\n\
+                     1. The feature is not implemented yet (known unimplemented: {})\n\
+                     2. There's a bug in the processor\n\
+                     \n\
+                     Currently implemented: {}",
+                element.name,
+                UNIMPLEMENTED_FEATURES.join(", "),
+                IMPLEMENTED_FEATURES.join(", ")
+            )));
+        }
+
+        // Remove xacro namespace declaration
+        // Keep all other namespaces (gazebo, ignition, etc.)
+        if let Some(ref mut ns) = element.namespaces {
+            ns.0.remove("xacro");
+        }
+
+        // Recursively process children
+        for child in &mut element.children {
+            if let Some(child_elem) = child.as_mut_element() {
+                Self::finalize_tree(child_elem)?;
+            }
+        }
+
+        Ok(())
     }
 }
