@@ -63,4 +63,7 @@ pub enum XacroError {
 
     #[error("Block insert recursion limit exceeded: depth {depth} > {limit} (possible circular block references)")]
     BlockInsertRecursionLimit { depth: usize, limit: usize },
+
+    #[error("Unimplemented xacro feature: {0}")]
+    UnimplementedFeature(String),
 }
