@@ -8,9 +8,16 @@ use xmltree::{
     XMLNode::{Element as NodeElement, Text as TextElement},
 };
 
-/// Built-in math constant names that are pre-initialized
+/// Built-in math constants (name, value) that are pre-initialized
 /// Users can override these, but will receive a warning
-const BUILTIN_CONSTANTS: &[&str] = &["pi", "e", "tau", "M_PI", "inf", "nan"];
+const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
+    ("pi", core::f64::consts::PI),
+    ("e", core::f64::consts::E),
+    ("tau", core::f64::consts::TAU),
+    ("M_PI", core::f64::consts::PI), // Legacy alias
+    ("inf", f64::INFINITY),
+    ("nan", f64::NAN),
+];
 
 pub struct PropertyProcessor {
     interpreter: Interpreter,
@@ -41,19 +48,11 @@ impl PropertyProcessor {
     /// For now, we add the most commonly used constants. Functions would require
     /// extending pyisheval or the expression evaluator.
     fn init_math_constants(properties: &mut HashMap<String, String>) {
-        use core::f64::consts;
-
-        properties.extend([
-            // Core math constants (matching Python's math module)
-            ("pi".to_string(), consts::PI.to_string()),
-            ("e".to_string(), consts::E.to_string()),
-            ("tau".to_string(), consts::TAU.to_string()),
-            // Legacy alias (used in some older URDF files)
-            ("M_PI".to_string(), consts::PI.to_string()),
-            // inf and nan (Python xacro provides these)
-            ("inf".to_string(), f64::INFINITY.to_string()),
-            ("nan".to_string(), f64::NAN.to_string()),
-        ]);
+        properties.extend(
+            BUILTIN_CONSTANTS
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string())),
+        );
     }
 
     /// Process properties in XML tree, returning both the processed tree and the properties map
@@ -99,7 +98,7 @@ impl PropertyProcessor {
                 element.attributes.get("value"),
             ) {
                 // Warn if user is overriding a built-in constant
-                if BUILTIN_CONSTANTS.contains(&name.as_str()) {
+                if BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str()) {
                     warn!(
                         "Property '{}' overrides built-in math constant. \
                          This may cause unexpected behavior. \

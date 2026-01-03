@@ -483,24 +483,18 @@ mod property_tests {
         let inertia = link
             .get_child("inertia")
             .expect("Should find inertia element");
-        let ixx: f64 = inertia
-            .attributes
-            .get("ixx")
-            .expect("Should have ixx")
-            .parse()
-            .expect("Should parse ixx");
-        let iyy: f64 = inertia
-            .attributes
-            .get("iyy")
-            .expect("Should have iyy")
-            .parse()
-            .expect("Should parse iyy");
-        let izz: f64 = inertia
-            .attributes
-            .get("izz")
-            .expect("Should have izz")
-            .parse()
-            .expect("Should parse izz");
+
+        let get_attr_f64 = |elem: &xmltree::Element, name: &str| -> f64 {
+            elem.attributes
+                .get(name)
+                .unwrap_or_else(|| panic!("Should have attribute '{}'", name))
+                .parse()
+                .unwrap_or_else(|_| panic!("Attribute '{}' should parse to f64", name))
+        };
+
+        let ixx = get_attr_f64(inertia, "ixx");
+        let iyy = get_attr_f64(inertia, "iyy");
+        let izz = get_attr_f64(inertia, "izz");
 
         assert!(
             (ixx - core::f64::consts::E).abs() < TOLERANCE,
@@ -526,7 +520,7 @@ mod property_tests {
         let get_meta_value = |name: &str| -> f64 {
             meta_elements
                 .iter()
-                .find(|e| e.attributes.get("name") == Some(&name.to_string()))
+                .find(|e| e.attributes.get("name").map_or(false, |val| val == name))
                 .unwrap_or_else(|| panic!("Should find meta element with name '{}'", name))
                 .attributes
                 .get("value")
