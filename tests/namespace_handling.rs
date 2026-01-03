@@ -1,4 +1,4 @@
-use xacro::XacroProcessor;
+use xacro::{XacroError, XacroProcessor};
 
 #[test]
 fn test_xacro_namespace_removed() {
@@ -413,11 +413,13 @@ fn test_xacro_element_without_namespace_declaration_fails() {
     );
 
     let err = result.unwrap_err();
-    let err_msg = format!("{}", err);
     assert!(
-        err_msg.contains("no xacro namespace declared"),
-        "Error message should mention missing namespace declaration, got: {}",
-        err_msg
+        matches!(
+            err,
+            XacroError::MissingNamespace(ref msg) if msg.contains("no xacro namespace declared")
+        ),
+        "Expected MissingNamespace error with 'no xacro namespace declared' message, got: {:?}",
+        err
     );
 }
 
@@ -434,10 +436,18 @@ fn test_invalid_xacro_namespace_uri_with_typo() {
     let result = processor.run_from_string(input);
 
     // Should fail - the URI has a typo ("xacr" instead of "xacro")
-    // Since namespace is invalid, xacro_ns will be empty string,
-    // and finalize_tree will detect the xacro:property element
     assert!(
         result.is_err(),
         "Should fail when xacro prefix is bound to invalid URI"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            XacroError::MissingNamespace(ref msg) if msg.contains("unknown URI") || msg.contains("typo")
+        ),
+        "Expected MissingNamespace error mentioning invalid URI or typo, got: {:?}",
+        err
     );
 }
