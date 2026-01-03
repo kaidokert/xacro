@@ -1,11 +1,16 @@
 use crate::error::XacroError;
 use crate::utils::xml::is_xacro_element;
+use log::warn;
 use pyisheval::Interpreter;
 use std::collections::HashMap;
 use xmltree::{
     Element,
     XMLNode::{Element as NodeElement, Text as TextElement},
 };
+
+/// Built-in math constant names that are pre-initialized
+/// Users can override these, but will receive a warning
+const BUILTIN_CONSTANTS: &[&str] = &["pi", "e", "tau", "M_PI", "inf", "nan"];
 
 pub struct PropertyProcessor {
     interpreter: Interpreter,
@@ -38,17 +43,17 @@ impl PropertyProcessor {
     fn init_math_constants(properties: &mut HashMap<String, String>) {
         use core::f64::consts;
 
-        // Core math constants (matching Python's math module)
-        properties.insert("pi".to_string(), consts::PI.to_string());
-        properties.insert("e".to_string(), consts::E.to_string());
-        properties.insert("tau".to_string(), consts::TAU.to_string());
-
-        // Legacy alias (used in some older URDF files)
-        properties.insert("M_PI".to_string(), consts::PI.to_string());
-
-        // inf and nan (Python xacro provides these)
-        properties.insert("inf".to_string(), f64::INFINITY.to_string());
-        properties.insert("nan".to_string(), f64::NAN.to_string());
+        properties.extend([
+            // Core math constants (matching Python's math module)
+            ("pi".to_string(), consts::PI.to_string()),
+            ("e".to_string(), consts::E.to_string()),
+            ("tau".to_string(), consts::TAU.to_string()),
+            // Legacy alias (used in some older URDF files)
+            ("M_PI".to_string(), consts::PI.to_string()),
+            // inf and nan (Python xacro provides these)
+            ("inf".to_string(), f64::INFINITY.to_string()),
+            ("nan".to_string(), f64::NAN.to_string()),
+        ]);
     }
 
     /// Process properties in XML tree, returning both the processed tree and the properties map
@@ -93,6 +98,16 @@ impl PropertyProcessor {
                 element.attributes.get("name"),
                 element.attributes.get("value"),
             ) {
+                // Warn if user is overriding a built-in constant
+                if BUILTIN_CONSTANTS.contains(&name.as_str()) {
+                    warn!(
+                        "Property '{}' overrides built-in math constant. \
+                         This may cause unexpected behavior. \
+                         Consider using a different name.",
+                        name
+                    );
+                }
+
                 // Evaluate the value in case it contains expressions referencing other properties
                 let evaluated_value = self.substitute_in_text(value, properties)?;
                 properties.insert(name.clone(), evaluated_value);

@@ -427,17 +427,13 @@ mod property_tests {
         env_logger::try_init().ok();
         let input = r#"
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <!-- Test pi constant -->
-  <xacro:property name="half_pi" value="${pi/2}"/>
-  <xacro:property name="quarter_pi" value="${M_PI/4}"/>
-
-  <!-- Test e, tau -->
-  <xacro:property name="euler" value="${e}"/>
-  <xacro:property name="full_circle" value="${tau}"/>
-
-  <!-- Use in element -->
+  <!-- Test all math constants in attributes -->
   <link name="test">
     <origin rpy="${pi} ${-pi/2} ${tau/4}"/>
+    <inertia ixx="${e}" iyy="${M_PI/4}" izz="${tau}"/>
+    <meta name="inf_test" value="${inf}"/>
+    <meta name="neg_inf_test" value="${-inf}"/>
+    <meta name="nan_test" value="${nan}"/>
   </link>
 </robot>
 "#;
@@ -452,25 +448,127 @@ mod property_tests {
 
         let output = result.unwrap();
 
-        // Verify pi evaluates correctly (${pi})
+        // Parse the output XML to verify numeric values
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Failed to parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+
+        // Verify pi, -pi/2, tau/4 in origin rpy attribute
+        let origin = link
+            .get_child("origin")
+            .expect("Should find origin element");
+        let rpy_str = origin
+            .attributes
+            .get("rpy")
+            .expect("Should have rpy attribute");
+        let rpy_values: Vec<f64> = rpy_str
+            .split_whitespace()
+            .map(|s| s.parse().expect("Should parse as f64"))
+            .collect();
+
+        const TOLERANCE: f64 = 1e-9;
         assert!(
-            output.contains("3.141592653589793"),
-            "Should contain pi value"
+            (rpy_values[0] - core::f64::consts::PI).abs() < TOLERANCE,
+            "rpy[0] should be pi"
+        );
+        assert!(
+            (rpy_values[1] - (-core::f64::consts::PI / 2.0)).abs() < TOLERANCE,
+            "rpy[1] should be -pi/2"
+        );
+        assert!(
+            (rpy_values[2] - (core::f64::consts::TAU / 4.0)).abs() < TOLERANCE,
+            "rpy[2] should be tau/4"
         );
 
-        // Verify pi/2 evaluates correctly (${pi/2} and ${tau/4} both equal pi/2)
+        // Verify e, M_PI/4, tau in inertia
+        let inertia = link
+            .get_child("inertia")
+            .expect("Should find inertia element");
+        let ixx: f64 = inertia
+            .attributes
+            .get("ixx")
+            .expect("Should have ixx")
+            .parse()
+            .expect("Should parse ixx");
+        let iyy: f64 = inertia
+            .attributes
+            .get("iyy")
+            .expect("Should have iyy")
+            .parse()
+            .expect("Should parse iyy");
+        let izz: f64 = inertia
+            .attributes
+            .get("izz")
+            .expect("Should have izz")
+            .parse()
+            .expect("Should parse izz");
+
         assert!(
-            output.contains("1.5707963267948966"),
-            "Should contain pi/2 value (from pi/2 or tau/4)"
+            (ixx - core::f64::consts::E).abs() < TOLERANCE,
+            "ixx should be e"
+        );
+        assert!(
+            (iyy - (core::f64::consts::PI / 4.0)).abs() < TOLERANCE,
+            "iyy should be M_PI/4 (verifies M_PI alias)"
+        );
+        assert!(
+            (izz - core::f64::consts::TAU).abs() < TOLERANCE,
+            "izz should be tau"
         );
 
-        // Verify -pi/2 evaluates correctly (${-pi/2})
+        // Verify inf and nan in meta elements
+        let meta_elements: Vec<_> = link
+            .children
+            .iter()
+            .filter_map(|node| {
+                if let xmltree::XMLNode::Element(elem) = node {
+                    if elem.name == "meta" {
+                        return Some(elem);
+                    }
+                }
+                None
+            })
+            .collect();
+
+        let inf_meta = meta_elements
+            .iter()
+            .find(|e| e.attributes.get("name") == Some(&"inf_test".to_string()))
+            .expect("Should find inf_test meta");
+        let inf_val: f64 = inf_meta
+            .attributes
+            .get("value")
+            .expect("Should have value")
+            .parse()
+            .expect("Should parse inf");
         assert!(
-            output.contains("-1.5707963267948966"),
-            "Should contain -pi/2 value"
+            inf_val.is_infinite() && inf_val.is_sign_positive(),
+            "Should be +inf"
         );
 
-        // Note: Properties like half_pi, euler, full_circle are collected but removed from output
-        // They're still available for use in expressions (as tested above with the rpy attribute)
+        let neg_inf_meta = meta_elements
+            .iter()
+            .find(|e| e.attributes.get("name") == Some(&"neg_inf_test".to_string()))
+            .expect("Should find neg_inf_test meta");
+        let neg_inf_val: f64 = neg_inf_meta
+            .attributes
+            .get("value")
+            .expect("Should have value")
+            .parse()
+            .expect("Should parse -inf");
+        assert!(
+            neg_inf_val.is_infinite() && neg_inf_val.is_sign_negative(),
+            "Should be -inf"
+        );
+
+        let nan_meta = meta_elements
+            .iter()
+            .find(|e| e.attributes.get("name") == Some(&"nan_test".to_string()))
+            .expect("Should find nan_test meta");
+        let nan_val: f64 = nan_meta
+            .attributes
+            .get("value")
+            .expect("Should have value")
+            .parse()
+            .expect("Should parse nan");
+        assert!(nan_val.is_nan(), "Should be NaN");
     }
 }
