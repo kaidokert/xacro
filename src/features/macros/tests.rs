@@ -9,6 +9,9 @@ mod macro_tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    /// Standard xacro namespace for tests
+    const XACRO_NS: &str = "http://www.ros.org/wiki/xacro";
+
     #[test]
     fn test_macro_basic() -> Result<(), XacroError> {
         env_logger::try_init().ok();
@@ -19,7 +22,7 @@ mod macro_tests {
 
         // For this test, no global properties needed
         let global_properties = HashMap::new();
-        let actual = macro_processor.process(data, &global_properties)?;
+        let actual = macro_processor.process(data, &global_properties, XACRO_NS)?;
 
         let expected_str = pretty_print_xml(&expected);
         let actual_str = pretty_print_xml(&actual);
@@ -54,7 +57,9 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Check that nested macro was expanded
         assert_eq!(result.children.len(), 1);
@@ -88,7 +93,9 @@ mod macro_tests {
         let mut global_properties = HashMap::new();
         global_properties.insert("pi".to_string(), "3.14159".to_string());
 
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Check that macro referenced global property
         // Note: xacro:property elements are still present (PropertyProcessor removes them)
@@ -133,7 +140,9 @@ mod macro_tests {
         let mut global_properties = HashMap::new();
         global_properties.insert("x".to_string(), "1".to_string());
 
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Macro param (x="2") should override global property (x="1")
         // Note: xacro:property elements are still present (PropertyProcessor removes them)
@@ -178,7 +187,9 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Test 3 levels of nesting all expanded correctly
         assert_eq!(result.children.len(), 1);
@@ -211,7 +222,9 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Should have wrapper with item inside
         assert_eq!(result.children.len(), 1);
@@ -249,7 +262,9 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Should produce joint with origin
         assert_eq!(result.children.len(), 1);
@@ -288,7 +303,9 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Should duplicate the block
         assert_eq!(result.children.len(), 2);
@@ -325,7 +342,9 @@ mod macro_tests {
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let mut global_properties = HashMap::new();
         global_properties.insert("x".to_string(), "0.5".to_string());
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // ${x} should be evaluated in the block
         assert_eq!(result.children.len(), 1);
@@ -356,7 +375,9 @@ mod macro_tests {
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let mut global_properties = HashMap::new();
         global_properties.insert("global_x".to_string(), "1.0".to_string());
-        let result = macro_processor.process(xml, &global_properties).unwrap();
+        let result = macro_processor
+            .process(xml, &global_properties, XACRO_NS)
+            .unwrap();
 
         // Should produce origin with both global and local props substituted
         // Note: pyisheval evaluates 1.0 and 2.0 as numbers, which convert to "1" and "2" (not "1.0", "2.0")
@@ -385,7 +406,7 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties);
+        let result = macro_processor.process(xml, &global_properties, XACRO_NS);
 
         // Should error - missing block parameter
         let err = result.unwrap_err();
@@ -414,7 +435,7 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties);
+        let result = macro_processor.process(xml, &global_properties, XACRO_NS);
 
         // Should error - too many children (provided 2, expected 1)
         let err = result.unwrap_err();
@@ -442,7 +463,7 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties);
+        let result = macro_processor.process(xml, &global_properties, XACRO_NS);
 
         // Should error - undefined block name
         let err = result.unwrap_err();
@@ -466,7 +487,7 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties);
+        let result = macro_processor.process(xml, &global_properties, XACRO_NS);
 
         // Should error during macro collection - block params can't have defaults
         let err = result.unwrap_err();
@@ -499,7 +520,9 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new()).unwrap();
+        let result = macro_processor
+            .process(xml, &HashMap::new(), XACRO_NS)
+            .unwrap();
 
         // The nested macro inside the block should be fully expanded
         assert_eq!(result.children.len(), 1);
@@ -543,7 +566,9 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new()).unwrap();
+        let result = macro_processor
+            .process(xml, &HashMap::new(), XACRO_NS)
+            .unwrap();
 
         // Verify positional ordering: first child -> "first" param, second child -> "second" param
         assert_eq!(result.children.len(), 1);
@@ -579,7 +604,7 @@ mod macro_tests {
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
         let global_properties = HashMap::new();
-        let result = macro_processor.process(xml, &global_properties);
+        let result = macro_processor.process(xml, &global_properties, XACRO_NS);
 
         // Should error - empty parameter name (just "*")
         let err = result.unwrap_err();
@@ -604,7 +629,7 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new());
+        let result = macro_processor.process(xml, &HashMap::new(), XACRO_NS);
 
         // Should error - empty parameter name with ":=foo"
         let err = result.unwrap_err();
@@ -627,7 +652,7 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new());
+        let result = macro_processor.process(xml, &HashMap::new(), XACRO_NS);
 
         // Should error - duplicate parameter "foo" (once as block, once as regular)
         let err = result.unwrap_err();
@@ -650,7 +675,7 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new());
+        let result = macro_processor.process(xml, &HashMap::new(), XACRO_NS);
 
         // Should error - duplicate parameter "foo"
         let err = result.unwrap_err();
@@ -679,7 +704,7 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new());
+        let result = macro_processor.process(xml, &HashMap::new(), XACRO_NS);
 
         // Should error - "content" is a block param but specified as attribute
         let err = result.unwrap_err();
@@ -713,7 +738,7 @@ mod macro_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let macro_processor: MacroProcessor = MacroProcessor::new();
-        let result = macro_processor.process(xml, &HashMap::new());
+        let result = macro_processor.process(xml, &HashMap::new(), XACRO_NS);
 
         // Should error - circular block references (block1 -> block2 -> block1)
         let err = result.unwrap_err();

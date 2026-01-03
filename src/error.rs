@@ -66,6 +66,9 @@ pub enum XacroError {
 
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
+
+    #[error("Missing xacro namespace declaration: {0}")]
+    MissingNamespace(String),
 }
 
 // Feature lists for consistent error messages

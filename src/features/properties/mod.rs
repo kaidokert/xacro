@@ -1,5 +1,5 @@
 use crate::error::XacroError;
-use crate::utils::xml::{is_xacro_element, XACRO_NAMESPACE};
+use crate::utils::xml::is_xacro_element;
 use pyisheval::Interpreter;
 use std::collections::HashMap;
 use xmltree::{
@@ -14,8 +14,11 @@ pub struct PropertyProcessor {
 /// Helper: Check if we should skip processing this element's body
 /// Macro definition bodies should NOT be processed during property collection/substitution
 /// because macro parameters (like ${name}) don't exist until expansion time.
-fn should_skip_macro_body(element: &Element) -> bool {
-    is_xacro_element(element, "macro")
+fn should_skip_macro_body(
+    element: &Element,
+    xacro_ns: &str,
+) -> bool {
+    is_xacro_element(element, "macro", xacro_ns)
 }
 
 impl PropertyProcessor {
@@ -33,11 +36,12 @@ impl PropertyProcessor {
     pub fn process(
         &self,
         mut xml: Element,
+        xacro_ns: &str,
     ) -> Result<(Element, HashMap<String, String>), XacroError> {
         let mut properties = HashMap::new();
-        self.collect_properties(&xml, &mut properties)?;
-        self.substitute_properties(&mut xml, &properties)?;
-        Self::remove_property_elements(&mut xml);
+        self.collect_properties(&xml, &mut properties, xacro_ns)?;
+        self.substitute_properties(&mut xml, &properties, xacro_ns)?;
+        Self::remove_property_elements(&mut xml, xacro_ns);
         Ok((xml, properties)) // Return both Element and properties!
     }
 
@@ -45,18 +49,18 @@ impl PropertyProcessor {
         &self,
         element: &Element,
         properties: &mut HashMap<String, String>,
+        xacro_ns: &str,
     ) -> Result<(), XacroError> {
         // CRITICAL: Skip macro definition bodies
         // Macro parameters don't exist during definition, only during expansion
-        if should_skip_macro_body(element) {
+        if should_skip_macro_body(element, xacro_ns) {
             return Ok(()); // Don't recurse into macro bodies
         }
 
         // Check if this is a property element (either <property> or <xacro:property>)
         // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
         let is_property = element.name == "property"
-            && (element.namespace.is_none()
-                || element.namespace.as_deref() == Some(XACRO_NAMESPACE));
+            && (element.namespace.is_none() || element.namespace.as_deref() == Some(xacro_ns));
 
         if is_property {
             if let (Some(name), Some(value)) = (
@@ -71,7 +75,7 @@ impl PropertyProcessor {
 
         for child in &element.children {
             if let NodeElement(child_elem) = child {
-                self.collect_properties(child_elem, properties)?;
+                self.collect_properties(child_elem, properties, xacro_ns)?;
             }
         }
 
@@ -82,11 +86,12 @@ impl PropertyProcessor {
         &self,
         element: &mut Element,
         properties: &HashMap<String, String>,
+        xacro_ns: &str,
     ) -> Result<(), XacroError> {
         // CRITICAL: Skip macro definition bodies
         // Macro parameters (like ${name}, ${size}) don't exist during definition
         // They'll be substituted by MacroProcessor during expansion
-        if should_skip_macro_body(element) {
+        if should_skip_macro_body(element, xacro_ns) {
             return Ok(()); // Don't recurse into macro bodies
         }
 
@@ -95,7 +100,8 @@ impl PropertyProcessor {
         // 1. ConditionProcessor needs the raw expression like "${3*0.1}"
         // 2. If we substitute, it becomes "0.3" string, losing type information
         // 3. This breaks float truthiness in eval_boolean
-        let is_conditional = is_xacro_element(element, "if") || is_xacro_element(element, "unless");
+        let is_conditional = is_xacro_element(element, "if", xacro_ns)
+            || is_xacro_element(element, "unless", xacro_ns);
 
         // Process attributes
         for (key, value) in element.attributes.iter_mut() {
@@ -110,7 +116,7 @@ impl PropertyProcessor {
         // Recurse into children
         for child in &mut element.children {
             if let NodeElement(child_elem) = child {
-                self.substitute_properties(child_elem, properties)?;
+                self.substitute_properties(child_elem, properties, xacro_ns)?;
             } else if let TextElement(text) = child {
                 *text = self.substitute_in_text(text, properties)?;
             }
@@ -140,14 +146,17 @@ impl PropertyProcessor {
         })
     }
 
-    pub(crate) fn remove_property_elements(element: &mut Element) {
+    pub(crate) fn remove_property_elements(
+        element: &mut Element,
+        xacro_ns: &str,
+    ) {
         element.children.retain_mut(|child| {
             if let NodeElement(child_elem) = child {
                 // Remove property elements (either <property> or <xacro:property>)
                 // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
                 let is_property = child_elem.name == "property"
                     && (child_elem.namespace.is_none()
-                        || child_elem.namespace.as_deref() == Some(XACRO_NAMESPACE));
+                        || child_elem.namespace.as_deref() == Some(xacro_ns));
 
                 if is_property {
                     return false;
@@ -155,8 +164,8 @@ impl PropertyProcessor {
 
                 // CRITICAL: Don't recurse into macro bodies
                 // Properties inside macros need to stay until macro expansion
-                if !should_skip_macro_body(child_elem) {
-                    Self::remove_property_elements(child_elem);
+                if !should_skip_macro_body(child_elem, xacro_ns) {
+                    Self::remove_property_elements(child_elem, xacro_ns);
                 }
             }
             true

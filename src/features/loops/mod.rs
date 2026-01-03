@@ -12,6 +12,7 @@ impl LoopProcessor {
     pub fn process(
         &self,
         xml: Element,
+        _xacro_ns: &str,
     ) -> Result<Element, XacroError> {
         Ok(xml)
     }

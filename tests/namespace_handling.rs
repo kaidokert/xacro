@@ -1,4 +1,4 @@
-use xacro::XacroProcessor;
+use xacro::{XacroError, XacroProcessor};
 
 #[test]
 fn test_xacro_namespace_removed() {
@@ -313,5 +313,141 @@ fn test_implemented_features_work_with_macros() {
         parsed.is_ok(),
         "Output should be valid XML: {:?}",
         parsed.err()
+    );
+}
+
+#[test]
+fn test_nonstandard_prefix_with_known_uri() {
+    // Test that we can handle xmlns:foo="http://www.ros.org/wiki/xacro" (non-standard prefix)
+    // This goes beyond Python xacro's capabilities (which only accepts "xacro" prefix)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:foo="http://www.ros.org/wiki/xacro" name="test">
+  <foo:property name="width" value="2"/>
+  <foo:property name="height" value="3"/>
+  <link name="base">
+    <visual>
+      <geometry>
+        <box size="${width} ${height} 1"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should process successfully
+    assert!(output.contains(r#"name="base""#), "Link should be present");
+    assert!(output.contains("2 3 1"), "Properties should be substituted");
+
+    // The xmlns:foo should be removed since we detected it's a xacro namespace
+    assert!(
+        !output.contains("xmlns:foo"),
+        "Non-standard xacro prefix should be removed, but got:\n{}",
+        output
+    );
+
+    // No foo:property elements should remain
+    assert!(
+        !output.contains("foo:property"),
+        "foo:property should be removed"
+    );
+
+    // Verify output is valid XML
+    let parsed = xmltree::Element::parse(output.as_bytes());
+    assert!(
+        parsed.is_ok(),
+        "Output should be valid XML: {:?}",
+        parsed.err()
+    );
+}
+
+#[test]
+fn test_plain_urdf_without_xacro_namespace() {
+    // Test backward compatibility: plain URDF files without xacro namespace should work
+    let input = r#"<?xml version="1.0"?>
+<robot name="simple">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="1 1 1"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_ok(),
+        "Plain URDF without xacro namespace should process successfully (backward compatible)"
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="base_link""#),
+        "Link should be present"
+    );
+    assert!(
+        output.contains(r#"<box size="1 1 1""#),
+        "Geometry should be preserved"
+    );
+}
+
+#[test]
+fn test_xacro_element_without_namespace_declaration_fails() {
+    // Test that xacro elements WITH namespace URI but WITHOUT root declaration fail with helpful error
+    let input = r#"<?xml version="1.0"?>
+<robot name="invalid">
+  <property xmlns="http://www.ros.org/wiki/xacro" name="x" value="1"/>
+  <link name="base_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Should fail when xacro elements are used without namespace declaration"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            XacroError::MissingNamespace(ref msg) if msg.contains("no xacro namespace declared")
+        ),
+        "Expected MissingNamespace error with 'no xacro namespace declared' message, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_invalid_xacro_namespace_uri_with_typo() {
+    // Test that typos in xacro namespace URI are rejected (not silently accepted)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacr" name="test">
+  <xacro:property name="x" value="1"/>
+  <link name="base"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should fail - the URI has a typo ("xacr" instead of "xacro")
+    assert!(
+        result.is_err(),
+        "Should fail when xacro prefix is bound to invalid URI"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            XacroError::MissingNamespace(ref msg) if msg.contains("unknown URI") || msg.contains("typo")
+        ),
+        "Expected MissingNamespace error mentioning invalid URI or typo, got: {:?}",
+        err
     );
 }

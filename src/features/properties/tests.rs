@@ -6,6 +6,9 @@ mod property_tests {
     use log::error;
     use std::path::Path;
 
+    /// Standard xacro namespace for tests
+    const XACRO_NS: &str = "http://www.ros.org/wiki/xacro";
+
     #[test]
     fn test_property_basic() {
         env_logger::try_init().ok();
@@ -15,7 +18,7 @@ mod property_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/property_test_expected.xacro").unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -35,7 +38,7 @@ mod property_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/property_test_nested_expected.xacro").unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -55,7 +58,7 @@ mod property_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/property_test_multiple_expected.xacro").unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -77,7 +80,7 @@ mod property_tests {
         )
         .unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -98,7 +101,7 @@ mod property_tests {
             XacroProcessor::parse_file("tests/data/property_test_attributes_expected.xacro")
                 .unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -120,7 +123,7 @@ mod property_tests {
         )
         .unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -140,7 +143,7 @@ mod property_tests {
         let expected =
             XacroProcessor::parse_file("tests/data/eval_arithmetic_expected.urdf").unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -164,7 +167,7 @@ mod property_tests {
             XacroProcessor::parse_file("tests/data/property_value_expressions_expected.urdf")
                 .unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -185,7 +188,7 @@ mod property_tests {
         let path = Path::new("tests/data/property_error_in_value.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         assert!(result.is_err(), "expected eval error in property value");
         let err = result.unwrap_err();
@@ -215,7 +218,7 @@ mod property_tests {
             XacroProcessor::parse_file("tests/data/property_namespace_handling_expected.urdf")
                 .unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
 
         if result.is_err() {
             error!("{:?}", result);
@@ -252,7 +255,7 @@ mod property_tests {
         "#;
         let data = xmltree::Element::parse(input.as_bytes()).unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
         assert!(result.is_ok());
 
         let (_output, properties) = result.unwrap();
@@ -290,7 +293,7 @@ mod property_tests {
         "#;
         let data = xmltree::Element::parse(input.as_bytes()).unwrap();
 
-        let result = property_processor.process(data);
+        let result = property_processor.process(data, XACRO_NS);
         assert!(result.is_ok());
 
         let (output, _properties) = result.unwrap();
@@ -301,7 +304,7 @@ mod property_tests {
             .iter()
             .find_map(|child| {
                 if let xmltree::XMLNode::Element(elem) = child {
-                    if is_xacro_element(elem, "if") {
+                    if is_xacro_element(elem, "if", XACRO_NS) {
                         return Some(elem);
                     }
                 }
@@ -323,7 +326,7 @@ mod property_tests {
             .iter()
             .find_map(|child| {
                 if let xmltree::XMLNode::Element(elem) = child {
-                    if is_xacro_element(elem, "unless") {
+                    if is_xacro_element(elem, "unless", XACRO_NS) {
                         return Some(elem);
                     }
                 }
@@ -360,7 +363,7 @@ mod property_tests {
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
         let property_processor = PropertyProcessor::new();
-        let (result, properties) = property_processor.process(xml).unwrap();
+        let (result, properties) = property_processor.process(xml, XACRO_NS).unwrap();
 
         // Verify properties were collected despite using 'x:' prefix
         assert_eq!(properties.get("width"), Some(&"2".to_string()));
@@ -379,7 +382,7 @@ mod property_tests {
         // Verify x:if element is still present (not processed by PropertyProcessor)
         let has_if_elem = result.children.iter().any(|child| {
             if let xmltree::XMLNode::Element(elem) = child {
-                is_xacro_element(elem, "if")
+                is_xacro_element(elem, "if", XACRO_NS)
             } else {
                 false
             }
