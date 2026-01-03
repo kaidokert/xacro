@@ -16,23 +16,28 @@ impl XacroProcessor {
         Ok(xmltree::Element::parse(file)?)
     }
 
-    pub(crate) fn serialize(xml: xmltree::Element) -> Result<String, XacroError> {
+    pub(crate) fn serialize(xml: &xmltree::Element) -> Result<String, XacroError> {
         let mut writer = Vec::new();
-        xml.write(&mut writer)?;
+        // Apply pretty-printing to match Python xacro's output formatting
+        // Python uses doc.toprettyxml(indent='  ') which formats with 2-space indent
+        // Python uses self-closing <tag/> for leaf elements
+        xml.write_with_config(
+            &mut writer,
+            xmltree::EmitterConfig::new()
+                .perform_indent(true)
+                .indent_string("  ")
+                .pad_self_closing(false), // Use <tag/> not <tag />
+        )?;
         Ok(String::from_utf8(writer)?)
     }
-}
 
-pub(crate) fn pretty_print_xml(xml: &xmltree::Element) -> String {
-    let mut writer = Vec::new();
-    xml.write_with_config(
-        &mut writer,
-        xmltree::EmitterConfig::new()
-            .perform_indent(true)
-            .indent_string("  "),
-    )
-    .unwrap();
-    String::from_utf8(writer).unwrap()
+    /// Helper for debug/logging that never panics
+    ///
+    /// Returns serialized XML or error message if serialization fails.
+    /// Use this in debug!() statements to avoid panics in logging code.
+    pub(crate) fn serialize_or_err(xml: &xmltree::Element) -> String {
+        Self::serialize(xml).unwrap_or_else(|e| format!("<xacro serialize error: {}>", e))
+    }
 }
 
 #[cfg(test)]
