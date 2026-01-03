@@ -420,4 +420,128 @@ mod property_tests {
 
         assert_eq!(box_elem.attributes.get("size"), Some(&"2 3 1".to_string()));
     }
+
+    #[test]
+    fn test_math_constants() {
+        // Test that built-in math constants (pi, e, tau, M_PI, inf, nan) are available
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Test all math constants in attributes -->
+  <link name="test">
+    <origin rpy="${pi} ${-pi/2} ${tau/4}"/>
+    <inertia ixx="${e}" iyy="${M_PI/4}" izz="${tau}"/>
+    <meta name="inf_test" value="${inf}"/>
+    <meta name="neg_inf_test" value="${-inf}"/>
+    <meta name="nan_test" value="${nan}"/>
+  </link>
+</robot>
+"#;
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Math constants should be available: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+
+        // Parse the output XML to verify numeric values
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Failed to parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+
+        // Verify pi, -pi/2, tau/4 in origin rpy attribute
+        let origin = link
+            .get_child("origin")
+            .expect("Should find origin element");
+        let rpy_str = origin
+            .attributes
+            .get("rpy")
+            .expect("Should have rpy attribute");
+        let rpy_values: Vec<f64> = rpy_str
+            .split_whitespace()
+            .map(|s| s.parse().expect("Should parse as f64"))
+            .collect();
+
+        const TOLERANCE: f64 = 1e-9;
+        assert!(
+            (rpy_values[0] - core::f64::consts::PI).abs() < TOLERANCE,
+            "rpy[0] should be pi"
+        );
+        assert!(
+            (rpy_values[1] - (-core::f64::consts::PI / 2.0)).abs() < TOLERANCE,
+            "rpy[1] should be -pi/2"
+        );
+        assert!(
+            (rpy_values[2] - (core::f64::consts::TAU / 4.0)).abs() < TOLERANCE,
+            "rpy[2] should be tau/4"
+        );
+
+        // Verify e, M_PI/4, tau in inertia
+        let inertia = link
+            .get_child("inertia")
+            .expect("Should find inertia element");
+
+        let get_attr_f64 = |elem: &xmltree::Element, name: &str| -> f64 {
+            elem.attributes
+                .get(name)
+                .unwrap_or_else(|| panic!("Should have attribute '{}'", name))
+                .parse()
+                .unwrap_or_else(|_| panic!("Attribute '{}' should parse to f64", name))
+        };
+
+        let ixx = get_attr_f64(inertia, "ixx");
+        let iyy = get_attr_f64(inertia, "iyy");
+        let izz = get_attr_f64(inertia, "izz");
+
+        assert!(
+            (ixx - core::f64::consts::E).abs() < TOLERANCE,
+            "ixx should be e"
+        );
+        assert!(
+            (iyy - (core::f64::consts::PI / 4.0)).abs() < TOLERANCE,
+            "iyy should be M_PI/4 (verifies M_PI alias)"
+        );
+        assert!(
+            (izz - core::f64::consts::TAU).abs() < TOLERANCE,
+            "izz should be tau"
+        );
+
+        // Verify inf and nan in meta elements
+        let meta_elements: Vec<_> = link
+            .children
+            .iter()
+            .filter_map(|node| node.as_element())
+            .filter(|elem| elem.name == "meta")
+            .collect();
+
+        let get_meta_value = |name: &str| -> f64 {
+            meta_elements
+                .iter()
+                .find(|e| e.attributes.get("name").map_or(false, |val| val == name))
+                .unwrap_or_else(|| panic!("Should find meta element with name '{}'", name))
+                .attributes
+                .get("value")
+                .unwrap_or_else(|| panic!("Meta element '{}' should have a value attribute", name))
+                .parse()
+                .unwrap_or_else(|_| panic!("Value of meta element '{}' should parse to f64", name))
+        };
+
+        let inf_val = get_meta_value("inf_test");
+        assert!(
+            inf_val.is_infinite() && inf_val.is_sign_positive(),
+            "Should be +inf"
+        );
+
+        let neg_inf_val = get_meta_value("neg_inf_test");
+        assert!(
+            neg_inf_val.is_infinite() && neg_inf_val.is_sign_negative(),
+            "Should be -inf"
+        );
+
+        let nan_val = get_meta_value("nan_test");
+        assert!(nan_val.is_nan(), "Should be NaN");
+    }
 }
