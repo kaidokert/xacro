@@ -420,4 +420,57 @@ mod property_tests {
 
         assert_eq!(box_elem.attributes.get("size"), Some(&"2 3 1".to_string()));
     }
+
+    #[test]
+    fn test_math_constants() {
+        // Test that built-in math constants (pi, e, tau, M_PI, inf, nan) are available
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Test pi constant -->
+  <xacro:property name="half_pi" value="${pi/2}"/>
+  <xacro:property name="quarter_pi" value="${M_PI/4}"/>
+
+  <!-- Test e, tau -->
+  <xacro:property name="euler" value="${e}"/>
+  <xacro:property name="full_circle" value="${tau}"/>
+
+  <!-- Use in element -->
+  <link name="test">
+    <origin rpy="${pi} ${-pi/2} ${tau/4}"/>
+  </link>
+</robot>
+"#;
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Math constants should be available: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+
+        // Verify pi evaluates correctly (${pi})
+        assert!(
+            output.contains("3.141592653589793"),
+            "Should contain pi value"
+        );
+
+        // Verify pi/2 evaluates correctly (${pi/2} and ${tau/4} both equal pi/2)
+        assert!(
+            output.contains("1.5707963267948966"),
+            "Should contain pi/2 value (from pi/2 or tau/4)"
+        );
+
+        // Verify -pi/2 evaluates correctly (${-pi/2})
+        assert!(
+            output.contains("-1.5707963267948966"),
+            "Should contain -pi/2 value"
+        );
+
+        // Note: Properties like half_pi, euler, full_circle are collected but removed from output
+        // They're still available for use in expressions (as tested above with the rpy attribute)
+    }
 }

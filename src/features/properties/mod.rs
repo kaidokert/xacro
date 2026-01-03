@@ -29,6 +29,28 @@ impl PropertyProcessor {
         }
     }
 
+    /// Initialize math constants for property evaluation
+    ///
+    /// Python xacro exposes all math module symbols for backwards compatibility.
+    /// This includes constants like pi, e, tau, and functions like sin, cos, etc.
+    /// For now, we add the most commonly used constants. Functions would require
+    /// extending pyisheval or the expression evaluator.
+    fn init_math_constants(properties: &mut HashMap<String, String>) {
+        use core::f64::consts;
+
+        // Core math constants (matching Python's math module)
+        properties.insert("pi".to_string(), consts::PI.to_string());
+        properties.insert("e".to_string(), consts::E.to_string());
+        properties.insert("tau".to_string(), consts::TAU.to_string());
+
+        // Legacy alias (used in some older URDF files)
+        properties.insert("M_PI".to_string(), consts::PI.to_string());
+
+        // inf and nan (Python xacro provides these)
+        properties.insert("inf".to_string(), f64::INFINITY.to_string());
+        properties.insert("nan".to_string(), f64::NAN.to_string());
+    }
+
     /// Process properties in XML tree, returning both the processed tree and the properties map
     ///
     /// CRITICAL: Returns (Element, HashMap) so that properties can be passed to subsequent
@@ -39,6 +61,10 @@ impl PropertyProcessor {
         xacro_ns: &str,
     ) -> Result<(Element, HashMap<String, String>), XacroError> {
         let mut properties = HashMap::new();
+
+        // Initialize built-in math constants
+        Self::init_math_constants(&mut properties);
+
         self.collect_properties(&xml, &mut properties, xacro_ns)?;
         self.substitute_properties(&mut xml, &properties, xacro_ns)?;
         Self::remove_property_elements(&mut xml, xacro_ns);
