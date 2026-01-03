@@ -544,4 +544,87 @@ mod property_tests {
         let nan_val = get_meta_value("nan_test");
         assert!(nan_val.is_nan(), "Should be NaN");
     }
+
+    #[test]
+    fn test_macro_body_not_evaluated_during_definition() {
+        // This test verifies that expressions inside macro definitions
+        // are NOT evaluated during the definition phase, only during expansion.
+        //
+        // The bug: PropertyProcessor was recursing into macro bodies and trying to
+        // evaluate expressions like ${mass * x*x} where mass, x are macro parameters
+        // that don't exist until macro expansion time.
+
+        // Test 1: Macro definition only (no call) - should not error
+        let input1 = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inertial_box" params="mass x y z">
+    <inertia ixx="${(1/12) * mass * (y*y + z*z)}"
+             iyy="${(1/12) * mass * (x*x + z*z)}"
+             izz="${(1/12) * mass * (x*x + y*y)}"/>
+  </xacro:macro>
+</robot>"#;
+
+        let processor = XacroProcessor::new();
+        let result1 = processor.run_from_string(input1);
+        assert!(
+            result1.is_ok(),
+            "Macro definition only should succeed: {:?}",
+            result1.err()
+        );
+
+        // Test 2: Macro with call - parameters should work during expansion
+        let input2 = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inertial_box" params="mass x y z">
+    <inertia ixx="${(1/12) * mass * (y*y + z*z)}"
+             iyy="${(1/12) * mass * (x*x + z*z)}"
+             izz="${(1/12) * mass * (x*x + y*y)}"/>
+  </xacro:macro>
+
+  <link name="test">
+    <xacro:inertial_box mass="1.0" x="0.1" y="0.2" z="0.3"/>
+  </link>
+</robot>"#;
+
+        let result2 = processor.run_from_string(input2);
+        assert!(
+            result2.is_ok(),
+            "Macro with call should succeed: {:?}",
+            result2.err()
+        );
+
+        let output = result2.unwrap();
+        // Verify the expressions were actually evaluated during expansion
+        assert!(
+            output.contains("ixx="),
+            "Should have expanded ixx attribute"
+        );
+        assert!(
+            output.contains("0.01"),
+            "Should have computed numeric values"
+        );
+
+        // Test 3: Nested macro calls (one macro calling another with parameters)
+        let input3 = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inner" params="mass x">
+    <inertia izz="${(1/12) * mass * x*x}"/>
+  </xacro:macro>
+
+  <xacro:macro name="outer" params="mass x">
+    <xacro:inner mass="${mass}" x="${x}"/>
+  </xacro:macro>
+
+  <link name="test">
+    <xacro:outer mass="2.0" x="0.5"/>
+  </link>
+</robot>"#;
+
+        let result3 = processor.run_from_string(input3);
+        assert!(
+            result3.is_ok(),
+            "Nested macro calls should succeed: {:?}",
+            result3.err()
+        );
+    }
 }

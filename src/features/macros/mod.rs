@@ -213,7 +213,8 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                                 }
                             }
                         }
-                    } else {
+                    } else if !Self::is_macro_definition(&child_elem, xacro_ns) {
+                        // Regular element (not a macro call OR definition): recurse into it
                         Self::expand_macros(
                             &mut child_elem,
                             macros,
@@ -221,6 +222,9 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
                             xacro_ns,
                             depth,
                         )?;
+                        new_children.push(NodeElement(child_elem));
+                    } else {
+                        // It's a macro definition: keep it as-is (it will be removed later by remove_macro_definitions)
                         new_children.push(NodeElement(child_elem));
                     }
                 }
