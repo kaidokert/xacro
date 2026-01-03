@@ -111,3 +111,52 @@ fn test_xurdf_sample_property_in_macro() {
         "Missing right_elbow"
     );
 }
+
+/// Test property defined inside macro body, used in conditional with non-standard prefix
+///
+/// This is the same as test_property_inside_macro_used_in_conditional but uses
+/// xmlns:foo="..." instead of xmlns:xacro="..." to verify alias detection works
+/// in this scenario.
+#[test]
+fn test_property_inside_macro_used_in_conditional_with_alias_prefix() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:foo="http://www.ros.org/wiki/xacro">
+  <foo:property name="var" value="test"/>
+
+  <foo:macro name="arm" params="prefix">
+    <foo:property name="prefix_" value="${prefix}_"/>
+
+    <foo:if value="${var == 'test'}">
+      <link name="${prefix_}link"/>
+    </foo:if>
+  </foo:macro>
+
+  <foo:arm prefix="left"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_ok(),
+        "Property inside macro should be available in conditional with alias prefix. Error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="left_link""#),
+        "Expected link name='left_link' in output:\n{}",
+        output
+    );
+
+    // Verify alias prefix is removed from output
+    assert!(
+        !output.contains("xmlns:foo"),
+        "Alias xacro prefix should be removed from output"
+    );
+    assert!(
+        !output.contains("foo:"),
+        "No foo: prefixed elements should remain in output"
+    );
+}

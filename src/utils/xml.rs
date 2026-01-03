@@ -1,8 +1,10 @@
 use xmltree::Element;
 
-/// The official ROS xacro namespace URI (kept for reference/fallback)
-/// NOTE: As of dynamic namespace detection refactor, this is only used as a fallback
-/// and for error messages. The actual xacro namespace is extracted from each document.
+/// The standard ROS xacro namespace URI
+///
+/// This is the most common xacro namespace URI. The xacro processor dynamically
+/// extracts the actual namespace from each document's root element (xmlns:xacro="..."),
+/// so this constant serves as a reference value for external crates or testing.
 pub const XACRO_NAMESPACE: &str = "http://www.ros.org/wiki/xacro";
 
 /// Check if an element is a xacro element with the given tag name
