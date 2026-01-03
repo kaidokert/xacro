@@ -16,7 +16,7 @@ impl XacroProcessor {
         Ok(xmltree::Element::parse(file)?)
     }
 
-    pub(crate) fn serialize(xml: xmltree::Element) -> Result<String, XacroError> {
+    pub(crate) fn serialize(xml: &xmltree::Element) -> Result<String, XacroError> {
         let mut writer = Vec::new();
         // Apply pretty-printing to match Python xacro's output formatting
         // Python uses doc.toprettyxml(indent='  ') which formats with 2-space indent
@@ -30,19 +30,6 @@ impl XacroProcessor {
         )?;
         Ok(String::from_utf8(writer)?)
     }
-}
-
-pub(crate) fn pretty_print_xml(xml: &xmltree::Element) -> String {
-    let mut writer = Vec::new();
-    xml.write_with_config(
-        &mut writer,
-        xmltree::EmitterConfig::new()
-            .perform_indent(true)
-            .indent_string("  ")
-            .pad_self_closing(false), // Match Python: <tag/> not <tag />
-    )
-    .unwrap();
-    String::from_utf8(writer).unwrap()
 }
 
 #[cfg(test)]

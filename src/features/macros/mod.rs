@@ -1,7 +1,8 @@
 use crate::{
     error::XacroError,
     features::properties::PropertyProcessor,
-    utils::{pretty_print_hashmap, pretty_print_xml, xml::is_xacro_element},
+    utils::{pretty_print_hashmap, xml::is_xacro_element},
+    XacroProcessor,
 };
 use log::debug;
 use std::collections::{HashMap, HashSet};
@@ -57,16 +58,19 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
     ) -> Result<Element, XacroError> {
         let mut macros = HashMap::new();
 
-        debug!("Input XML:\n{}", pretty_print_xml(&xml));
+        debug!("Input XML:\n{}", XacroProcessor::serialize(&xml).unwrap());
 
         Self::collect_macros(&xml, &mut macros, xacro_ns)?;
         debug!("Collected macros:\n{}", pretty_print_hashmap(&macros));
 
         Self::expand_macros(&mut xml, &macros, global_properties, xacro_ns, 0)?;
-        debug!("Expanded XML:\n{}", pretty_print_xml(&xml));
+        debug!(
+            "Expanded XML:\n{}",
+            XacroProcessor::serialize(&xml).unwrap()
+        );
 
         Self::remove_macro_definitions(&mut xml, xacro_ns);
-        debug!("Output XML:\n{}", pretty_print_xml(&xml));
+        debug!("Output XML:\n{}", XacroProcessor::serialize(&xml).unwrap());
         Ok(xml)
     }
 

@@ -1,8 +1,8 @@
 use crate::{
     error::XacroError,
     features::{
-        conditions::ConditionProcessor, includes::IncludeProcessor, loops::LoopProcessor,
-        macros::MacroProcessor, properties::PropertyProcessor,
+        conditions::ConditionProcessor, includes::IncludeProcessor, macros::MacroProcessor,
+        properties::PropertyProcessor,
     },
 };
 
@@ -10,7 +10,6 @@ pub struct XacroProcessor {
     macros: MacroProcessor,
     properties: PropertyProcessor,
     conditions: ConditionProcessor,
-    loops: LoopProcessor,
     includes: IncludeProcessor,
 }
 
@@ -32,7 +31,6 @@ impl XacroProcessor {
             macros: MacroProcessor::new(),
             properties: PropertyProcessor::new(),
             conditions: ConditionProcessor::new(),
-            loops: LoopProcessor::new(),
         }
     }
 
@@ -123,14 +121,13 @@ impl XacroProcessor {
         let xml = self.macros.process(xml, &properties, &xacro_ns)?;
 
         // Pass properties to ConditionProcessor for expression evaluation
-        let xml = self.conditions.process(xml, &properties, &xacro_ns)?;
-        let mut xml = self.loops.process(xml, &xacro_ns)?;
+        let mut xml = self.conditions.process(xml, &properties, &xacro_ns)?;
 
         // Final cleanup: check for unprocessed xacro:* elements and remove xacro namespace
         // Does both in a single recursive pass for efficiency
         Self::finalize_tree(&mut xml, &xacro_ns)?;
 
-        XacroProcessor::serialize(xml)
+        XacroProcessor::serialize(&xml)
     }
 
     fn finalize_tree(

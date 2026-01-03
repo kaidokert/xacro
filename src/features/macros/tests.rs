@@ -1,10 +1,6 @@
 #[cfg(test)]
 mod macro_tests {
-    use crate::{
-        features::macros::MacroProcessor,
-        utils::{pretty_print_xml, print_diff},
-        XacroError, XacroProcessor,
-    };
+    use crate::{features::macros::MacroProcessor, utils::print_diff, XacroError, XacroProcessor};
     use log::error;
     use std::collections::HashMap;
     use std::path::Path;
@@ -24,8 +20,8 @@ mod macro_tests {
         let global_properties = HashMap::new();
         let actual = macro_processor.process(data, &global_properties, XACRO_NS)?;
 
-        let expected_str = pretty_print_xml(&expected);
-        let actual_str = pretty_print_xml(&actual);
+        let expected_str = XacroProcessor::serialize(&expected).unwrap();
+        let actual_str = XacroProcessor::serialize(&actual).unwrap();
 
         if actual != expected {
             error!("\nXML Difference (actual vs expected):");
