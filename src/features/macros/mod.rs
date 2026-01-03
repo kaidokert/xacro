@@ -58,19 +58,16 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
     ) -> Result<Element, XacroError> {
         let mut macros = HashMap::new();
 
-        debug!("Input XML:\n{}", XacroProcessor::serialize(&xml).unwrap());
+        debug!("Input XML:\n{}", XacroProcessor::serialize_or_err(&xml));
 
         Self::collect_macros(&xml, &mut macros, xacro_ns)?;
         debug!("Collected macros:\n{}", pretty_print_hashmap(&macros));
 
         Self::expand_macros(&mut xml, &macros, global_properties, xacro_ns, 0)?;
-        debug!(
-            "Expanded XML:\n{}",
-            XacroProcessor::serialize(&xml).unwrap()
-        );
+        debug!("Expanded XML:\n{}", XacroProcessor::serialize_or_err(&xml));
 
         Self::remove_macro_definitions(&mut xml, xacro_ns);
-        debug!("Output XML:\n{}", XacroProcessor::serialize(&xml).unwrap());
+        debug!("Output XML:\n{}", XacroProcessor::serialize_or_err(&xml));
         Ok(xml)
     }
 

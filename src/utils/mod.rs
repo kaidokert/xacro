@@ -30,6 +30,14 @@ impl XacroProcessor {
         )?;
         Ok(String::from_utf8(writer)?)
     }
+
+    /// Helper for debug/logging that never panics
+    ///
+    /// Returns serialized XML or error message if serialization fails.
+    /// Use this in debug!() statements to avoid panics in logging code.
+    pub(crate) fn serialize_or_err(xml: &xmltree::Element) -> String {
+        Self::serialize(xml).unwrap_or_else(|e| format!("<xacro serialize error: {}>", e))
+    }
 }
 
 #[cfg(test)]
