@@ -519,56 +519,35 @@ mod property_tests {
         let meta_elements: Vec<_> = link
             .children
             .iter()
-            .filter_map(|node| {
-                if let xmltree::XMLNode::Element(elem) = node {
-                    if elem.name == "meta" {
-                        return Some(elem);
-                    }
-                }
-                None
-            })
+            .filter_map(|node| node.as_element())
+            .filter(|elem| elem.name == "meta")
             .collect();
 
-        let inf_meta = meta_elements
-            .iter()
-            .find(|e| e.attributes.get("name") == Some(&"inf_test".to_string()))
-            .expect("Should find inf_test meta");
-        let inf_val: f64 = inf_meta
-            .attributes
-            .get("value")
-            .expect("Should have value")
-            .parse()
-            .expect("Should parse inf");
+        let get_meta_value = |name: &str| -> f64 {
+            meta_elements
+                .iter()
+                .find(|e| e.attributes.get("name") == Some(&name.to_string()))
+                .unwrap_or_else(|| panic!("Should find meta element with name '{}'", name))
+                .attributes
+                .get("value")
+                .unwrap_or_else(|| panic!("Meta element '{}' should have a value attribute", name))
+                .parse()
+                .unwrap_or_else(|_| panic!("Value of meta element '{}' should parse to f64", name))
+        };
+
+        let inf_val = get_meta_value("inf_test");
         assert!(
             inf_val.is_infinite() && inf_val.is_sign_positive(),
             "Should be +inf"
         );
 
-        let neg_inf_meta = meta_elements
-            .iter()
-            .find(|e| e.attributes.get("name") == Some(&"neg_inf_test".to_string()))
-            .expect("Should find neg_inf_test meta");
-        let neg_inf_val: f64 = neg_inf_meta
-            .attributes
-            .get("value")
-            .expect("Should have value")
-            .parse()
-            .expect("Should parse -inf");
+        let neg_inf_val = get_meta_value("neg_inf_test");
         assert!(
             neg_inf_val.is_infinite() && neg_inf_val.is_sign_negative(),
             "Should be -inf"
         );
 
-        let nan_meta = meta_elements
-            .iter()
-            .find(|e| e.attributes.get("name") == Some(&"nan_test".to_string()))
-            .expect("Should find nan_test meta");
-        let nan_val: f64 = nan_meta
-            .attributes
-            .get("value")
-            .expect("Should have value")
-            .parse()
-            .expect("Should parse nan");
+        let nan_val = get_meta_value("nan_test");
         assert!(nan_val.is_nan(), "Should be NaN");
     }
 }
