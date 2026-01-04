@@ -77,10 +77,13 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         xacro_ns: &str,
     ) -> Result<(), XacroError> {
         if Self::is_macro_definition(element, xacro_ns) {
-            if let (Some(name), Some(params)) = (
-                element.attributes.get("name"),
-                element.attributes.get("params"),
-            ) {
+            if let Some(name) = element.attributes.get("name") {
+                // params attribute is optional - treat missing as empty string
+                let params = element
+                    .attributes
+                    .get("params")
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 let (params_map, param_order, block_params_set) = Self::parse_params(params)?;
                 let content = element.clone();
                 macros.insert(

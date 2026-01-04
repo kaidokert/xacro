@@ -742,4 +742,34 @@ mod macro_tests {
         let err = result.unwrap_err();
         assert!(matches!(err, XacroError::BlockInsertRecursionLimit { .. }));
     }
+
+    #[test]
+    fn test_parameterless_macro() {
+        // Test that macros without a params attribute work correctly
+        // This was failing because collect_macros required params attribute to exist
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="simple_item">
+    <item value="42"/>
+  </xacro:macro>
+
+  <xacro:simple_item/>
+</robot>
+        "#;
+
+        let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
+        let macro_processor: MacroProcessor = MacroProcessor::new();
+        let result = macro_processor
+            .process(xml, &HashMap::new(), XACRO_NS)
+            .expect("Parameterless macro should work");
+
+        // Check that macro was expanded
+        assert_eq!(result.children.len(), 1);
+        let item = result.children[0]
+            .as_element()
+            .expect("Expected 'item' element");
+        assert_eq!(item.name, "item");
+        assert_eq!(item.attributes.get("value"), Some(&"42".to_string()));
+    }
 }
