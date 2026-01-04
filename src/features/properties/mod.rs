@@ -423,36 +423,21 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
 
     /// Build evaluation context for a property value
     ///
-    /// Extracts all property references from the value using AST parsing,
-    /// then recursively resolves them.
-    /// Returns a HashMap containing all resolved properties needed to evaluate the value.
+    /// Extracts all property references from the value, then recursively resolves them.
+    /// Returns a HashMap containing only the resolved properties needed to evaluate the value.
     ///
-    /// If a referenced property cannot be resolved (undefined or has errors), this will
-    /// propagate the error up. This ensures we only error when actually trying to use
-    /// a property, matching Python xacro's lazy evaluation behavior.
+    /// Since resolve_property is cached, we don't need to preload all cached properties.
+    /// We only add the properties actually referenced in this value.
     fn build_eval_context(
         &self,
         value: &str,
     ) -> Result<HashMap<String, String>, XacroError> {
         let mut context = HashMap::new();
-
-        // Extract property names referenced in the value
         let referenced_props = self.extract_property_references(value);
 
-        // Recursively resolve each referenced property
-        // If resolution fails, propagate the error (we're actually trying to USE this property)
         for prop_name in referenced_props {
-            // Skip if already in cache
-            if let std::collections::hash_map::Entry::Vacant(e) = context.entry(prop_name.clone()) {
-                // Try to resolve - errors here mean we're actually using an undefined/broken property
-                let resolved = self.resolve_property(&prop_name)?;
-                e.insert(resolved);
-            }
-        }
-
-        // Also include any cached properties (for efficiency)
-        for (k, v) in self.evaluated_cache.borrow().iter() {
-            context.entry(k.clone()).or_insert_with(|| v.clone());
+            let resolved = self.resolve_property(&prop_name)?;
+            context.insert(prop_name, resolved);
         }
 
         Ok(context)
