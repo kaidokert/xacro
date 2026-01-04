@@ -766,10 +766,7 @@ mod macro_tests {
 
         // Check that macro was expanded
         assert_eq!(result.children.len(), 1);
-        let item = result.children[0]
-            .as_element()
-            .expect("Expected 'item' element");
-        assert_eq!(item.name, "item");
+        let item = result.get_child("item").expect("Expected 'item' element");
         assert_eq!(item.attributes.get("value"), Some(&"42".to_string()));
     }
 }
