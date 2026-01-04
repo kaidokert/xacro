@@ -69,6 +69,24 @@ pub enum XacroError {
 
     #[error("Missing xacro namespace declaration: {0}")]
     MissingNamespace(String),
+
+    /// Circular property dependency detected during lazy evaluation
+    ///
+    /// The `chain` field contains the dependency path formatted as "a -> b -> c -> a"
+    /// showing how the circular reference was formed.
+    #[error("Circular property dependency detected: {chain}")]
+    CircularPropertyDependency { chain: String },
+
+    #[error("Undefined property: '{0}'")]
+    UndefinedProperty(String),
+
+    /// Property substitution exceeded maximum depth
+    ///
+    /// Indicates that iterative property substitution did not converge within the
+    /// allowed number of iterations. This usually means circular or self-referential
+    /// property definitions that cannot be fully resolved.
+    #[error("Property substitution exceeded maximum depth of {depth} iterations. Remaining unresolved expressions in: {snippet}")]
+    MaxSubstitutionDepth { depth: usize, snippet: String },
 }
 
 // Feature lists for consistent error messages

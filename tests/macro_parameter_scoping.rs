@@ -154,3 +154,112 @@ fn test_macro_params_override_globals_full_pipeline() {
         "Should not use global property value"
     );
 }
+
+/// Test macro parameter interdependencies (one default referencing another parameter)
+///
+/// This validates our 2-phase parameter resolution where defaults can reference
+/// previously resolved parameters in the cumulative evaluation context.
+#[test]
+fn test_macro_parameter_dependency() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="foo" params="a b:=${a*2}">
+    <item a="${a}" b="${b}"/>
+  </xacro:macro>
+
+  <xacro:foo a="5"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_ok(),
+        "Parameter default should be able to reference another parameter. Error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify 'a' is 5 and 'b' is 10 (a*2)
+    assert!(output.contains(r#"a="5""#), "Parameter 'a' should be 5");
+    assert!(
+        output.contains(r#"b="10""#),
+        "Parameter 'b' should be 10 (a*2 where a=5)"
+    );
+}
+
+/// Test chained parameter defaults (default depends on another optional parameter)
+///
+/// Validates that when multiple parameters have defaults, they are resolved in
+/// declaration order with each default able to reference previously resolved parameters.
+#[test]
+fn test_macro_chained_parameter_defaults() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="foo" params="a:=1 b:=${a*2} c:=${b*3}">
+    <item a="${a}" b="${b}" c="${c}"/>
+  </xacro:macro>
+
+  <xacro:foo/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_ok(),
+        "Chained parameter defaults should resolve in declaration order. Error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify: a=1 (default), b=2 (1*2), c=6 (2*3)
+    assert!(
+        output.contains(r#"a="1""#),
+        "Parameter 'a' should be 1 (default)"
+    );
+    assert!(
+        output.contains(r#"b="2""#),
+        "Parameter 'b' should be 2 (a*2 where a=1)"
+    );
+    assert!(
+        output.contains(r#"c="6""#),
+        "Parameter 'c' should be 6 (b*3 where b=2)"
+    );
+}
+
+/// Test that missing required parameter in default expression produces clear error
+///
+/// When a parameter default references another parameter that has no default
+/// and isn't provided at the call site, we should get MissingParameter error.
+#[test]
+fn test_macro_missing_parameter_in_default() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="foo" params="a b:=${a*2}">
+    <item a="${a}" b="${b}"/>
+  </xacro:macro>
+
+  <xacro:foo/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Should error when required parameter 'a' is missing"
+    );
+
+    let err = result.err().unwrap();
+    let err_str = format!("{:?}", err);
+
+    // Should get MissingParameter error for 'a', not treat it as falsy/zero
+    assert!(
+        err_str.contains("MissingParameter") || err_str.contains("parameter"),
+        "Error should indicate missing parameter 'a', got: {}",
+        err_str
+    );
+}
