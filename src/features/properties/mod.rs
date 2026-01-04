@@ -3,7 +3,9 @@ use crate::utils::xml::is_xacro_element;
 use core::cell::RefCell;
 use log::warn;
 use pyisheval::Interpreter;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 use xmltree::{
     Element,
     XMLNode::{Element as NodeElement, Text as TextElement},
@@ -19,6 +21,10 @@ const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("inf", f64::INFINITY),
     ("nan", f64::NAN),
 ];
+
+/// Cached regex for extracting variable names from expressions
+/// Compiled once and reused across all property reference extractions
+static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: Interpreter,
@@ -459,15 +465,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         value: &str,
     ) -> HashSet<String> {
         use crate::utils::lexer::{Lexer, TokenType};
-        use regex::Regex;
 
         let mut refs = HashSet::new();
         let lexer = Lexer::new(value);
 
-        // Regex to find identifiers in expressions
+        // Get cached regex (compiled once on first use)
         // Matches: variable names (letters/underscore followed by letters/digits/underscore)
         // But NOT when preceded by a dot (e.g., obj.method) or inside strings
-        let var_regex = Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").expect("Valid regex pattern");
+        let var_regex = VAR_REGEX.get_or_init(|| {
+            Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").expect("Valid regex pattern")
+        });
 
         for (token_type, token_value) in lexer {
             if token_type == TokenType::Expr {
