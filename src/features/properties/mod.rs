@@ -115,10 +115,7 @@ impl PropertyProcessor {
 
         for child in &element.children {
             if let NodeElement(child_elem) = child {
-                // Skip processing macro definition bodies
-                if !should_skip_macro_body(child_elem, xacro_ns) {
-                    self.collect_properties(child_elem, properties, xacro_ns)?;
-                }
+                self.collect_properties(child_elem, properties, xacro_ns)?;
             }
         }
 
@@ -159,10 +156,7 @@ impl PropertyProcessor {
         // Recurse into children
         for child in &mut element.children {
             if let NodeElement(child_elem) = child {
-                // Skip processing macro definition bodies
-                if !should_skip_macro_body(child_elem, xacro_ns) {
-                    self.substitute_properties(child_elem, properties, xacro_ns)?;
-                }
+                self.substitute_properties(child_elem, properties, xacro_ns)?;
             } else if let TextElement(text) = child {
                 *text = self.substitute_in_text(text, properties)?;
             }

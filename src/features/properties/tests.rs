@@ -566,11 +566,9 @@ mod property_tests {
 
         let processor = XacroProcessor::new();
         let result1 = processor.run_from_string(input1);
-        assert!(
-            result1.is_ok(),
-            "Macro definition only should succeed: {:?}",
-            result1.err()
-        );
+        result1.expect("Macro definition only should succeed");
+        // Success means we didn't try to evaluate ${mass}, ${x}, etc. during definition
+        // (If we had, we'd get "Undefined variable" errors)
 
         // Test 2: Macro with call - parameters should work during expansion
         let input2 = r#"<?xml version="1.0"?>
@@ -586,21 +584,17 @@ mod property_tests {
   </link>
 </robot>"#;
 
-        let result2 = processor.run_from_string(input2);
-        assert!(
-            result2.is_ok(),
-            "Macro with call should succeed: {:?}",
-            result2.err()
-        );
+        let processor2 = XacroProcessor::new();
+        let result2 = processor2.run_from_string(input2);
+        let output2 = result2.expect("Macro with call should succeed");
 
-        let output = result2.unwrap();
         // Verify the expressions were actually evaluated during expansion
         assert!(
-            output.contains("ixx="),
+            output2.contains("ixx="),
             "Should have expanded ixx attribute"
         );
         assert!(
-            output.contains("0.01"),
+            output2.contains("0.01"),
             "Should have computed numeric values"
         );
 
@@ -620,11 +614,21 @@ mod property_tests {
   </link>
 </robot>"#;
 
-        let result3 = processor.run_from_string(input3);
+        let processor3 = XacroProcessor::new();
+        let result3 = processor3.run_from_string(input3);
+        let output3 = result3.expect("Nested macro calls should succeed");
+
+        // Verify nested macro expansion computed correctly
+        // izz = (1/12) * mass * x*x = (1/12) * 2.0 * 0.5*0.5 = 0.041666...
         assert!(
-            result3.is_ok(),
-            "Nested macro calls should succeed: {:?}",
-            result3.err()
+            output3.contains("0.04166"),
+            "Expected nested macro expansion to compute izz correctly, got:\n{}",
+            output3
+        );
+        assert!(
+            !output3.contains("${"),
+            "Expected no unevaluated ${{...}} placeholders in nested macro expansion, got:\n{}",
+            output3
         );
     }
 }
