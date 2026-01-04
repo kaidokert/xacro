@@ -351,7 +351,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         // If we hit the limit with remaining placeholders, this indicates a problem
         if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
             let snippet = if result.len() > 100 {
-                format!("{}...", &result[..100])
+                // Find a safe UTF-8 character boundary to avoid panic
+                let mut end_idx = 100;
+                while !result.is_char_boundary(end_idx) {
+                    end_idx -= 1;
+                }
+                format!("{}...", &result[..end_idx])
             } else {
                 result.clone()
             };
@@ -403,23 +408,29 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             .cloned()
             .ok_or_else(|| XacroError::UndefinedProperty(name.to_string()))?;
 
-        // 4. Mark active
+        // 4. Mark active (push to resolution stack)
         self.resolution_stack.borrow_mut().push(name.to_string());
 
         // 5-6. Dependency Discovery, Resolution & Evaluation
-        // Use a closure to ensure stack cleanup happens on all paths (success or error)
-        let result = (|| {
-            // Parse expression to find all variable references, then recursively resolve them
-            let eval_context = self.build_eval_context(&raw_value)?;
-            // Evaluate using the context (all dependencies are now resolved)
-            self.substitute_in_text(&raw_value, &eval_context)
-        })();
+        // RAII guard ensures stack cleanup even on panic
+        struct StackGuard<'a> {
+            stack: &'a RefCell<Vec<String>>,
+        }
+        impl Drop for StackGuard<'_> {
+            fn drop(&mut self) {
+                self.stack.borrow_mut().pop();
+            }
+        }
+        let _guard = StackGuard {
+            stack: &self.resolution_stack,
+        };
 
-        // 7. Unmark (always, regardless of success/failure)
-        self.resolution_stack.borrow_mut().pop();
+        // Parse expression to find all variable references, then recursively resolve them
+        let eval_context = self.build_eval_context(&raw_value)?;
+        // Evaluate using the context (all dependencies are now resolved)
+        let evaluated = self.substitute_in_text(&raw_value, &eval_context)?;
 
-        // Propagate error or cache success
-        let evaluated = result?;
+        // _guard drops here, ensuring pop() is always called (even on panic or error)
         self.evaluated_cache
             .borrow_mut()
             .insert(name.to_string(), evaluated.clone());
