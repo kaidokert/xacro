@@ -544,4 +544,152 @@ mod property_tests {
         let nan_val = get_meta_value("nan_test");
         assert!(nan_val.is_nan(), "Should be NaN");
     }
+
+    #[test]
+    fn test_macro_definition_only_not_evaluated() {
+        // Verifies that expressions inside macro definitions are NOT evaluated
+        // during the definition phase. Macro parameters don't exist until expansion.
+        //
+        // The bug: PropertyProcessor was recursing into macro bodies and trying to
+        // evaluate expressions like ${mass * x*x} where mass, x are macro parameters.
+
+        let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inertial_box" params="mass x y z">
+    <inertia ixx="${(1/12) * mass * (y*y + z*z)}"
+             iyy="${(1/12) * mass * (x*x + z*z)}"
+             izz="${(1/12) * mass * (x*x + y*y)}"/>
+  </xacro:macro>
+</robot>"#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+        result.expect("Macro definition only should succeed");
+        // Success means we didn't try to evaluate ${mass}, ${x}, etc. during definition
+        // If we had, we'd get "Undefined variable" errors
+    }
+
+    #[test]
+    fn test_macro_call_evaluates_parameters() {
+        // Verifies that macro parameters are correctly evaluated during expansion.
+
+        let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inertial_box" params="mass x y z">
+    <inertia ixx="${(1/12) * mass * (y*y + z*z)}"
+             iyy="${(1/12) * mass * (x*x + z*z)}"
+             izz="${(1/12) * mass * (x*x + y*y)}"/>
+  </xacro:macro>
+
+  <link name="test">
+    <xacro:inertial_box mass="1.0" x="0.1" y="0.2" z="0.3"/>
+  </link>
+</robot>"#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+        let output = result.expect("Macro with call should succeed");
+
+        // Parse and verify numeric values
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+        let inertia = link
+            .get_child("inertia")
+            .expect("Should find inertia element");
+
+        let get_attr_f64 = |elem: &xmltree::Element, name: &str| -> f64 {
+            elem.attributes
+                .get(name)
+                .unwrap_or_else(|| panic!("Should have attribute '{}'", name))
+                .parse()
+                .unwrap_or_else(|_| panic!("Attribute '{}' should parse to f64", name))
+        };
+
+        let ixx = get_attr_f64(inertia, "ixx");
+        let iyy = get_attr_f64(inertia, "iyy");
+        let izz = get_attr_f64(inertia, "izz");
+
+        // Calculate expected values
+        // mass=1.0, x=0.1, y=0.2, z=0.3
+        let expected_ixx = (1.0 / 12.0) * 1.0 * (0.2 * 0.2 + 0.3 * 0.3); // 0.01083333...
+        let expected_iyy = (1.0 / 12.0) * 1.0 * (0.1 * 0.1 + 0.3 * 0.3); // 0.00833333...
+        let expected_izz = (1.0 / 12.0) * 1.0 * (0.1 * 0.1 + 0.2 * 0.2); // 0.00416666...
+
+        const TOLERANCE: f64 = 1e-9;
+        assert!(
+            (ixx - expected_ixx).abs() < TOLERANCE,
+            "ixx should be {}, got {}",
+            expected_ixx,
+            ixx
+        );
+        assert!(
+            (iyy - expected_iyy).abs() < TOLERANCE,
+            "iyy should be {}, got {}",
+            expected_iyy,
+            iyy
+        );
+        assert!(
+            (izz - expected_izz).abs() < TOLERANCE,
+            "izz should be {}, got {}",
+            expected_izz,
+            izz
+        );
+    }
+
+    #[test]
+    fn test_nested_macro_calls_evaluate_correctly() {
+        // Verifies that nested macro calls (one macro calling another) correctly
+        // evaluate parameters at each level.
+
+        let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inner" params="mass x">
+    <inertia izz="${(1/12) * mass * x*x}"/>
+  </xacro:macro>
+
+  <xacro:macro name="outer" params="mass x">
+    <xacro:inner mass="${mass}" x="${x}"/>
+  </xacro:macro>
+
+  <link name="test">
+    <xacro:outer mass="2.0" x="0.5"/>
+  </link>
+</robot>"#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+        let output = result.expect("Nested macro calls should succeed");
+
+        // Parse and verify numeric value
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+        let inertia = link
+            .get_child("inertia")
+            .expect("Should find inertia element");
+
+        let izz: f64 = inertia
+            .attributes
+            .get("izz")
+            .expect("Should have izz attribute")
+            .parse()
+            .expect("izz should parse to f64");
+
+        // izz = (1/12) * mass * x*x = (1/12) * 2.0 * 0.5*0.5 = 0.041666...
+        let expected_izz = (1.0 / 12.0) * 2.0 * 0.5 * 0.5;
+
+        const TOLERANCE: f64 = 1e-9;
+        assert!(
+            (izz - expected_izz).abs() < TOLERANCE,
+            "izz should be {}, got {}",
+            expected_izz,
+            izz
+        );
+
+        // Verify no unevaluated placeholders remain
+        assert!(
+            !output.contains("${"),
+            "Should not contain unevaluated placeholders, got:\n{}",
+            output
+        );
+    }
 }
