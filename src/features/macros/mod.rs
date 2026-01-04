@@ -1,6 +1,6 @@
 use crate::{
     error::XacroError,
-    features::properties::PropertyProcessor,
+    features::properties::{collect_properties_into_map, PropertyProcessor},
     utils::{pretty_print_hashmap, xml::is_xacro_element},
     XacroProcessor,
 };
@@ -253,55 +253,74 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
             }
         }
 
-        // CRITICAL: Build merged scope (global properties + macro parameters)
-        // Use with_capacity to avoid reallocation during extend
-        let mut substitutions =
-            HashMap::with_capacity(global_properties.len() + macro_def.params.len());
-        substitutions.extend(
-            global_properties
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone())),
-        );
+        let property_processor = PropertyProcessor::new();
 
-        // Add macro parameters, which override globals if there's a conflict
-        for (param_name, default_value) in &macro_def.params {
+        // ====================================================================
+        // Parameter Resolution (Pre-Expansion)
+        // ====================================================================
+        // Resolve all parameters BEFORE entering macro body to prevent local
+        // properties from shadowing globals in default expressions.
+        // This matches Python xacro behavior for late-binding macro defaults.
+
+        let mut resolved_params = HashMap::new();
+
+        // Build cumulative context: starts with globals + explicit call args
+        let mut eval_context = global_properties.clone();
+        eval_context.extend(args.clone());
+
+        // Resolve parameters in declaration order to support inter-dependencies
+        // (e.g., params="a b:=${a*2}" where b's default references a)
+        for param_name in &macro_def.param_order {
             // Skip block parameters (they're not string substitutions)
             if macro_def.block_params.contains(param_name) {
                 continue;
             }
 
-            let value = args
-                .get(param_name)
-                .cloned()
-                .or_else(|| default_value.clone())
-                .ok_or_else(|| XacroError::MissingParameter {
-                    macro_name: macro_def.name.clone(),
-                    param: param_name.clone(),
-                })?;
-            substitutions.insert(param_name.clone(), value);
-        }
+            if let Some(explicit_value) = args.get(param_name) {
+                // Parameter explicitly provided at call site
+                resolved_params.insert(param_name.clone(), explicit_value.clone());
+            } else {
+                // Parameter not provided, try to resolve default
+                if let Some(Some(default_expr)) = macro_def.params.get(param_name) {
+                    // Evaluate default expression using current eval_context
+                    // Context = globals + call args + previously resolved params
+                    // CRITICAL: Local properties NOT visible here!
+                    let evaluated =
+                        property_processor.substitute_in_text(default_expr, &eval_context)?;
 
-        // Create a temporary PropertyProcessor for substitution with merged scope
-        // IMPORTANT: Substitute into macro CHILDREN, not the <xacro:macro> wrapper itself
-        // PropertyProcessor skips <xacro:macro> elements to avoid evaluating during definition
-        // But here we're expanding, so we need to substitute into the children
-        let property_processor = PropertyProcessor::new();
-
-        // COLLECT properties defined inside the macro body FIRST
-        // Start with a copy of current substitutions so property values can reference
-        // macro parameters and global properties
-        let mut macro_local_properties = substitutions.clone();
-        for child in &content.children {
-            if let xmltree::XMLNode::Element(child_elem) = child {
-                property_processor.collect_properties(
-                    child_elem,
-                    &mut macro_local_properties,
-                    xacro_ns,
-                )?;
+                    resolved_params.insert(param_name.clone(), evaluated.clone());
+                    eval_context.insert(param_name.clone(), evaluated);
+                } else {
+                    // No default value and not provided -> Error
+                    return Err(XacroError::MissingParameter {
+                        macro_name: macro_def.name.clone(),
+                        param: param_name.clone(),
+                    });
+                }
             }
         }
 
-        // Update substitutions with newly collected properties
+        // ====================================================================
+        // Body Expansion (Substitution)
+        // ====================================================================
+        // Now process macro body with local properties visible
+
+        // Build initial substitutions: globals + resolved params
+        let mut substitutions =
+            HashMap::with_capacity(global_properties.len() + resolved_params.len());
+        substitutions.extend(global_properties.clone());
+        substitutions.extend(resolved_params);
+
+        // COLLECT properties defined inside the macro body
+        // These can shadow globals/params, but defaults were already evaluated
+        let mut macro_local_properties = substitutions.clone();
+        for child in &content.children {
+            if let xmltree::XMLNode::Element(child_elem) = child {
+                collect_properties_into_map(child_elem, &mut macro_local_properties, xacro_ns)?;
+            }
+        }
+
+        // Update substitutions with newly collected local properties
         // (macro_local_properties now contains: globals + params + collected properties)
         substitutions = macro_local_properties;
 

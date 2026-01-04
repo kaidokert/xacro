@@ -193,14 +193,15 @@ mod property_tests {
         assert!(result.is_err(), "expected eval error in property value");
         let err = result.unwrap_err();
 
-        // Ensure the error variant is EvalError so error propagation is covered
+        // With lazy evaluation, properties that fail to resolve are not added to the context
+        // When we try to use such a property, we get an EvalError about the undefined property
         assert!(
             matches!(
                 err,
                 crate::error::XacroError::EvalError { ref expr, .. }
-                    if expr.contains("unknown_function")
+                    if expr.contains("bad_property")
             ),
-            "Expected EvalError with 'unknown_function' in expr, got: {:?}",
+            "Expected EvalError with 'bad_property' in expr, got: {:?}",
             err
         );
     }
@@ -690,6 +691,355 @@ mod property_tests {
             !output.contains("${"),
             "Should not contain unevaluated placeholders, got:\n{}",
             output
+        );
+    }
+
+    // ========================================================================
+    // LAZY EVALUATION TESTS
+    // ========================================================================
+
+    /// Test forward property references
+    /// Python xacro allows properties to reference others defined later in the file
+    /// because it evaluates properties lazily (only when used).
+    #[test]
+    fn test_property_forward_reference() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Reference a property defined later -->
+  <xacro:property name="derived" value="${base * 2}"/>
+  <xacro:property name="base" value="10"/>
+
+  <link name="test">
+    <mass value="${derived}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Forward property reference should work with lazy evaluation: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+        let mass_elem = link.get_child("mass").expect("Should find mass element");
+        let mass_str = mass_elem
+            .attributes
+            .get("value")
+            .expect("Should have value attribute");
+
+        let mass: f64 = mass_str.parse().expect("Should parse as f64");
+        assert!(
+            (mass - 20.0).abs() < 1e-9,
+            "derived should be 20 (base * 2)"
+        );
+    }
+
+    /// Test multi-level property dependencies with forward references
+    /// Property chain: level1 -> level2 -> level3, where all reference later definitions
+    #[test]
+    fn test_property_multilevel_dependencies() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Level 1: references level 2 which references level 3 -->
+  <xacro:property name="level1" value="${level2 * 2}"/>
+  <xacro:property name="level2" value="${level3 * 2}"/>
+  <xacro:property name="level3" value="5"/>
+
+  <link name="test">
+    <mass value="${level1}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Multi-level forward references should work: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+        let mass_elem = link.get_child("mass").expect("Should find mass element");
+        let mass_str = mass_elem
+            .attributes
+            .get("value")
+            .expect("Should have value attribute");
+
+        let mass: f64 = mass_str.parse().expect("Should parse as f64");
+        // level3 = 5, level2 = 5 * 2 = 10, level1 = 10 * 2 = 20
+        assert!((mass - 20.0).abs() < 1e-9, "level1 should be 20");
+    }
+
+    /// Test circular property dependency detection
+    /// Should error when property A references B which references A
+    #[test]
+    fn test_property_circular_dependency() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="a" value="${b * 2}"/>
+  <xacro:property name="b" value="${a * 3}"/>
+
+  <link name="test">
+    <mass value="${a}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_err(),
+            "Circular dependency should be detected and error"
+        );
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::error::XacroError::CircularPropertyDependency { .. }
+            ),
+            "Should be CircularPropertyDependency error, got: {:?}",
+            err
+        );
+    }
+
+    /// Test unused property with undefined variable
+    /// Python xacro doesn't error if a property with undefined variables is never used
+    /// This is because properties are evaluated lazily only when accessed
+    #[test]
+    fn test_property_unused_with_undefined_var() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="good_prop1" value="42"/>
+
+  <!-- This property has an undefined variable BUT IS NEVER USED -->
+  <xacro:property name="bad_prop" value="${undefined_var}"/>
+
+  <xacro:property name="good_prop2" value="99"/>
+
+  <link name="test">
+    <mass value="${good_prop1}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Unused property with undefined variable should not error with lazy evaluation: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+        let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+        let link = root.get_child("link").expect("Should find link element");
+        let mass = link.get_child("mass").expect("Should find mass element");
+        let mass_str = mass
+            .attributes
+            .get("value")
+            .expect("Should have value attribute");
+
+        assert_eq!(mass_str, "42", "Should use good_prop1 value");
+    }
+
+    /// Test that using a property with undefined variable DOES error
+    /// Even with lazy evaluation, accessing a property with undefined vars should error
+    #[test]
+    fn test_property_used_with_undefined_var_errors() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="bad_prop" value="${undefined_var}"/>
+
+  <link name="test">
+    <mass value="${bad_prop}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_err(),
+            "Using property with undefined variable should error"
+        );
+    }
+
+    /// Test forward reference from official xacro test suite
+    /// Property a2 references a BEFORE a is defined - tests lazy evaluation
+    #[test]
+    fn test_property_forward_reference_official() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="a2" value="${2*a}"/>
+  <xacro:property name="a" value="42"/>
+  <link name="test">
+    <mass doubled="${a2}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Forward reference should work with lazy evaluation"
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains(r#"doubled="84""#),
+            "a2 should resolve to 84 (2*42)"
+        );
+    }
+
+    /// Test 4-level transitive evaluation chain from official xacro test suite
+    /// a -> b -> c -> d (deeper than our 3-level test)
+    #[test]
+    fn test_property_transitive_chain_4_levels() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="a" value="42"/>
+  <xacro:property name="b" value="${a}"/>
+  <xacro:property name="c" value="${b}"/>
+  <xacro:property name="d" value="${c}"/>
+  <link name="test">
+    <mass d="${d}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(result.is_ok(), "4-level transitive chain should resolve");
+        let output = result.unwrap();
+        assert!(
+            output.contains(r#"d="42""#),
+            "d should resolve through 4-level chain to 42"
+        );
+    }
+
+    /// Test diamond dependency graph from official xacro test suite
+    /// Property f depends on c and d, which depend on a and b respectively
+    /// Tests branching dependency resolution (not just linear chains)
+    #[test]
+    fn test_property_diamond_dependency_graph() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="a" value="42"/>
+  <xacro:property name="b" value="2.1"/>
+  <xacro:property name="c" value="${a}"/>
+  <xacro:property name="d" value="${b}"/>
+  <xacro:property name="f" value="${c*d}"/>
+  <link name="test">
+    <mass f="${f}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(result.is_ok(), "Diamond dependency graph should resolve");
+        let output = result.unwrap();
+        assert!(
+            output.contains(r#"f="88.2""#),
+            "f should resolve to 88.2 (42 * 2.1)"
+        );
+    }
+
+    /// Test late-binding macro defaults from official xacro test suite
+    ///
+    /// Macro parameter defaults with expressions should resolve against global properties
+    /// at the call site, NOT local properties defined inside the macro body.
+    ///
+    /// Test case: Macro has `params="arg:=${2*foo}"` and defines a local `foo="-"` inside
+    /// the body. When called with global `foo=21`, the default should evaluate to 42 (2*21),
+    /// not error trying to multiply the string "-".
+    ///
+    /// NOTE: We test the single-call case. Sequential processing (property redefinition
+    /// between macro calls) is not yet supported.
+    #[test]
+    fn test_macro_late_binding_defaults() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="foo" params="arg:=${2*foo}">
+    <xacro:property name="foo" value="-"/>
+    <f val="${arg}"/>
+  </xacro:macro>
+
+  <xacro:property name="foo" value="21"/>
+  <xacro:foo/>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Macro defaults should use global properties, not local ones: {:?}",
+            result.as_ref().err()
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains(r#"val="42""#),
+            "arg should be 2*21=42 (using global foo, not local foo=\"-\")"
+        );
+    }
+
+    /// Test property redefinition with lazy evaluation from official xacro test suite
+    /// When a property is redefined multiple times, the last definition should win
+    /// Tests that caching correctly handles redefinition
+    #[test]
+    fn test_property_redefinition_lazy() {
+        env_logger::try_init().ok();
+        let input = r#"
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="a" value="42"/>
+  <xacro:property name="b" value="${a}"/>
+  <xacro:property name="b" value="${-a}"/>
+  <xacro:property name="b" value="${a}"/>
+  <link name="test">
+    <mass b="${b} ${b} ${b}"/>
+  </link>
+</robot>
+        "#;
+
+        let processor = XacroProcessor::new();
+        let result = processor.run_from_string(input);
+
+        assert!(
+            result.is_ok(),
+            "Property redefinition should work with lazy evaluation"
+        );
+        let output = result.unwrap();
+        assert!(
+            output.contains(r#"b="42 42 42""#),
+            "b should be 42 (last definition wins)"
         );
     }
 }

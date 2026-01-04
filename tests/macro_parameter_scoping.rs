@@ -154,3 +154,37 @@ fn test_macro_params_override_globals_full_pipeline() {
         "Should not use global property value"
     );
 }
+
+/// Test macro parameter interdependencies (one default referencing another parameter)
+///
+/// This validates our 2-phase parameter resolution where defaults can reference
+/// previously resolved parameters in the cumulative evaluation context.
+#[test]
+fn test_macro_parameter_dependency() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="foo" params="a b:=${a*2}">
+    <item a="${a}" b="${b}"/>
+  </xacro:macro>
+
+  <xacro:foo a="5"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_ok(),
+        "Parameter default should be able to reference another parameter. Error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify 'a' is 5 and 'b' is 10 (a*2)
+    assert!(output.contains(r#"a="5""#), "Parameter 'a' should be 5");
+    assert!(
+        output.contains(r#"b="10""#),
+        "Parameter 'b' should be 10 (a*2 where a=5)"
+    );
+}

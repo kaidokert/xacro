@@ -69,6 +69,16 @@ pub enum XacroError {
 
     #[error("Missing xacro namespace declaration: {0}")]
     MissingNamespace(String),
+
+    /// Circular property dependency detected during lazy evaluation
+    ///
+    /// The `chain` field contains the dependency path formatted as "a -> b -> c -> a"
+    /// showing how the circular reference was formed.
+    #[error("Circular property dependency detected: {chain}")]
+    CircularPropertyDependency { chain: String },
+
+    #[error("Undefined property: '{0}'")]
+    UndefinedProperty(String),
 }
 
 // Feature lists for consistent error messages
