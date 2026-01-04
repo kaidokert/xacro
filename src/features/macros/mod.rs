@@ -1,6 +1,8 @@
 use crate::{
     error::XacroError,
-    features::properties::{collect_properties_into_map, PropertyProcessor},
+    features::properties::{
+        collect_properties_into_map, remove_property_elements, PropertyProcessor,
+    },
     utils::{pretty_print_hashmap, xml::is_xacro_element},
     XacroProcessor,
 };
@@ -253,7 +255,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
             }
         }
 
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
 
         // ====================================================================
         // Parameter Resolution (Pre-Expansion)
@@ -334,7 +336,7 @@ impl<const MAX_DEPTH: usize> MacroProcessor<MAX_DEPTH> {
         }
 
         // Remove property elements from expanded content
-        PropertyProcessor::remove_property_elements(&mut content, xacro_ns);
+        remove_property_elements(&mut content, xacro_ns);
 
         // Process insert_block elements, replacing them with the block content
         Self::process_insert_blocks(

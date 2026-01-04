@@ -79,6 +79,14 @@ pub enum XacroError {
 
     #[error("Undefined property: '{0}'")]
     UndefinedProperty(String),
+
+    /// Property substitution exceeded maximum depth
+    ///
+    /// Indicates that iterative property substitution did not converge within the
+    /// allowed number of iterations. This usually means circular or self-referential
+    /// property definitions that cannot be fully resolved.
+    #[error("Property substitution exceeded maximum depth of {depth} iterations. Remaining unresolved expressions in: {snippet}")]
+    MaxSubstitutionDepth { depth: usize, snippet: String },
 }
 
 // Feature lists for consistent error messages

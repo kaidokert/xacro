@@ -12,7 +12,7 @@ mod property_tests {
     #[test]
     fn test_property_basic() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -32,7 +32,7 @@ mod property_tests {
     #[test]
     fn test_property_nested() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test_nested.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -52,7 +52,7 @@ mod property_tests {
     #[test]
     fn test_property_multiple() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test_multiple.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -72,7 +72,7 @@ mod property_tests {
     #[test]
     fn test_property_multiple_out_of_order() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test_multiple_out_of_order.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected = XacroProcessor::parse_file(
@@ -94,7 +94,7 @@ mod property_tests {
     #[test]
     fn test_property_attributes() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test_attributes.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -115,7 +115,7 @@ mod property_tests {
     #[test]
     fn test_property_multi_substitution() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_test_multi_substitution.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected = XacroProcessor::parse_file(
@@ -137,7 +137,7 @@ mod property_tests {
     #[test]
     fn test_property_arithmetic() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/eval_arithmetic.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -160,7 +160,7 @@ mod property_tests {
     #[test]
     fn test_property_value_expressions() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_value_expressions.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -184,7 +184,7 @@ mod property_tests {
     #[test]
     fn test_property_error_propagation() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_error_in_value.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
 
@@ -212,7 +212,7 @@ mod property_tests {
     #[test]
     fn test_property_namespace_handling() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let path = Path::new("tests/data/property_namespace_handling.xacro");
         let data = XacroProcessor::parse_file(path).unwrap();
         let expected =
@@ -246,7 +246,7 @@ mod property_tests {
     #[test]
     fn test_property_flow_returns_hashmap() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let input = r#"
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
     <xacro:property name="width" value="0.5"/>
@@ -280,7 +280,7 @@ mod property_tests {
     #[test]
     fn test_conditional_value_preservation() {
         env_logger::try_init().ok();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let input = r#"
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
     <xacro:property name="x" value="5"/>
@@ -363,7 +363,7 @@ mod property_tests {
         "#;
 
         let xml = xmltree::Element::parse(input.as_bytes()).unwrap();
-        let property_processor = PropertyProcessor::new();
+        let property_processor: PropertyProcessor = PropertyProcessor::new();
         let (result, properties) = property_processor.process(xml, XACRO_NS).unwrap();
 
         // Verify properties were collected despite using 'x:' prefix

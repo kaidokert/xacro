@@ -20,7 +20,7 @@ const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("nan", f64::NAN),
 ];
 
-pub struct PropertyProcessor {
+pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: Interpreter,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
@@ -85,7 +85,76 @@ pub(crate) fn collect_properties_into_map(
     Ok(())
 }
 
-impl PropertyProcessor {
+/// Remove property elements from XML tree
+///
+/// Recursively removes `<xacro:property>` elements from the tree after they have been
+/// collected and substituted. Properties inside macro definitions are preserved since
+/// they need to be available during macro expansion.
+pub(crate) fn remove_property_elements(
+    element: &mut Element,
+    xacro_ns: &str,
+) {
+    element.children.retain_mut(|child| {
+        if let NodeElement(child_elem) = child {
+            // Remove property elements (either <property> or <xacro:property>)
+            // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
+            let is_property = child_elem.name == "property"
+                && (child_elem.namespace.is_none()
+                    || child_elem.namespace.as_deref() == Some(xacro_ns));
+
+            if is_property {
+                return false;
+            }
+
+            // CRITICAL: Don't recurse into macro bodies
+            // Properties inside macros need to stay until macro expansion
+            if !should_skip_macro_body(child_elem, xacro_ns) {
+                remove_property_elements(child_elem, xacro_ns);
+            }
+        }
+        true
+    });
+}
+
+/// Initialize math constants for property evaluation
+///
+/// Python xacro exposes all math module symbols for backwards compatibility.
+/// This includes constants like pi, e, tau, and functions like sin, cos, etc.
+/// For now, we add the most commonly used constants. Functions would require
+/// extending pyisheval or the expression evaluator.
+fn init_math_constants(properties: &mut HashMap<String, String>) {
+    properties.extend(
+        BUILTIN_CONSTANTS
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string())),
+    );
+}
+
+/// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
+fn is_python_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        // Python keywords
+        "True" | "False" | "None" |
+        "and" | "or" | "not" | "is" | "in" |
+        "if" | "else" | "elif" |
+        "for" | "while" |
+        "lambda" |
+        "def" | "class" | "return" | "yield" |
+        "try" | "except" | "finally" | "raise" |
+        "with" | "as" |
+        "import" | "from" |
+        "pass" | "break" | "continue" |
+        "global" | "nonlocal" |
+        "assert" | "del" |
+        // Common built-in functions that pyisheval supports
+        "abs" | "min" | "max" | "sum" | "len" | "range" |
+        "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" |
+        "sin" | "cos" | "tan" | "sqrt" | "radians" | "degrees"
+    )
+}
+
+impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -94,20 +163,6 @@ impl PropertyProcessor {
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
         }
-    }
-
-    /// Initialize math constants for property evaluation
-    ///
-    /// Python xacro exposes all math module symbols for backwards compatibility.
-    /// This includes constants like pi, e, tau, and functions like sin, cos, etc.
-    /// For now, we add the most commonly used constants. Functions would require
-    /// extending pyisheval or the expression evaluator.
-    fn init_math_constants(properties: &mut HashMap<String, String>) {
-        properties.extend(
-            BUILTIN_CONSTANTS
-                .iter()
-                .map(|(name, value)| (name.to_string(), value.to_string())),
-        );
     }
 
     /// Process properties in XML tree, returning both the processed tree and the properties map
@@ -136,7 +191,7 @@ impl PropertyProcessor {
         self.resolution_stack.borrow_mut().clear();
 
         // Initialize built-in math constants (as raw strings for lazy evaluation)
-        Self::init_math_constants(&mut self.raw_properties.borrow_mut());
+        init_math_constants(&mut self.raw_properties.borrow_mut());
 
         // Step 1: Collect properties (stores RAW values in struct field)
         self.collect_properties(&xml, xacro_ns)?;
@@ -150,7 +205,7 @@ impl PropertyProcessor {
         // the value attributes of property definitions themselves!
         // We've already collected them into resolved_properties, so the elements
         // are no longer needed and removing them avoids "double evaluation"
-        Self::remove_property_elements(&mut xml, xacro_ns);
+        remove_property_elements(&mut xml, xacro_ns);
 
         // Step 4: Substitute using resolved properties in the remaining tree
         // Now the tree only contains actual content (links, joints, etc.), not definitions
@@ -263,10 +318,9 @@ impl PropertyProcessor {
         // This handles cases where property values themselves contain expressions
         // Example: full_name = "link_${name}" where name = "base" → "link_base"
         let mut result = text.to_string();
-        let max_iterations = 100; // Safety limit to prevent infinite loops
         let mut iteration = 0;
 
-        while result.contains("${") && iteration < max_iterations {
+        while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
             let next = eval_text_with_interpreter(&result, properties, &self.interpreter).map_err(
                 |e| XacroError::EvalError {
                     expr: match &e {
@@ -286,6 +340,19 @@ impl PropertyProcessor {
 
             result = next;
             iteration += 1;
+        }
+
+        // If we hit the limit with remaining placeholders, this indicates a problem
+        if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
+            let snippet = if result.len() > 100 {
+                format!("{}...", &result[..100])
+            } else {
+                result.clone()
+            };
+            return Err(XacroError::MaxSubstitutionDepth {
+                depth: MAX_SUBSTITUTION_DEPTH,
+                snippet,
+            });
         }
 
         Ok(result)
@@ -333,15 +400,20 @@ impl PropertyProcessor {
         // 4. Mark active
         self.resolution_stack.borrow_mut().push(name.to_string());
 
-        // 5. Dependency Discovery & Resolution (The Fix from plan)
-        // Parse expression to find all variable references, then recursively resolve them
-        let eval_context = self.build_eval_context(&raw_value)?;
+        // 5-6. Dependency Discovery, Resolution & Evaluation
+        // Use a closure to ensure stack cleanup happens on all paths (success or error)
+        let result = (|| {
+            // Parse expression to find all variable references, then recursively resolve them
+            let eval_context = self.build_eval_context(&raw_value)?;
+            // Evaluate using the context (all dependencies are now resolved)
+            self.substitute_in_text(&raw_value, &eval_context)
+        })();
 
-        // 6. Evaluate using the context (all dependencies are now resolved)
-        let evaluated = self.substitute_in_text(&raw_value, &eval_context)?;
-
-        // 7. Unmark & Cache
+        // 7. Unmark (always, regardless of success/failure)
         self.resolution_stack.borrow_mut().pop();
+
+        // Propagate error or cache success
+        let evaluated = result?;
         self.evaluated_cache
             .borrow_mut()
             .insert(name.to_string(), evaluated.clone());
@@ -429,7 +501,7 @@ impl PropertyProcessor {
 
                         // Filter out Python keywords, built-in functions, and function calls
                         // (over-capturing is safe, under-capturing breaks things)
-                        if !Self::is_python_keyword(name) && !is_function_call {
+                        if !is_python_keyword(name) && !is_function_call {
                             refs.insert(name.to_string());
                         }
                     }
@@ -438,30 +510,6 @@ impl PropertyProcessor {
         }
 
         refs
-    }
-
-    /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
-    fn is_python_keyword(name: &str) -> bool {
-        matches!(
-            name,
-            // Python keywords
-            "True" | "False" | "None" |
-            "and" | "or" | "not" | "is" | "in" |
-            "if" | "else" | "elif" |
-            "for" | "while" |
-            "lambda" |
-            "def" | "class" | "return" | "yield" |
-            "try" | "except" | "finally" | "raise" |
-            "with" | "as" |
-            "import" | "from" |
-            "pass" | "break" | "continue" |
-            "global" | "nonlocal" |
-            "assert" | "del" |
-            // Common built-in functions that pyisheval supports
-            "abs" | "min" | "max" | "sum" | "len" | "range" |
-            "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" |
-            "sin" | "cos" | "tan" | "sqrt" | "radians" | "degrees"
-        )
     }
 
     /// Resolve all properties lazily
@@ -508,32 +556,6 @@ impl PropertyProcessor {
         }
 
         Ok(resolved)
-    }
-
-    pub(crate) fn remove_property_elements(
-        element: &mut Element,
-        xacro_ns: &str,
-    ) {
-        element.children.retain_mut(|child| {
-            if let NodeElement(child_elem) = child {
-                // Remove property elements (either <property> or <xacro:property>)
-                // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
-                let is_property = child_elem.name == "property"
-                    && (child_elem.namespace.is_none()
-                        || child_elem.namespace.as_deref() == Some(xacro_ns));
-
-                if is_property {
-                    return false;
-                }
-
-                // CRITICAL: Don't recurse into macro bodies
-                // Properties inside macros need to stay until macro expansion
-                if !should_skip_macro_body(child_elem, xacro_ns) {
-                    Self::remove_property_elements(child_elem, xacro_ns);
-                }
-            }
-            true
-        });
     }
 }
 
