@@ -398,12 +398,7 @@ fn expand_element(
 
         // Recursively expand all children of the included file
         // Guard will restore base_path and pop include_stack and namespace_stack on scope exit, even if panic occurs
-        let mut expanded = Vec::new();
-        for child in included_root.children {
-            expanded.extend(expand_node(child, ctx)?);
-        }
-
-        return Ok(expanded);
+        return expand_children_list(included_root.children, ctx);
     }
 
     // 5. Block insertion
@@ -457,11 +452,7 @@ fn expand_element(
 
         let expanded_nodes = expand_macro_call(&elem, ctx)?;
         // Re-scan the expanded result to handle macros that generate macros
-        let mut final_nodes = Vec::new();
-        for node in expanded_nodes {
-            final_nodes.extend(expand_node(node, ctx)?);
-        }
-        return Ok(final_nodes);
+        return expand_children_list(expanded_nodes, ctx);
     }
 
     // 8. Regular elements: Substitute attributes and recurse to children
@@ -507,19 +498,14 @@ fn is_macro_call(
         return false;
     }
 
-    // Known directives are NOT macro calls
-    const KNOWN_DIRECTIVES: &[&str] = &[
-        "property",
-        "macro",
-        "arg",
-        "include",
-        "if",
-        "unless",
-        "insert_block",
-    ];
+    // Known directives (implemented and unimplemented) are NOT macro calls
+    // Use single source of truth from features/mod.rs to prevent maintenance hazards
+    use crate::features::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES};
 
     // Element name is the local name (without prefix)
-    if KNOWN_DIRECTIVES.contains(&elem.name.as_str()) {
+    let elem_name = elem.name.as_str();
+    if IMPLEMENTED_DIRECTIVES.contains(&elem_name) || UNIMPLEMENTED_DIRECTIVES.contains(&elem_name)
+    {
         return false;
     }
 
@@ -599,11 +585,7 @@ fn expand_macro_call(
 
     // Recursively expand all children of the macro
     // Guards will pop scope and block stack on scope exit, even if panic occurs
-    let mut expanded = Vec::new();
-    for child in content.children {
-        expanded.extend(expand_node(child, ctx)?);
-    }
-    Ok(expanded)
+    expand_children_list(content.children, ctx)
 }
 
 #[cfg(test)]

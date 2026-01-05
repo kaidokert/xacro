@@ -11,6 +11,17 @@ use std::sync::OnceLock;
 /// Compiled once and reused across all property reference extractions
 static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
+/// Built-in math constants (name, value) that are pre-initialized
+/// Users can override these, but will receive a warning
+const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
+    ("pi", core::f64::consts::PI),
+    ("e", core::f64::consts::E),
+    ("tau", core::f64::consts::TAU),
+    ("M_PI", core::f64::consts::PI), // Legacy alias
+    ("inf", f64::INFINITY),
+    ("nan", f64::NAN),
+];
+
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: Interpreter,
     // Lazy evaluation infrastructure for Python xacro compatibility
@@ -144,6 +155,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         name: String,
         value: String,
     ) {
+        // Warn if user is overriding a built-in math constant (only if it's already defined)
+        if self.raw_properties.borrow().contains_key(&name)
+            && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
+        {
+            log::warn!(
+                "Property '{}' overrides built-in math constant. \
+                 This may cause unexpected behavior. \
+                 Consider using a different name.",
+                name
+            );
+        }
+
         self.raw_properties.borrow_mut().insert(name.clone(), value);
         // Invalidate cache for this property if it exists
         self.evaluated_cache.borrow_mut().remove(&name);
