@@ -14,7 +14,8 @@ pub const IMPLEMENTED_DIRECTIVES: &[&str] = &[
     "unless",
     "include",
     "insert_block",
+    "arg", // NEW - Phase 5
 ];
 
 /// Unimplemented xacro directives (element names without "xacro:" prefix)
-pub const UNIMPLEMENTED_DIRECTIVES: &[&str] = &["arg", "element", "attribute"];
+pub const UNIMPLEMENTED_DIRECTIVES: &[&str] = &["element", "attribute"];

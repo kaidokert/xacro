@@ -94,6 +94,7 @@ fn test_other_namespaces_preserved() {
 
 #[test]
 fn test_unimplemented_feature_detection_arg() {
+    // xacro:arg is now IMPLEMENTED (Phase 5) - verify it works
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:arg name="robot_name" default="my_robot"/>
@@ -103,13 +104,20 @@ fn test_unimplemented_feature_detection_arg() {
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
 
-    assert!(result.is_err(), "Should error on unimplemented xacro:arg");
-
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("xacro:arg"), "Error should mention xacro:arg");
     assert!(
-        err.contains("not implemented"),
-        "Error should say not implemented"
+        result.is_ok(),
+        "xacro:arg should now work (implemented in Phase 5)"
+    );
+
+    let output = result.unwrap();
+    // Should have processed successfully and xacro:arg should be removed from output
+    assert!(
+        !output.contains("xacro:arg"),
+        "xacro:arg directive should be consumed"
+    );
+    assert!(
+        output.contains("base_link"),
+        "Output should contain the actual link"
     );
 }
 

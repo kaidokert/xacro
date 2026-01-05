@@ -5,6 +5,7 @@ use core::cell::RefCell;
 use pyisheval::Interpreter;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 /// Cached regex for extracting variable names from expressions
@@ -36,6 +37,12 @@ pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Each scope is a HashMap of parameter bindings for a macro call
     // Innermost scope is at the end of the vector
     scope_stack: RefCell<Vec<HashMap<String, String>>>,
+    // NEW: Shared reference to arguments map (injected from XacroContext)
+    // Args are separate from properties and follow CLI-precedence semantics
+    args: Rc<RefCell<HashMap<String, String>>>,
+    // NEW: Stack for circular argument dependency detection: ["a", "b"]
+    // Separate from property resolution_stack for clearer error messages
+    arg_resolution_stack: RefCell<Vec<String>>,
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
@@ -65,12 +72,28 @@ fn is_python_keyword(name: &str) -> bool {
 impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        // Create with empty args map
+        Self::new_with_args(Rc::new(RefCell::new(HashMap::new())))
+    }
+
+    /// Create a new PropertyProcessor with a shared args reference
+    ///
+    /// This constructor is used when args need to be shared with the expander
+    /// (for xacro:arg directive processing). The args map is shared via Rc<RefCell<...>>
+    /// to allow both the expander (to define args) and PropertyProcessor (to resolve $(arg))
+    /// to access it.
+    ///
+    /// # Arguments
+    /// * `args` - Shared reference to the arguments map (CLI + XML args)
+    pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
         let processor = Self {
             interpreter: Interpreter::new(),
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
+            args,
+            arg_resolution_stack: RefCell::new(Vec::new()),
         };
 
         // Initialize math constants from BUILTIN_CONSTANTS (single source of truth)
@@ -226,6 +249,257 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
 
         // If we hit the limit with remaining placeholders, this indicates a problem
         if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
+            let snippet = if result.len() > 100 {
+                let mut end_idx = 100;
+                while !result.is_char_boundary(end_idx) {
+                    end_idx -= 1;
+                }
+                format!("{}...", &result[..end_idx])
+            } else {
+                result.clone()
+            };
+            return Err(XacroError::MaxSubstitutionDepth {
+                depth: MAX_SUBSTITUTION_DEPTH,
+                snippet,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
+    ///
+    /// Extensions are distinct from expressions - they provide external data sources.
+    /// This method handles circular dependency detection for arguments.
+    ///
+    /// # Arguments
+    /// * `content` - The extension content without `$(` and `)`, e.g., "arg foo"
+    ///
+    /// # Returns
+    /// The resolved value from the appropriate extension handler
+    ///
+    /// # Errors
+    /// * `InvalidExtension` - Malformed syntax (empty, missing argument, etc.)
+    /// * `UnknownExtension` - Extension type not recognized
+    /// * `UndefinedArgument` - Argument not found in args map
+    /// * `CircularArgumentDependency` - Circular reference detected
+    /// * `UnimplementedFeature` - Extension type not yet implemented (find, env)
+    fn resolve_extension(
+        &self,
+        content: &str,
+    ) -> Result<String, XacroError> {
+        // Parse: "arg foo" → ["arg", "foo"]
+        let parts: Vec<&str> = content.splitn(2, char::is_whitespace).collect();
+
+        // Validate format
+        if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
+            return Err(XacroError::InvalidExtension {
+                content: content.to_string(),
+                reason: "Extension cannot be empty: $()".to_string(),
+            });
+        }
+
+        if parts.len() != 2 {
+            return Err(XacroError::InvalidExtension {
+                content: content.to_string(),
+                reason: "Extensions must have format: $(type arg)".to_string(),
+            });
+        }
+
+        let ext_type = parts[0].trim();
+        let arg_name = parts[1].trim();
+
+        match ext_type {
+            "arg" => {
+                // Check for circular reference
+                if self
+                    .arg_resolution_stack
+                    .borrow()
+                    .contains(&arg_name.to_string())
+                {
+                    let mut chain = self.arg_resolution_stack.borrow().clone();
+                    chain.push(arg_name.to_string());
+                    return Err(XacroError::CircularArgumentDependency {
+                        chain: chain.join(" -> "),
+                    });
+                }
+
+                // Track resolution for cycle detection
+                self.arg_resolution_stack
+                    .borrow_mut()
+                    .push(arg_name.to_string());
+
+                // Lookup in args map
+                let result = self.args.borrow().get(arg_name).cloned().ok_or_else(|| {
+                    XacroError::UndefinedArgument {
+                        name: arg_name.to_string(),
+                    }
+                });
+
+                // Pop from resolution stack
+                self.arg_resolution_stack.borrow_mut().pop();
+
+                result
+            }
+            "find" => Err(XacroError::UnimplementedFeature(
+                "$(find ...) extension not yet implemented".to_string(),
+            )),
+            "env" => Err(XacroError::UnimplementedFeature(
+                "$(env ...) extension not yet implemented".to_string(),
+            )),
+            _ => Err(XacroError::UnknownExtension {
+                ext_type: ext_type.to_string(),
+            }),
+        }
+    }
+
+    /// Resolve only extensions `$(...)`, preserving expressions `${...}`
+    ///
+    /// This is used as a helper to resolve extensions inside expressions before
+    /// evaluating the expression itself. For example, `${$(arg count) * 2}` needs
+    /// the `$(arg count)` resolved first before pyisheval can evaluate the arithmetic.
+    ///
+    /// # Arguments
+    /// * `text` - Text potentially containing both `$()` and `${}`
+    ///
+    /// # Returns
+    /// Text with `$()` resolved but `${}` preserved
+    fn substitute_extensions_only(
+        &self,
+        text: &str,
+    ) -> Result<String, XacroError> {
+        let lexer = Lexer::new(text);
+        let mut result = String::new();
+
+        for (token_type, content) in lexer {
+            match token_type {
+                TokenType::Text => result.push_str(&content),
+                TokenType::Extension => {
+                    let resolved = self.resolve_extension(&content)?;
+                    result.push_str(&resolved);
+                }
+                TokenType::Expr => {
+                    // Don't evaluate expressions - just preserve them
+                    // BUT: recursively resolve any $() inside the expression content
+                    let content_with_extensions_resolved =
+                        self.substitute_extensions_only(&content)?;
+                    result.push_str("${");
+                    result.push_str(&content_with_extensions_resolved);
+                    result.push('}');
+                }
+                TokenType::DollarDollarBrace => {
+                    // Preserve escape sequence
+                    result.push('$');
+                    result.push_str(&content);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Substitute both extensions `$(...)` and expressions `${...}` iteratively
+    ///
+    /// This is the full substitution method that handles both args and properties.
+    /// It iterates until no more substitutions are possible or max depth is reached.
+    ///
+    /// **Evaluation order** (critical for nested cases):
+    /// 1. Tokenize text into Text/Extension/Expression tokens
+    /// 2. For Extension tokens: resolve immediately (lookup in args/find/env)
+    /// 3. For Expression tokens:
+    ///    a. First resolve any `$(...)` inside the expression
+    ///    b. Then evaluate the expression with pyisheval
+    /// 4. Repeat until no changes or max depth reached
+    ///
+    /// **Example**: `${$(arg count) * 2}` where count=5
+    /// - Iteration 1: Expression token `$(arg count) * 2`
+    ///   - Resolve extension: `5 * 2`
+    ///   - Evaluate: `10`
+    /// - Iteration 2: Text token `10` (no changes, done)
+    ///
+    /// # Arguments
+    /// * `text` - Text containing any combination of `$()` and `${}`
+    ///
+    /// # Returns
+    /// Fully resolved text with all substitutions applied
+    ///
+    /// # Errors
+    /// * `MaxSubstitutionDepth` - Exceeded iteration limit (likely circular refs)
+    /// * `UndefinedArgument` - Referenced arg not found
+    /// * `EvalError` - Expression evaluation failed
+    pub fn substitute_all(
+        &self,
+        text: &str,
+    ) -> Result<String, XacroError> {
+        let mut result = text.to_string();
+        let mut iteration = 0;
+
+        // Keep iterating while we have either ${} or $() remaining
+        while (result.contains("${") || result.contains("$(")) && iteration < MAX_SUBSTITUTION_DEPTH
+        {
+            let lexer = Lexer::new(&result);
+            let mut changed = false;
+            let mut new_result = String::new();
+
+            for (token_type, content) in lexer {
+                match token_type {
+                    TokenType::Text => {
+                        new_result.push_str(&content);
+                    }
+                    TokenType::Extension => {
+                        // Resolve extension immediately
+                        let resolved = self.resolve_extension(&content)?;
+                        new_result.push_str(&resolved);
+                        changed = true;
+                    }
+                    TokenType::Expr => {
+                        // First resolve any extensions INSIDE the expression
+                        let expr_with_extensions_resolved =
+                            self.substitute_extensions_only(&content)?;
+
+                        // Then evaluate the expression (which may still contain properties)
+                        // CRITICAL: wrap in ${...} so build_eval_context can extract variable names
+                        let wrapped_expr = format!("${{{}}}", expr_with_extensions_resolved);
+                        let properties = self.build_eval_context(&wrapped_expr)?;
+                        let eval_result = eval_text_with_interpreter(
+                            &wrapped_expr,
+                            &properties,
+                            &self.interpreter,
+                        )
+                        .map_err(|e| XacroError::EvalError {
+                            expr: match &e {
+                                crate::utils::eval::EvalError::PyishEval { expr, .. } => {
+                                    expr.clone()
+                                }
+                                crate::utils::eval::EvalError::InvalidBoolean {
+                                    condition, ..
+                                } => condition.clone(),
+                            },
+                            source: e,
+                        })?;
+
+                        new_result.push_str(&eval_result);
+                        changed = true;
+                    }
+                    TokenType::DollarDollarBrace => {
+                        // Preserve escape sequence
+                        new_result.push('$');
+                        new_result.push_str(&content);
+                    }
+                }
+            }
+
+            // If nothing changed, we're done
+            if !changed {
+                break;
+            }
+
+            result = new_result;
+            iteration += 1;
+        }
+
+        // Check if we hit the depth limit with remaining substitutions
+        if iteration >= MAX_SUBSTITUTION_DEPTH && (result.contains("${") || result.contains("$(")) {
             let snippet = if result.len() > 100 {
                 let mut end_idx = 100;
                 while !result.is_char_boundary(end_idx) {
@@ -417,10 +691,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             stack: &self.resolution_stack,
         };
 
+        // CRITICAL: First resolve any $(...) extensions in the raw value
+        // This allows property values to contain $(arg ...) references
+        // Example: <xacro:property name="size" value="${$(arg scale) * 2}"/>
+        let value_with_extensions_resolved = self.substitute_extensions_only(&raw_value)?;
+
         // Parse expression to find all variable references, then recursively resolve them
-        let eval_context = self.build_eval_context(&raw_value)?;
+        let eval_context = self.build_eval_context(&value_with_extensions_resolved)?;
         // Evaluate using the context (all dependencies are now resolved)
-        let evaluated = self.substitute_in_text(&raw_value, &eval_context)?;
+        let evaluated = self.substitute_in_text(&value_with_extensions_resolved, &eval_context)?;
 
         // 7. Cache result (only in global scope)
         // Don't cache in macro scope - parameters are short-lived and caching would waste memory

@@ -83,6 +83,53 @@ pub enum XacroError {
     #[error("Undefined property: '{0}'")]
     UndefinedProperty(String),
 
+    /// Undefined argument accessed via $(arg name)
+    ///
+    /// The user tried to access an argument that was not defined in XML
+    /// and was not provided via CLI.
+    #[error(
+        "Undefined argument: '{name}'.\n\
+             \n\
+             To fix this:\n\
+             1. Define it in XML: <xacro:arg name=\"{name}\" default=\"...\"/>\n\
+             2. Or pass it via CLI: {name}:=value"
+    )]
+    UndefinedArgument { name: String },
+
+    /// Unknown extension type (not arg/find/env)
+    #[error(
+        "Unknown extension type: '$({}  ...)'.\n\
+             \n\
+             Supported extensions:\n\
+             - $(arg name)  - Access xacro argument\n\
+             - $(find pkg)  - Not yet implemented\n\
+             - $(env VAR)   - Not yet implemented",
+        ext_type
+    )]
+    UnknownExtension { ext_type: String },
+
+    /// Invalid extension syntax
+    #[error(
+        "Invalid extension syntax: '$({})'.\n\
+             \n\
+             {}",
+        content,
+        reason
+    )]
+    InvalidExtension { content: String, reason: String },
+
+    /// Circular argument dependency detected
+    ///
+    /// Similar to CircularPropertyDependency, but for arguments.
+    /// The chain shows the dependency path: "a -> b -> c -> a"
+    #[error(
+        "Circular argument dependency detected: {chain}.\n\
+             \n\
+             Arguments cannot reference each other in a cycle.\n\
+             Check your <xacro:arg> defaults for circular references."
+    )]
+    CircularArgumentDependency { chain: String },
+
     /// Property substitution exceeded maximum depth
     ///
     /// Indicates that iterative property substitution did not converge within the
@@ -109,10 +156,11 @@ pub const IMPLEMENTED_FEATURES: &[&str] = &[
     "xacro:if",
     "xacro:unless",
     "xacro:include",
-    "xacro:insert_block", // Added - was missing from old list
+    "xacro:insert_block",
+    "xacro:arg", // NEW - Phase 5
 ];
 
-pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:arg", "xacro:element", "xacro:attribute"];
+pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:element", "xacro:attribute"];
 
 /// Helper function to create consistent UnimplementedFeature error messages
 pub fn unimplemented_feature_error(feature: &str) -> XacroError {

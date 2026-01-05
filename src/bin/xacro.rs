@@ -122,11 +122,13 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("--deps flag not yet implemented");
     }
 
-    // TODO: Wire mappings to xacro:arg substitution when implemented
-    let _mappings = args.parse_mappings();
+    // Parse mappings (key:=value arguments for xacro:arg)
+    let mappings = args.parse_mappings();
 
-    // Process file
-    let result = xacro::process_file(&args.input)
+    // Process file with mappings
+    let processor = xacro::XacroProcessor::new_with_args(mappings);
+    let result = processor
+        .run(&args.input)
         .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
 
     // Output result
