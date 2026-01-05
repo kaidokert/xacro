@@ -100,12 +100,16 @@ pub enum XacroError {
 }
 
 // Feature lists for consistent error messages
+// These are derived from the single source of truth in features/mod.rs
+// with the "xacro:" prefix added for display purposes
+
 pub const IMPLEMENTED_FEATURES: &[&str] = &[
     "xacro:property",
     "xacro:macro",
     "xacro:if",
     "xacro:unless",
     "xacro:include",
+    "xacro:insert_block", // Added - was missing from old list
 ];
 
 pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:arg", "xacro:element", "xacro:attribute"];
