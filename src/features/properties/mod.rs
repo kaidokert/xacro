@@ -73,18 +73,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             scope_stack: RefCell::new(Vec::new()),
         };
 
-        // Initialize math constants (pi, e, tau, etc.)
+        // Initialize math constants from BUILTIN_CONSTANTS (single source of truth)
         // These are commonly used in xacro expressions
-        let math_constants = [
-            ("pi", core::f64::consts::PI.to_string()),
-            ("e", core::f64::consts::E.to_string()),
-            ("tau", core::f64::consts::TAU.to_string()),
-            ("M_PI", core::f64::consts::PI.to_string()),
-            ("inf", f64::INFINITY.to_string()),
-            ("nan", f64::NAN.to_string()),
-        ];
-        for (name, value) in math_constants {
-            processor.add_raw_property(name.to_string(), value);
+        for (name, value) in BUILTIN_CONSTANTS {
+            processor.add_raw_property(name.to_string(), value.to_string());
         }
 
         processor
