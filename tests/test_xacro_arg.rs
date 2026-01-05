@@ -519,3 +519,23 @@ fn test_arg_in_conditional_false() {
     // use_camera=false, so branch is skipped
     assert!(!result.contains("camera"));
 }
+
+/// Test that $(arg) in conditional propagates undefined argument errors
+#[test]
+fn test_arg_in_conditional_undefined_arg_errors() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <!-- note: no xacro:arg declaration for 'missing_arg' -->
+  <xacro:if value="$(arg missing_arg)">
+    <link name="should_not_appear"/>
+  </xacro:if>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    // Ensure eval_boolean correctly propagates undefined-arg errors
+    assert!(err.contains("Undefined argument") && err.contains("missing_arg"));
+}
