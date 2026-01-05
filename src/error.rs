@@ -83,6 +83,41 @@ pub enum XacroError {
     #[error("Undefined property: '{0}'")]
     UndefinedProperty(String),
 
+    /// Undefined argument accessed via $(arg name)
+    ///
+    /// The user tried to access an argument that was not defined in XML
+    /// and was not provided via CLI.
+    #[error(
+        "Undefined argument: '{name}'.\n\
+             \n\
+             To fix this:\n\
+             1. Define it in XML: <xacro:arg name=\"{name}\" default=\"...\"/>\n\
+             2. Or pass it via CLI: {name}:=value"
+    )]
+    UndefinedArgument { name: String },
+
+    /// Unknown extension type (not arg/find/env)
+    #[error(
+        "Unknown extension type: '$({} ...)'.\n\
+             \n\
+             Supported extensions:\n\
+             - $(arg name)  - Access xacro argument\n\
+             - $(find pkg)  - Not yet implemented\n\
+             - $(env VAR)   - Not yet implemented",
+        ext_type
+    )]
+    UnknownExtension { ext_type: String },
+
+    /// Invalid extension syntax
+    #[error(
+        "Invalid extension syntax: '$({})'.\n\
+             \n\
+             {}",
+        content,
+        reason
+    )]
+    InvalidExtension { content: String, reason: String },
+
     /// Property substitution exceeded maximum depth
     ///
     /// Indicates that iterative property substitution did not converge within the
@@ -99,6 +134,21 @@ pub enum XacroError {
     InvalidRoot(String),
 }
 
+// Implement From trait for EvalError to avoid duplicated error mapping
+impl From<crate::utils::eval::EvalError> for XacroError {
+    fn from(e: crate::utils::eval::EvalError) -> Self {
+        XacroError::EvalError {
+            expr: match &e {
+                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
+                    condition.clone()
+                }
+            },
+            source: e,
+        }
+    }
+}
+
 // Feature lists for consistent error messages
 // These are derived from the single source of truth in features/mod.rs
 // with the "xacro:" prefix added for display purposes
@@ -109,10 +159,11 @@ pub const IMPLEMENTED_FEATURES: &[&str] = &[
     "xacro:if",
     "xacro:unless",
     "xacro:include",
-    "xacro:insert_block", // Added - was missing from old list
+    "xacro:insert_block",
+    "xacro:arg", // NEW - Phase 5
 ];
 
-pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:arg", "xacro:element", "xacro:attribute"];
+pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:element", "xacro:attribute"];
 
 /// Helper function to create consistent UnimplementedFeature error messages
 pub fn unimplemented_feature_error(feature: &str) -> XacroError {

@@ -387,6 +387,41 @@ mod tests {
     }
 
     #[test]
+    fn test_lexer_extension_with_spaces() {
+        // Spaces inside extension content are preserved (not trimmed by lexer)
+        let input = "$( arg  foo )";
+        let tokens = lex_all(input);
+        assert_eq!(
+            tokens,
+            vec![(TokenType::Extension, " arg  foo ".to_string()),]
+        );
+    }
+
+    #[test]
+    fn test_lexer_mixed_expression_and_extension() {
+        let input = "${x} and $(arg y)";
+        let tokens = lex_all(input);
+        assert_eq!(
+            tokens,
+            vec![
+                (TokenType::Expr, "x".to_string()),
+                (TokenType::Text, " and ".to_string()),
+                (TokenType::Extension, "arg y".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lexer_nested_extension_in_expression() {
+        // Extension nested inside expression - both preserved
+        let input = "${$(arg x) * 2}";
+        let tokens = lex_all(input);
+        assert_eq!(tokens, vec![(TokenType::Expr, "$(arg x) * 2".to_string()),]);
+        // The extension is preserved as part of the expression content
+        // It will be resolved when the expression is evaluated
+    }
+
+    #[test]
     fn test_lexer_complex_expression() {
         let input = "${1 + 2 * 3}";
         let tokens = lex_all(input);

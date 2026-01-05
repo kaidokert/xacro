@@ -102,8 +102,9 @@ pub struct XacroContext {
     /// Macro definitions wrapped in Rc (from Step 2) - uses RefCell for interior mutability
     pub macros: RefCell<HashMap<String, Rc<MacroDefinition>>>,
 
-    /// CLI arguments (for future xacro:arg support)
-    pub args: HashMap<String, String>,
+    /// CLI arguments (shared with PropertyProcessor for $(arg) resolution)
+    /// Wrapped in Rc<RefCell<...>> for shared mutable access
+    pub args: Rc<RefCell<HashMap<String, String>>>,
 
     /// Include stack for circular include detection (uses RefCell for interior mutability)
     pub include_stack: RefCell<Vec<PathBuf>>,
@@ -135,10 +136,28 @@ impl XacroContext {
         base_path: PathBuf,
         xacro_ns: String,
     ) -> Self {
+        Self::new_with_args(base_path, xacro_ns, HashMap::new())
+    }
+
+    /// Create a new context with CLI arguments
+    ///
+    /// # Arguments
+    /// * `base_path` - Base directory for resolving relative includes
+    /// * `xacro_ns` - Xacro namespace prefix (e.g., "xacro")
+    /// * `cli_args` - Arguments from CLI (take precedence over XML defaults)
+    pub fn new_with_args(
+        base_path: PathBuf,
+        xacro_ns: String,
+        cli_args: HashMap<String, String>,
+    ) -> Self {
+        // Create shared args map for both PropertyProcessor and expander
+        // Initialize with CLI args (these take precedence over XML defaults)
+        let args = Rc::new(RefCell::new(cli_args));
+
         Self {
-            properties: PropertyProcessor::new(),
+            properties: PropertyProcessor::new_with_args(args.clone()),
             macros: RefCell::new(HashMap::new()),
-            args: HashMap::new(),
+            args,
             include_stack: RefCell::new(Vec::new()),
             namespace_stack: RefCell::new(vec![(base_path.clone(), xacro_ns)]),
             block_stack: RefCell::new(Vec::new()),
@@ -211,8 +230,8 @@ pub fn expand_node(
     match node {
         XMLNode::Element(elem) => expand_element(elem, ctx),
         XMLNode::Text(text) => {
-            // Resolve ${...} expressions in text using scope-aware substitution
-            let resolved = ctx.properties.substitute_text(&text)?;
+            // Resolve both ${...} expressions and $(...) extensions in text
+            let resolved = ctx.properties.substitute_all(&text)?;
             Ok(vec![XMLNode::Text(resolved)])
         }
         other => Ok(vec![other]), // Comments, CDATA, etc. pass through
@@ -268,6 +287,39 @@ fn expand_element(
         }
 
         // Property definitions don't produce output
+        return Ok(vec![]);
+    }
+
+    // 1b. Argument definitions (no output)
+    if is_xacro_element(&elem, "arg", &xacro_ns) {
+        // Extract raw name attribute (required)
+        let raw_name = elem
+            .attributes
+            .get("name")
+            .ok_or_else(|| XacroError::MissingAttribute {
+                element: "xacro:arg".to_string(),
+                attribute: "name".to_string(),
+            })?;
+
+        // CRITICAL: Evaluate name with properties only (no extensions in arg names)
+        // This prevents circular dependencies: $(arg ${x}) where x="..."
+        let name = ctx.properties.substitute_text(raw_name)?;
+
+        // CLI arguments take precedence over defaults (The "Precedence Rake")
+        if !ctx.args.borrow().contains_key(&name) {
+            // Only set default if CLI didn't provide a value
+            if let Some(default_value) = elem.attributes.get("default") {
+                // CRITICAL: Evaluate default with FULL substitution (may contain $(arg ...))
+                // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
+                let default = ctx.properties.substitute_all(default_value)?;
+                ctx.args.borrow_mut().insert(name.clone(), default);
+            }
+            // else: No default and no CLI value provided
+            // Don't insert anything - let it error with UndefinedArgument on first use
+            // This allows args to be declared without defaults, but requires CLI value
+        }
+
+        // The directive consumes itself (doesn't appear in output)
         return Ok(vec![]);
     }
 
@@ -441,13 +493,13 @@ fn expand_element(
 
     // 7. Macro calls (with re-scan for nested macros)
     if is_macro_call(&elem, &ctx.macros.borrow(), &xacro_ns) {
-        // CRITICAL: Substitute ${...} expressions in macro call attributes BEFORE expansion
+        // CRITICAL: Substitute both ${...} and $(...) in macro call attributes BEFORE expansion
         // This allows nested macros to use parameters from outer macro scope:
         // <xacro:macro name="outer" params="prefix">
         //   <xacro:inner prefix="${prefix}"/>  <!-- ${prefix} evaluated here -->
         // </xacro:macro>
         for attr_value in elem.attributes.values_mut() {
-            *attr_value = ctx.properties.substitute_text(attr_value)?;
+            *attr_value = ctx.properties.substitute_all(attr_value)?;
         }
 
         let expanded_nodes = expand_macro_call(&elem, ctx)?;
@@ -456,9 +508,9 @@ fn expand_element(
     }
 
     // 8. Regular elements: Substitute attributes and recurse to children
-    // Substitute ${...} expressions in all attributes
+    // Substitute both ${...} expressions and $(...) extensions in all attributes
     for attr_value in elem.attributes.values_mut() {
-        *attr_value = ctx.properties.substitute_text(attr_value)?;
+        *attr_value = ctx.properties.substitute_all(attr_value)?;
     }
 
     // Recursively expand children

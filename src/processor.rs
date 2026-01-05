@@ -5,10 +5,15 @@ use crate::{
 };
 use xmltree::XMLNode;
 
+use std::collections::HashMap;
+
 pub struct XacroProcessor {
     /// Maximum recursion depth for macro expansion and insert_block
     /// Default: 50 (set conservatively to prevent stack overflow)
     max_recursion_depth: usize,
+    /// CLI arguments passed to the processor (for xacro:arg support)
+    /// These take precedence over XML defaults
+    args: HashMap<String, String>,
 }
 
 impl XacroProcessor {
@@ -17,6 +22,30 @@ impl XacroProcessor {
     pub fn new() -> Self {
         Self {
             max_recursion_depth: 50,
+            args: HashMap::new(),
+        }
+    }
+
+    /// Create a new xacro processor with CLI arguments
+    ///
+    /// # Arguments
+    /// * `args` - Map of argument names to values (from CLI key:=value format)
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut args = HashMap::new();
+    /// args.insert("scale".to_string(), "0.5".to_string());
+    /// args.insert("prefix".to_string(), "robot_".to_string());
+    ///
+    /// let processor = XacroProcessor::new_with_args(args);
+    /// ```
+    pub fn new_with_args(args: HashMap<String, String>) -> Self {
+        Self {
+            max_recursion_depth: 50,
+            args,
         }
     }
 
@@ -33,6 +62,7 @@ impl XacroProcessor {
     pub fn new_with_depth(max_depth: usize) -> Self {
         Self {
             max_recursion_depth: max_depth,
+            args: HashMap::new(),
         }
     }
 
@@ -80,9 +110,14 @@ impl XacroProcessor {
         // Only error during finalize_tree if xacro elements are found.
         let xacro_ns = extract_xacro_namespace(&root)?;
 
-        // Create expansion context
+        // Create expansion context with CLI arguments
         // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
-        let mut ctx = XacroContext::new(base_path.to_path_buf(), xacro_ns.clone());
+        // CLI args are passed to the context and take precedence over XML defaults
+        let mut ctx = XacroContext::new_with_args(
+            base_path.to_path_buf(),
+            xacro_ns.clone(),
+            self.args.clone(),
+        );
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 
         // Expand the root element itself. This will handle attributes on the root
