@@ -25,39 +25,103 @@ pub struct MacroDefinition {
 pub struct MacroProcessor;
 
 impl MacroProcessor {
+    /// Split a parameter string on whitespace, respecting quoted sections.
+    ///
+    /// Returns an error if quotes are unbalanced (unclosed quote).
+    ///
+    /// Examples:
+    /// - `"a b c"` → `["a", "b", "c"]`
+    /// - `"a:='x y' b:=1"` → `["a:='x y'", "b:=1"]`
+    /// - `"pos:='0 0 0' *block"` → `["pos:='0 0 0'", "*block"]`
+    /// - `"rpy:='0 0 0"` → Error (unclosed quote)
+    fn split_params_respecting_quotes(params_str: &str) -> Result<Vec<String>, XacroError> {
+        let mut tokens = Vec::new();
+        let mut current_token = String::new();
+        let mut in_quotes = false;
+        let mut quote_char = ' ';
+
+        for ch in params_str.chars() {
+            if in_quotes {
+                current_token.push(ch);
+                if ch == quote_char {
+                    in_quotes = false;
+                }
+            } else if ch == '\'' || ch == '"' {
+                // Start of quoted section
+                in_quotes = true;
+                quote_char = ch;
+                current_token.push(ch);
+            } else if ch.is_whitespace() {
+                // End of token (if not empty)
+                if !current_token.is_empty() {
+                    // Use mem::take to avoid cloning
+                    tokens.push(core::mem::take(&mut current_token));
+                }
+            } else {
+                // Regular character
+                current_token.push(ch);
+            }
+        }
+
+        // Check for unbalanced quotes before returning
+        if in_quotes {
+            return Err(XacroError::UnbalancedQuote {
+                quote_char,
+                params_str: params_str.to_string(),
+            });
+        }
+
+        // Don't forget the last token
+        if !current_token.is_empty() {
+            tokens.push(current_token);
+        }
+
+        Ok(tokens)
+    }
+
     pub fn parse_params(params_str: &str) -> Result<ParsedParams, XacroError> {
         let mut params = HashMap::new();
         let mut param_order = Vec::new();
         let mut block_params = HashSet::new();
 
-        for token in params_str.split_whitespace() {
+        for token in Self::split_params_respecting_quotes(params_str)? {
             // Parse token to determine parameter type and components
-            let (param_name_str, is_block, default_value_str) =
-                if let Some(stripped) = token.strip_prefix('*') {
-                    // Block parameter (e.g., *origin)
-                    // Block parameters CANNOT have defaults
-                    if token.contains(":=") {
-                        return Err(XacroError::BlockParameterWithDefault {
-                            param: token.to_string(),
-                        });
-                    }
-                    (stripped, true, None)
-                } else if let Some((name, value)) = token.split_once(":=") {
-                    // Regular parameter with default value
-                    (name, false, Some(value))
+            let (param_name_str, is_block, default_value_str) = if let Some(stripped) =
+                token.strip_prefix('*')
+            {
+                // Block parameter (e.g., *origin)
+                // Block parameters CANNOT have defaults
+                if token.contains(":=") {
+                    return Err(XacroError::BlockParameterWithDefault {
+                        param: token.clone(),
+                    });
+                }
+                (stripped.to_string(), true, None)
+            } else if let Some((name, value)) = token.split_once(":=") {
+                // Regular parameter with default value
+                // Strip surrounding quotes from default value if present
+                // Using strip_prefix/strip_suffix is safe and handles edge cases like single-char strings
+                let unquoted_value = if let Some(s) =
+                    value.strip_prefix('\'').and_then(|s| s.strip_suffix('\''))
+                {
+                    s
+                } else if let Some(s) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                    s
                 } else {
-                    // Regular parameter without default
-                    (token, false, None)
+                    value
                 };
+                (name.to_string(), false, Some(unquoted_value.to_string()))
+            } else {
+                // Regular parameter without default
+                (token.clone(), false, None)
+            };
 
             // Validate parameter name is not empty
             if param_name_str.is_empty() {
-                return Err(XacroError::InvalidParameterName {
-                    param: token.to_string(),
-                });
+                return Err(XacroError::InvalidParameterName { param: token });
             }
 
-            let param_name = param_name_str.to_string();
+            let param_name = param_name_str;
 
             // Detect duplicate declarations
             if params.contains_key(&param_name) {
@@ -70,7 +134,7 @@ impl MacroProcessor {
                 block_params.insert(param_name.clone());
                 params.insert(param_name, None);
             } else {
-                params.insert(param_name, default_value_str.map(String::from));
+                params.insert(param_name, default_value_str);
             }
         }
 

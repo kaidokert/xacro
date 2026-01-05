@@ -43,6 +43,12 @@ pub enum XacroError {
     #[error("Invalid parameter name: '{param}' (parameter names cannot be empty)")]
     InvalidParameterName { param: String },
 
+    #[error("Unbalanced quote in macro parameters: unclosed {quote_char} quote in '{params_str}'")]
+    UnbalancedQuote {
+        quote_char: char,
+        params_str: String,
+    },
+
     #[error("Missing block parameter '{param}' in macro '{macro_name}'")]
     MissingBlockParameter { macro_name: String, param: String },
 

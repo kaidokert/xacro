@@ -440,4 +440,286 @@ mod macro_tests {
             Some(&"base".to_string())
         );
     }
+
+    /// Test parsing params with single-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_single_word() {
+        let result = MacroProcessor::parse_params("name:='value'");
+        assert!(result.is_ok(), "Should parse single-quoted value");
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(order.len(), 1);
+        assert_eq!(blocks.len(), 0);
+        assert_eq!(params.get("name"), Some(&Some("value".to_string())));
+    }
+
+    /// Test parsing params with single-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_multi_word_single_quotes() {
+        let result = MacroProcessor::parse_params("rpy:='0 0 0'");
+        assert!(result.is_ok(), "Should parse multi-word quoted value");
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(order.len(), 1);
+        assert_eq!(blocks.len(), 0);
+        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
+    }
+
+    /// Test parsing params with double-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_multi_word_double_quotes() {
+        let result = MacroProcessor::parse_params("xyz:=\"1 2 3\"");
+        assert!(
+            result.is_ok(),
+            "Should parse multi-word double-quoted value"
+        );
+
+        let (params, _order, _blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params.get("xyz"), Some(&Some("1 2 3".to_string())));
+    }
+
+    /// Test parsing multiple params with quoted defaults (real Franka example)
+    #[test]
+    fn test_parse_params_franka_hand_style() {
+        let result = MacroProcessor::parse_params(
+            "connected_to:='' ns:='' rpy:='0 0 0' xyz:='0 0 0' safety_distance:=0",
+        );
+        assert!(
+            result.is_ok(),
+            "Should parse Franka hand-style params: {:?}",
+            result.err()
+        );
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 5);
+        assert_eq!(order.len(), 5);
+        assert_eq!(blocks.len(), 0);
+
+        assert_eq!(params.get("connected_to"), Some(&Some("".to_string())));
+        assert_eq!(params.get("ns"), Some(&Some("".to_string())));
+        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
+        assert_eq!(params.get("xyz"), Some(&Some("0 0 0".to_string())));
+        assert_eq!(params.get("safety_distance"), Some(&Some("0".to_string())));
+    }
+
+    /// Test parsing mixed params: quoted defaults, unquoted defaults, and block params
+    #[test]
+    fn test_parse_params_mixed_quoted_unquoted_blocks() {
+        let result = MacroProcessor::parse_params("pos:='1 2 3' scale:=0.5 *content name:=test");
+        assert!(
+            result.is_ok(),
+            "Should parse mixed params: {:?}",
+            result.err()
+        );
+
+        let (params, order, blocks) = result.unwrap();
+
+        // Verify we parsed all 4 parameters
+        assert_eq!(params.len(), 4, "Expected 4 parameters total");
+
+        // Verify the exact ordering of parameters (critical for block param matching)
+        let expected_order: Vec<String> = vec!["pos", "scale", "content", "name"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            order, expected_order,
+            "Parameter order should match declaration sequence"
+        );
+
+        // Verify the exact set of block parameters
+        assert_eq!(blocks.len(), 1, "Expected exactly one block parameter");
+        assert!(
+            blocks.contains("content"),
+            "Blocks set should contain 'content'"
+        );
+
+        // Verify parameter values
+        assert_eq!(params.get("pos"), Some(&Some("1 2 3".to_string())));
+        assert_eq!(params.get("scale"), Some(&Some("0.5".to_string())));
+        assert_eq!(params.get("content"), Some(&None)); // Block param has no default
+        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+    }
+
+    /// Test that quoted defaults with ':=' inside quotes are handled correctly
+    #[test]
+    fn test_parse_params_complex_quoted_content() {
+        let result = MacroProcessor::parse_params("expr:='x:=5 y:=10' name:=test");
+        assert!(
+            result.is_ok(),
+            "Should handle ':=' inside quoted string: {:?}",
+            result.err()
+        );
+
+        let (params, order, _blocks) = result.unwrap();
+        assert_eq!(params.len(), 2);
+        assert_eq!(order, vec!["expr", "name"]);
+        assert_eq!(params.get("expr"), Some(&Some("x:=5 y:=10".to_string())));
+        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+    }
+
+    /// Test that block parameters with quoted defaults are rejected
+    #[test]
+    fn test_parse_params_block_param_with_quoted_default_is_error() {
+        use crate::error::XacroError;
+
+        // "*content" is a block parameter; it must not have a default, quoted or otherwise
+        let result = MacroProcessor::parse_params("*content:='foo bar'");
+
+        // Ensure we still reject block parameters with defaults when the default is quoted
+        assert!(
+            matches!(result, Err(XacroError::BlockParameterWithDefault { .. })),
+            "Expected BlockParameterWithDefault error for quoted default on block param, got: {:?}",
+            result
+        );
+    }
+
+    /// Test that duplicate parameters are rejected when one has a quoted default
+    #[test]
+    fn test_parse_params_duplicate_with_quoted_default_is_error() {
+        use crate::error::XacroError;
+
+        // Same parameter name "rpy" appears twice, once with a quoted default
+        let result = MacroProcessor::parse_params("rpy:='0 0 0' rpy:=1");
+
+        // Ensure duplicate detection still works with quoted defaults and String-based token handling
+        assert!(
+            matches!(result, Err(XacroError::DuplicateParamDeclaration { .. })),
+            "Expected DuplicateParamDeclaration error for duplicate param with quoted default, got: {:?}",
+            result
+        );
+    }
+
+    /// Test edge case: single-character value that's not a quote
+    #[test]
+    fn test_parse_params_single_char_value() {
+        // This was a potential panic case before using strip_prefix/strip_suffix
+        // A value like "p:=x" (single char) should work fine
+        let result = MacroProcessor::parse_params("p:=x");
+
+        assert!(
+            result.is_ok(),
+            "Should parse single-char non-quoted value: {:?}",
+            result.err()
+        );
+
+        let (params, _, _) = result.unwrap();
+        assert_eq!(params.get("p"), Some(&Some("x".to_string())));
+    }
+
+    /// Test edge case: properly quoted single-character string
+    #[test]
+    fn test_parse_params_single_char_quoted_properly() {
+        // A properly quoted single character: "p:='x'"
+        let result = MacroProcessor::parse_params("p:='x'");
+
+        assert!(
+            result.is_ok(),
+            "Should parse single-char quoted value: {:?}",
+            result.err()
+        );
+
+        let (params, _, _) = result.unwrap();
+        // Quote-stripping should extract the 'x'
+        assert_eq!(params.get("p"), Some(&Some("x".to_string())));
+    }
+
+    /// Test escape sequences in quoted defaults (NOT YET SUPPORTED)
+    ///
+    /// This test documents a limitation: the tokenizer does not support escape
+    /// sequences like \' or \" within quoted strings.
+    ///
+    /// See: notes/MACRO_PARSER_LIMITATIONS.md Issue #1
+    ///
+    /// Decision: Deferred pending verification that Python xacro supports this.
+    #[test]
+    #[ignore = "Escape sequences not yet supported - see notes/MACRO_PARSER_LIMITATIONS.md"]
+    fn test_parse_params_escape_sequences_not_supported() {
+        // Example: Literal single quote inside single-quoted string
+        // Expected: name="it's here"
+        // Actual: Parse error - tokenizer exits quote mode at \'
+        let result = MacroProcessor::parse_params(r"name:='it\'s here'");
+
+        // When escape sequences ARE implemented, this should parse correctly:
+        // assert!(result.is_ok());
+        // let (params, _, _) = result.unwrap();
+        // assert_eq!(params.get("name"), Some(&Some("it's here".to_string())));
+
+        // For now, document that it's expected to fail or produce wrong tokens
+        // (This test is ignored, so it won't run in CI)
+        let _ = result; // Avoid unused variable warning
+    }
+
+    /// Test edge case: unbalanced quotes
+    ///
+    /// The tokenizer validates that all quotes are properly closed and returns
+    /// an error if an unclosed quote is detected.
+    #[test]
+    fn test_parse_params_unbalanced_quotes() {
+        use crate::error::XacroError;
+
+        // Missing closing quote - should return UnbalancedQuote error
+        let result = MacroProcessor::parse_params("rpy:='0 0 0");
+
+        assert!(result.is_err(), "Unbalanced quotes should return error");
+
+        // Verify it's the correct error type
+        assert!(
+            matches!(result, Err(XacroError::UnbalancedQuote { .. })),
+            "Expected UnbalancedQuote error, got: {:?}",
+            result
+        );
+    }
+
+    /// Test edge case: adjacent quoted strings without space
+    ///
+    /// Documents behavior when quoted params have no whitespace between them.
+    /// The tokenizer requires whitespace to separate tokens, so adjacent quotes
+    /// are treated as a single token.
+    #[test]
+    fn test_parse_params_adjacent_quoted_strings() {
+        // Two quoted params with no space between closing ' and next param
+        let result = MacroProcessor::parse_params("a:='val1'b:='val2'");
+
+        // Currently, the tokenizer treats this as ONE token because there's
+        // no whitespace between 'val1' and b
+        assert!(
+            result.is_ok(),
+            "Adjacent quoted strings parse as single token: {:?}",
+            result.err()
+        );
+
+        let (params, order, _) = result.unwrap();
+        // Only one parameter is parsed - the entire string is one token
+        assert_eq!(params.len(), 1, "Adjacent quotes treated as single token");
+        assert_eq!(order, vec!["a"]);
+        // The value includes everything after := including the adjacent param
+        assert_eq!(params.get("a"), Some(&Some("val1'b:='val2".to_string())));
+    }
+
+    /// Test edge case: quote character in parameter name causes unbalanced quote
+    #[test]
+    fn test_parse_params_quote_in_param_name() {
+        use crate::error::XacroError;
+
+        // A quote in the parameter name starts quote mode: "param':=value"
+        // The tokenizer sees param' and enters quote mode, then reads :=value
+        // Since there's no closing ', this is an unbalanced quote
+        let result = MacroProcessor::parse_params("param':=value");
+
+        assert!(
+            result.is_err(),
+            "Quote in param name causes unbalanced quote error"
+        );
+
+        // Verify it's the correct error type
+        assert!(
+            matches!(result, Err(XacroError::UnbalancedQuote { .. })),
+            "Expected UnbalancedQuote error, got: {:?}",
+            result
+        );
+    }
 }
