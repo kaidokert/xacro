@@ -440,4 +440,107 @@ mod macro_tests {
             Some(&"base".to_string())
         );
     }
+
+    /// Test parsing params with single-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_single_word() {
+        let result = MacroProcessor::parse_params("name:='value'");
+        assert!(result.is_ok(), "Should parse single-quoted value");
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(order.len(), 1);
+        assert_eq!(blocks.len(), 0);
+        assert_eq!(params.get("name"), Some(&Some("value".to_string())));
+    }
+
+    /// Test parsing params with single-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_multi_word_single_quotes() {
+        let result = MacroProcessor::parse_params("rpy:='0 0 0'");
+        assert!(result.is_ok(), "Should parse multi-word quoted value");
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(order.len(), 1);
+        assert_eq!(blocks.len(), 0);
+        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
+    }
+
+    /// Test parsing params with double-quoted default value containing spaces
+    #[test]
+    fn test_parse_params_quoted_multi_word_double_quotes() {
+        let result = MacroProcessor::parse_params("xyz:=\"1 2 3\"");
+        assert!(
+            result.is_ok(),
+            "Should parse multi-word double-quoted value"
+        );
+
+        let (params, _order, _blocks) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params.get("xyz"), Some(&Some("1 2 3".to_string())));
+    }
+
+    /// Test parsing multiple params with quoted defaults (real Franka example)
+    #[test]
+    fn test_parse_params_franka_hand_style() {
+        let result = MacroProcessor::parse_params(
+            "connected_to:='' ns:='' rpy:='0 0 0' xyz:='0 0 0' safety_distance:=0",
+        );
+        assert!(
+            result.is_ok(),
+            "Should parse Franka hand-style params: {:?}",
+            result.err()
+        );
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 5);
+        assert_eq!(order.len(), 5);
+        assert_eq!(blocks.len(), 0);
+
+        assert_eq!(params.get("connected_to"), Some(&Some("".to_string())));
+        assert_eq!(params.get("ns"), Some(&Some("".to_string())));
+        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
+        assert_eq!(params.get("xyz"), Some(&Some("0 0 0".to_string())));
+        assert_eq!(params.get("safety_distance"), Some(&Some("0".to_string())));
+    }
+
+    /// Test parsing mixed params: quoted defaults, unquoted defaults, and block params
+    #[test]
+    fn test_parse_params_mixed_quoted_unquoted_blocks() {
+        let result = MacroProcessor::parse_params("pos:='1 2 3' scale:=0.5 *content name:=test");
+        assert!(
+            result.is_ok(),
+            "Should parse mixed params: {:?}",
+            result.err()
+        );
+
+        let (params, order, blocks) = result.unwrap();
+        assert_eq!(params.len(), 4);
+        assert_eq!(order.len(), 4);
+        assert_eq!(blocks.len(), 1);
+
+        assert_eq!(params.get("pos"), Some(&Some("1 2 3".to_string())));
+        assert_eq!(params.get("scale"), Some(&Some("0.5".to_string())));
+        assert_eq!(params.get("content"), Some(&None)); // Block param has no default
+        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+        assert!(blocks.contains("content"));
+    }
+
+    /// Test that quoted defaults with ':=' inside quotes are handled correctly
+    #[test]
+    fn test_parse_params_complex_quoted_content() {
+        let result = MacroProcessor::parse_params("expr:='x:=5 y:=10' name:=test");
+        assert!(
+            result.is_ok(),
+            "Should handle ':=' inside quoted string: {:?}",
+            result.err()
+        );
+
+        let (params, order, _blocks) = result.unwrap();
+        assert_eq!(params.len(), 2);
+        assert_eq!(order, vec!["expr", "name"]);
+        assert_eq!(params.get("expr"), Some(&Some("x:=5 y:=10".to_string())));
+        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+    }
 }
