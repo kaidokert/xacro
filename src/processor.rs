@@ -146,7 +146,7 @@ impl XacroProcessor {
         // Expand the root element's children (keep root element itself)
         let mut expanded_children = Vec::new();
         for child in core::mem::take(&mut root.children) {
-            expanded_children.extend(expand_node(child, &mut ctx)?);
+            expanded_children.extend(expand_node(child, &ctx)?);
         }
         root.children = expanded_children;
 

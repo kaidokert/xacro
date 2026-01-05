@@ -1,6 +1,6 @@
 use crate::error::XacroError;
 use std::collections::{HashMap, HashSet};
-use xmltree::Element;
+pub use xmltree::Element;
 
 // Type aliases to simplify complex return types
 pub type ParamsMap = HashMap<String, Option<String>>;

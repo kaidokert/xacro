@@ -726,7 +726,7 @@ fn test_custom_max_recursion_depth() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::MacroRecursionLimit { depth, limit } if limit == 5),
+        matches!(err, xacro::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 5),
         "Should be MacroRecursionLimit with limit=5, got: {:?}",
         err
     );
@@ -761,7 +761,7 @@ fn test_circular_block_references() {
     );
 
     let err = result.err().unwrap();
-    // Note: V2 uses unified recursion tracking, so all recursion depth errors
+    // Note: Uses unified recursion tracking, so all recursion depth errors
     // are MacroRecursionLimit (covers macros, insert_block, and all expand_node calls)
     assert!(
         matches!(err, xacro::XacroError::MacroRecursionLimit { .. }),
@@ -1202,7 +1202,7 @@ fn test_integration_conditionals_with_properties() {
 }
 
 // ============================================================================
-// RESTORED TESTS FROM V1 PIPELINE
+// Property and Expression Tests
 // ============================================================================
 
 /// Test basic property substitution using test data files
@@ -1759,9 +1759,8 @@ fn test_if_boolean_literals() {
 }
 
 /// Test if with float truthiness
-/// NOTE: Currently fails - V2 evaluator doesn't support float truthiness
-/// Float truthiness works via EXPRESSIONS, not literals
-/// V1 test used ${3*0.1}, not literal "1.0"
+/// NOTE: Float truthiness works via EXPRESSIONS, not literals
+/// Use ${3*0.1} for float evaluation, not literal "1.0"
 #[test]
 fn test_if_float_truthiness() {
     let processor = XacroProcessor::new();
@@ -1831,15 +1830,10 @@ fn test_if_invalid_value_error() {
 </robot>"#;
 
     let result = processor.run_from_string(input);
-    // Invalid boolean should cause error or be treated as string
-    // Documenting actual behavior
-    if result.is_err() {
-        // Error is acceptable
-        assert!(true, "Invalid boolean caused error (acceptable)");
-    } else {
-        // Or it might work if strings are truthy
-        assert!(true, "Invalid boolean was handled (acceptable)");
-    }
+    assert!(
+        result.is_err(),
+        "Invalid boolean 'not_a_boolean' should cause error"
+    );
 }
 
 /// Test if with missing value attribute
