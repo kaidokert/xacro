@@ -239,16 +239,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // This is more efficient than resolving all properties upfront
             let properties = self.build_eval_context(&result)?;
 
-            let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)
-                .map_err(|e| XacroError::EvalError {
-                    expr: match &e {
-                        crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
-                        crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
-                            condition.clone()
-                        }
-                    },
-                    source: e,
-                })?;
+            let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -290,9 +281,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        // Use split_whitespace to correctly handle any amount of whitespace
-        // This matches Python xacro's shlex.split behavior
-        // Note: split_whitespace already trims leading/trailing whitespace
+        // Simple whitespace-based parser for extension arguments
+        // This is sufficient for `arg`, `find`, and `env` which expect single-token arguments
+        // Note: Does not support quoted arguments with spaces (unlike shlex.split)
         let mut parts_iter = content.split_whitespace();
 
         // Extract extension type (required)
@@ -480,18 +471,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                             &wrapped_expr,
                             &properties,
                             &self.interpreter,
-                        )
-                        .map_err(|e| XacroError::EvalError {
-                            expr: match &e {
-                                crate::utils::eval::EvalError::PyishEval { expr, .. } => {
-                                    expr.clone()
-                                }
-                                crate::utils::eval::EvalError::InvalidBoolean {
-                                    condition, ..
-                                } => condition.clone(),
-                            },
-                            source: e,
-                        })?;
+                        )?;
 
                         // Only mark changed if evaluation actually modified the expression
                         if eval_result != wrapped_expr {
@@ -548,15 +528,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let properties = self.build_eval_context(expr)?;
 
         // Evaluate the boolean expression
-        eval_boolean(expr, &properties).map_err(|e| XacroError::EvalError {
-            expr: match &e {
-                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
-                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
-                    condition.clone()
-                }
-            },
-            source: e,
-        })
+        eval_boolean(expr, &properties).map_err(Into::into)
     }
 
     pub(crate) fn substitute_in_text(
@@ -571,17 +543,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            let next = eval_text_with_interpreter(&result, properties, &self.interpreter).map_err(
-                |e| XacroError::EvalError {
-                    expr: match &e {
-                        crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
-                        crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
-                            condition.clone()
-                        }
-                    },
-                    source: e,
-                },
-            )?;
+            let next = eval_text_with_interpreter(&result, properties, &self.interpreter)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {

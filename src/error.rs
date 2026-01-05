@@ -134,6 +134,21 @@ pub enum XacroError {
     InvalidRoot(String),
 }
 
+// Implement From trait for EvalError to avoid duplicated error mapping
+impl From<crate::utils::eval::EvalError> for XacroError {
+    fn from(e: crate::utils::eval::EvalError) -> Self {
+        XacroError::EvalError {
+            expr: match &e {
+                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
+                    condition.clone()
+                }
+            },
+            source: e,
+        }
+    }
+}
+
 // Feature lists for consistent error messages
 // These are derived from the single source of truth in features/mod.rs
 // with the "xacro:" prefix added for display purposes
