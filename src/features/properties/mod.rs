@@ -99,22 +99,27 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        let processor = Self {
-            interpreter: Interpreter::new(),
+        let mut interpreter = Interpreter::new();
+
+        // Initialize math constants in the interpreter
+        // These are loaded directly into the interpreter's environment for use in expressions
+        for (name, value) in BUILTIN_CONSTANTS {
+            let _ = interpreter.eval(&format!("{} = {}", name, value));
+        }
+
+        // Add math conversion functions as lambda expressions directly in the interpreter
+        // This makes them available as callable functions in all expressions
+        let _ = interpreter.eval("radians = lambda x: x * pi / 180");
+        let _ = interpreter.eval("degrees = lambda x: x * 180 / pi");
+
+        Self {
+            interpreter,
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
             args,
-        };
-
-        // Initialize math constants from BUILTIN_CONSTANTS (single source of truth)
-        // These are commonly used in xacro expressions
-        for (name, value) in BUILTIN_CONSTANTS {
-            processor.add_raw_property(name.to_string(), value.to_string());
         }
-
-        processor
     }
 
     /// Push a new scope for macro parameter bindings

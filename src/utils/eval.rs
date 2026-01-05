@@ -49,19 +49,48 @@ pub fn eval_text(
 /// Build a pyisheval context HashMap from properties
 ///
 /// Converts string properties to pyisheval Values, parsing numbers when possible.
+/// For lambda expressions, evaluates them to callable lambda values.
 /// This allows properties to be used in expressions with correct types.
 fn build_pyisheval_context(properties: &HashMap<String, String>) -> HashMap<String, Value> {
+    let mut interp = Interpreter::new();
+
+    // First pass: Load all constants and non-lambda properties into the interpreter
+    // This ensures that lambda expressions can reference them during evaluation
+    for (name, value) in properties.iter() {
+        let trimmed = value.trim();
+        if !trimmed.starts_with("lambda ") {
+            // Load constants and regular properties into interpreter
+            if let Ok(num) = value.parse::<f64>() {
+                let _ = interp.eval(&format!("{} = {}", name, num));
+            }
+        }
+    }
+
+    // Second pass: Build the actual context, evaluating lambdas
     properties
         .iter()
         .map(|(name, value)| {
-            // Try to parse as number, otherwise treat as string
-            let val = if let Ok(num) = value.parse::<f64>() {
-                Value::Number(num)
-            } else {
-                // Store strings without quotes - pyisheval's StringLit handles this
-                Value::StringLit(value.clone())
-            };
-            (name.clone(), val)
+            // Try to parse as number first
+            if let Ok(num) = value.parse::<f64>() {
+                return (name.clone(), Value::Number(num));
+            }
+
+            // Check if it's a lambda expression
+            let trimmed = value.trim();
+            if trimmed.starts_with("lambda ") {
+                // Evaluate the lambda expression to get a callable lambda value
+                // The interpreter now has all constants loaded from first pass
+                match interp.eval(trimmed) {
+                    Ok(lambda_value) => return (name.clone(), lambda_value),
+                    Err(_) => {
+                        // If evaluation fails, treat as string
+                        // This shouldn't happen for valid lambda expressions
+                    }
+                }
+            }
+
+            // Default: store as string literal
+            (name.clone(), Value::StringLit(value.clone()))
         })
         .collect()
 }
