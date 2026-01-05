@@ -1904,3 +1904,276 @@ fn test_if_with_properties() {
         "disable_feature=0 should exclude"
     );
 }
+
+// ============================================================================
+// Dynamic Directive Attribute Tests
+// ============================================================================
+// Tests for ${...} substitution in xacro directive attributes (property name,
+// macro name, include filename, insert_block name). These are critical features
+// used extensively in real-world ROS URDF files.
+//
+// See: notes/DYNAMIC_WTF.md for detailed analysis
+
+/// Test dynamic property name substitution
+#[test]
+fn test_property_dynamic_name() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="prefix" value="left"/>
+  <xacro:property name="${prefix}_wheel_radius" value="0.1"/>
+  <link name="base">
+    <value>${left_wheel_radius}</value>
+  </link>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Dynamic property name failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("<value>0.1</value>"),
+        "Property 'left_wheel_radius' should be accessible: {}",
+        output
+    );
+}
+
+/// Test dynamic property name with concatenation
+#[test]
+fn test_property_dynamic_name_concatenation() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="side" value="right"/>
+  <xacro:property name="component" value="wheel"/>
+  <xacro:property name="${side}_${component}_radius" value="0.15"/>
+  <link name="base">
+    <value>${right_wheel_radius}</value>
+  </link>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Dynamic property name concatenation failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("<value>0.15</value>"),
+        "Property 'right_wheel_radius' should be accessible: {}",
+        output
+    );
+}
+
+/// Test dynamic macro name substitution
+#[test]
+fn test_macro_dynamic_name() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="prefix" value="mobile"/>
+  <xacro:macro name="${prefix}_base" params="size">
+    <link name="${prefix}_base_link" size="${size}"/>
+  </xacro:macro>
+  <xacro:mobile_base size="1.0"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Dynamic macro name failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="mobile_base_link""#),
+        "Macro with dynamic name should be callable: {}",
+        output
+    );
+    assert!(
+        output.contains(r#"size="1""#),
+        "Macro parameters should work: {}",
+        output
+    );
+}
+
+/// Test dynamic include filename substitution
+#[test]
+fn test_include_dynamic_filename() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create included file
+    let included_content = r#"<?xml version="1.0"?>
+<part>
+  <link name="included_link"/>
+</part>"#;
+    let included_path = temp_path.join("common.xacro");
+    fs::write(&included_path, included_content).unwrap();
+
+    // Root file with dynamic filename
+    let root_content = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="file" value="common.xacro"/>
+  <xacro:include filename="${{file}}"/>
+</robot>"#
+    );
+
+    let root_path = temp_path.join("root.xacro");
+    fs::write(&root_path, &root_content).unwrap();
+
+    let processor = XacroProcessor::new();
+    let result = processor.run(&root_path);
+    assert!(
+        result.is_ok(),
+        "Dynamic include filename failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="included_link""#),
+        "Include with dynamic filename should work: {}",
+        output
+    );
+}
+
+/// Test dynamic include filename with path concatenation
+#[test]
+fn test_include_dynamic_filename_with_path() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create subdirectory
+    let subdir = temp_path.join("urdf");
+    fs::create_dir(&subdir).unwrap();
+
+    // Create included file in subdirectory
+    let included_content = r#"<?xml version="1.0"?>
+<part>
+  <link name="from_subdir"/>
+</part>"#;
+    fs::write(subdir.join("components.xacro"), included_content).unwrap();
+
+    // Root file with path concatenation
+    let root_content = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="subdir" value="urdf"/>
+  <xacro:include filename="${{subdir}}/components.xacro"/>
+</robot>"#
+    );
+
+    let root_path = temp_path.join("root.xacro");
+    fs::write(&root_path, &root_content).unwrap();
+
+    let processor = XacroProcessor::new();
+    let result = processor.run(&root_path);
+    assert!(
+        result.is_ok(),
+        "Dynamic include with path concatenation failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="from_subdir""#),
+        "Include with path concatenation should work: {}",
+        output
+    );
+}
+
+/// Test dynamic insert_block name substitution
+#[test]
+fn test_insert_block_dynamic_name() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="block_name" value="content"/>
+  <xacro:macro name="foo" params="*content side">
+    <container side="${side}">
+      <xacro:insert_block name="${block_name}"/>
+    </container>
+  </xacro:macro>
+  <xacro:foo side="left">
+    <item id="1"/>
+  </xacro:foo>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Dynamic insert_block name failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"side="left""#),
+        "Container should have side attribute: {}",
+        output
+    );
+    assert!(
+        output.contains(r#"<item id="1"/>"#),
+        "Block content should be inserted: {}",
+        output
+    );
+}
+
+/// Test dynamic insert_block name with conditional selection
+#[test]
+fn test_insert_block_dynamic_name_conditional() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="use_left" value="1"/>
+  <xacro:macro name="selector" params="*left_block *right_block">
+    <xacro:if value="${use_left}">
+      <xacro:property name="selected" value="left_block"/>
+    </xacro:if>
+    <xacro:unless value="${use_left}">
+      <xacro:property name="selected" value="right_block"/>
+    </xacro:unless>
+    <result>
+      <xacro:insert_block name="${selected}"/>
+    </result>
+  </xacro:macro>
+  <xacro:selector>
+    <left>Left content</left>
+    <right>Right content</right>
+  </xacro:selector>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Dynamic insert_block with conditional selection failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("<left>Left content</left>"),
+        "Left block should be inserted when use_left=1: {}",
+        output
+    );
+    assert!(
+        !output.contains("<right>Right content</right>"),
+        "Right block should NOT be inserted when use_left=1: {}",
+        output
+    );
+}

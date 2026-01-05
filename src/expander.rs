@@ -228,14 +228,15 @@ fn expand_element(
 
     // 1. Property definitions (no output)
     if is_xacro_element(&elem, "property", &xacro_ns) {
-        // Extract property name (required)
-        let name = elem
-            .attributes
-            .get("name")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:property".to_string(),
-                attribute: "name".to_string(),
-            })?;
+        // Extract property name (required) and substitute expressions
+        let name = ctx
+            .properties
+            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+                XacroError::MissingAttribute {
+                    element: "xacro:property".to_string(),
+                    attribute: "name".to_string(),
+                }
+            })?)?;
 
         // Get value and default attributes
         let value_attr = elem.attributes.get("value");
@@ -250,7 +251,7 @@ fn expand_element(
             // default only sets if property not already defined
             (None, Some(default_value)) => {
                 // Check if property already exists
-                if !ctx.properties.has_property(name) {
+                if !ctx.properties.has_property(&name) {
                     // Property not defined, use default
                     ctx.properties
                         .add_raw_property(name.clone(), default_value.clone());
@@ -272,14 +273,15 @@ fn expand_element(
 
     // 2. Macro definitions (no output)
     if is_xacro_element(&elem, "macro", &xacro_ns) {
-        // Extract macro name
-        let name = elem
-            .attributes
-            .get("name")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:macro".to_string(),
-                attribute: "name".to_string(),
-            })?;
+        // Extract macro name and substitute expressions
+        let name = ctx
+            .properties
+            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+                XacroError::MissingAttribute {
+                    element: "xacro:macro".to_string(),
+                    attribute: "name".to_string(),
+                }
+            })?)?;
 
         // Parse params attribute (optional - treat missing as empty string)
         let params_str = elem.attributes.get("params").map_or("", |s| s.as_str());
@@ -334,16 +336,18 @@ fn expand_element(
 
     // 4. Includes (LAZY - only evaluated if reached)
     if is_xacro_element(&elem, "include", &xacro_ns) {
+        // Extract filename and substitute expressions
         let filename =
-            elem.attributes
-                .get("filename")
-                .ok_or_else(|| XacroError::MissingAttribute {
-                    element: "xacro:include".to_string(),
-                    attribute: "filename".to_string(),
-                })?;
+            ctx.properties
+                .substitute_text(elem.attributes.get("filename").ok_or_else(|| {
+                    XacroError::MissingAttribute {
+                        element: "xacro:include".to_string(),
+                        attribute: "filename".to_string(),
+                    }
+                })?)?;
 
         // Resolve path relative to base_path
-        let file_path = ctx.base_path.borrow().join(filename);
+        let file_path = ctx.base_path.borrow().join(&filename);
 
         // Check for circular includes
         if ctx.include_stack.borrow().contains(&file_path) {
@@ -405,15 +409,17 @@ fn expand_element(
     // 5. Block insertion
     // Recursion depth is checked at expand_node entry (catches circular block references)
     if is_xacro_element(&elem, "insert_block", &xacro_ns) {
-        let name = elem
-            .attributes
-            .get("name")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:insert_block".to_string(),
-                attribute: "name".to_string(),
-            })?;
+        // Extract block name and substitute expressions
+        let name = ctx
+            .properties
+            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+                XacroError::MissingAttribute {
+                    element: "xacro:insert_block".to_string(),
+                    attribute: "name".to_string(),
+                }
+            })?)?;
 
-        let block = ctx.lookup_block(name)?;
+        let block = ctx.lookup_block(&name)?;
         return expand_node(XMLNode::Element(block), ctx);
     }
 
