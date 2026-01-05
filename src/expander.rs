@@ -301,42 +301,31 @@ fn expand_element(
         return Ok(vec![]);
     }
 
-    // 3. Conditionals (LAZY evaluation)
-    if is_xacro_element(&elem, "if", &xacro_ns) {
+    // 3. Conditionals (LAZY evaluation) - consolidated if/unless
+    let is_if = is_xacro_element(&elem, "if", &xacro_ns);
+    let is_unless = is_xacro_element(&elem, "unless", &xacro_ns);
+
+    if is_if || is_unless {
+        let tag_name = if is_if { "xacro:if" } else { "xacro:unless" };
+
         let value = elem
             .attributes
             .get("value")
             .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:if".to_string(),
+                element: tag_name.to_string(),
                 attribute: "value".to_string(),
             })?;
 
         // Evaluate condition using scope-aware property resolution
         let condition = ctx.properties.eval_boolean(value)?;
 
-        if condition {
+        // For 'if': expand if true; for 'unless': expand if false
+        let should_expand = if is_if { condition } else { !condition };
+
+        if should_expand {
             return expand_children(elem, ctx);
         } else {
-            return Ok(vec![]); // Skip false branch - LAZY!
-        }
-    }
-
-    if is_xacro_element(&elem, "unless", &xacro_ns) {
-        let value = elem
-            .attributes
-            .get("value")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:unless".to_string(),
-                attribute: "value".to_string(),
-            })?;
-
-        // Evaluate condition using scope-aware property resolution
-        let condition = ctx.properties.eval_boolean(value)?;
-
-        if !condition {
-            return expand_children(elem, ctx);
-        } else {
-            return Ok(vec![]);
+            return Ok(vec![]); // Skip branch - LAZY!
         }
     }
 
@@ -509,7 +498,10 @@ fn expand_macro_call(
     // Resolve parameters with defaults, supporting chained defaults
     // Process in declaration order so later defaults can reference earlier ones
     // Example: params="a:=1 b:=${a*2} c:=${b*3}"
-    let mut resolved_params = HashMap::new();
+    //
+    // Optimization: Instead of cloning resolved_params on each iteration (O(N²)),
+    // push a single scope and incrementally add parameters to it (O(N))
+    ctx.properties.push_scope(HashMap::new());
 
     for param_name in &macro_def.param_order {
         if macro_def.block_params.contains(param_name) {
@@ -518,25 +510,22 @@ fn expand_macro_call(
 
         if let Some(value) = args.get(param_name) {
             // Parameter explicitly provided at call site
-            resolved_params.insert(param_name.clone(), value.clone());
+            ctx.properties
+                .add_to_current_scope(param_name.clone(), value.clone());
         } else if let Some(default_expr) = macro_def
             .params
             .get(param_name)
             .and_then(|opt| opt.as_ref())
         {
             // Evaluate default expression with cumulative context
-            // Push temp scope with previously resolved params so they're visible to this default
-            ctx.properties.push_scope(resolved_params.clone());
-            let _temp_scope_guard = ScopeGuard {
-                properties: &ctx.properties,
-            };
+            // Earlier parameters are already in the current scope, so they're visible
             let evaluated = ctx.properties.substitute_text(default_expr)?;
-            // Guard will pop scope automatically
-            drop(_temp_scope_guard);
-
-            resolved_params.insert(param_name.clone(), evaluated);
+            ctx.properties
+                .add_to_current_scope(param_name.clone(), evaluated);
         } else {
             // No default and not provided -> error
+            // Clean up the scope we pushed
+            ctx.properties.pop_scope();
             return Err(XacroError::MissingParameter {
                 macro_name: macro_def.name.clone(),
                 param: param_name.clone(),
@@ -544,8 +533,7 @@ fn expand_macro_call(
         }
     }
 
-    // Push macro scope and blocks with RAII guards for automatic cleanup
-    ctx.properties.push_scope(resolved_params);
+    // Scope is already pushed above; just set up the guard for cleanup
     let _scope_guard = ScopeGuard {
         properties: &ctx.properties,
     };

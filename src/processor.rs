@@ -125,23 +125,9 @@ impl XacroProcessor {
             .unwrap_or_default();
 
         // Create expansion context
+        // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
         let mut ctx = XacroContext::new(base_path.to_path_buf(), xacro_ns.clone());
         ctx.set_max_recursion_depth(self.max_recursion_depth);
-
-        // Initialize math constants (pi, e, etc.)
-        // These are automatically added by PropertyProcessor::new()
-        // but we need to ensure they're in the context
-        let math_constants = [
-            ("pi", core::f64::consts::PI.to_string()),
-            ("e", core::f64::consts::E.to_string()),
-            ("tau", core::f64::consts::TAU.to_string()),
-            ("M_PI", core::f64::consts::PI.to_string()),
-            ("inf", f64::INFINITY.to_string()),
-            ("nan", f64::NAN.to_string()),
-        ];
-        for (name, value) in math_constants {
-            ctx.properties.add_raw_property(name.to_string(), value);
-        }
 
         // Expand the root element's children (keep root element itself)
         let mut expanded_children = Vec::new();

@@ -52,13 +52,29 @@ fn is_python_keyword(name: &str) -> bool {
 impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
+        let processor = Self {
             interpreter: Interpreter::new(),
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
+        };
+
+        // Initialize math constants (pi, e, tau, etc.)
+        // These are commonly used in xacro expressions
+        let math_constants = [
+            ("pi", core::f64::consts::PI.to_string()),
+            ("e", core::f64::consts::E.to_string()),
+            ("tau", core::f64::consts::TAU.to_string()),
+            ("M_PI", core::f64::consts::PI.to_string()),
+            ("inf", f64::INFINITY.to_string()),
+            ("nan", f64::NAN.to_string()),
+        ];
+        for (name, value) in math_constants {
+            processor.add_raw_property(name.to_string(), value);
         }
+
+        processor
     }
 
     /// Push a new scope for macro parameter bindings
@@ -96,6 +112,25 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             .borrow_mut()
             .pop()
             .expect("Scope stack underflow - mismatched push/pop");
+    }
+
+    /// Add a property to the current (top) scope
+    ///
+    /// This is used for incrementally building macro parameter scopes
+    /// without O(N²) cloning overhead.
+    ///
+    /// # Panics
+    /// Panics if the scope stack is empty (no scope has been pushed)
+    pub fn add_to_current_scope(
+        &self,
+        name: String,
+        value: String,
+    ) {
+        self.scope_stack
+            .borrow_mut()
+            .last_mut()
+            .expect("No scope to add to - push a scope first")
+            .insert(name, value);
     }
 
     /// Add a raw property definition
@@ -145,39 +180,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     ) -> Result<String, XacroError> {
         use crate::utils::eval::eval_text_with_interpreter;
 
-        // Build property context: resolve all properties on-demand
-        // This respects the scope stack (macro parameters shadow globals)
-
-        // Collect all property names from scopes AND raw_properties
-        let mut all_names = std::collections::HashSet::new();
-
-        // Add names from scope stack (macro parameters)
-        for scope in self.scope_stack.borrow().iter() {
-            all_names.extend(scope.keys().cloned());
-        }
-
-        // Add names from raw_properties (global properties)
-        all_names.extend(self.raw_properties.borrow().keys().cloned());
-
-        let mut properties = HashMap::new();
-        for name in all_names {
-            // resolve_property handles scope_stack automatically (checks scopes first)
-            match self.resolve_property(&name) {
-                Ok(value) => {
-                    properties.insert(name, value);
-                }
-                Err(_) => {
-                    // Skip properties that can't be resolved
-                    // They'll error if actually used in an expression
-                }
-            }
-        }
-
         // Iterative substitution: keep evaluating as long as ${...} expressions remain
         let mut result = text.to_string();
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
+            // Build context with only the properties referenced in this iteration
+            // This is more efficient than resolving all properties upfront
+            let properties = self.build_eval_context(&result)?;
+
             let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)
                 .map_err(|e| XacroError::EvalError {
                     expr: match &e {
@@ -236,29 +247,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     ) -> Result<bool, XacroError> {
         use crate::utils::eval::eval_boolean;
 
-        // Build property context: resolve all properties on-demand
-        // Collect all property names from scopes AND raw_properties
-        let mut all_names = std::collections::HashSet::new();
-
-        // Add names from scope stack (macro parameters)
-        for scope in self.scope_stack.borrow().iter() {
-            all_names.extend(scope.keys().cloned());
-        }
-
-        // Add names from raw_properties (global properties)
-        all_names.extend(self.raw_properties.borrow().keys().cloned());
-
-        let mut properties = HashMap::new();
-        for name in all_names {
-            match self.resolve_property(&name) {
-                Ok(value) => {
-                    properties.insert(name, value);
-                }
-                Err(_) => {
-                    // Skip properties that can't be resolved
-                }
-            }
-        }
+        // Build context with only the properties referenced in this expression
+        // This is more efficient than resolving all properties upfront
+        let properties = self.build_eval_context(expr)?;
 
         // Evaluate the boolean expression
         eval_boolean(expr, &properties).map_err(|e| XacroError::EvalError {
@@ -446,8 +437,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let referenced_props = self.extract_property_references(value);
 
         for prop_name in referenced_props {
-            let resolved = self.resolve_property(&prop_name)?;
-            context.insert(prop_name, resolved);
+            // Try to resolve, but skip if not found (extract_property_references over-captures)
+            // Properties in string literals (e.g., 'test' in "${var == 'test'}") will be
+            // extracted but can't be resolved - that's OK, they're not actually property references
+            if let Ok(resolved) = self.resolve_property(&prop_name) {
+                context.insert(prop_name, resolved);
+            }
         }
 
         Ok(context)
