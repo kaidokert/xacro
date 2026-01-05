@@ -290,13 +290,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        // Trim leading/trailing whitespace before parsing
-        let trimmed = content.trim();
-
-        // Split on whitespace and filter out empty strings
-        let mut parts_iter = trimmed
-            .splitn(2, char::is_whitespace)
-            .filter(|s| !s.is_empty());
+        // Use split_whitespace to correctly handle any amount of whitespace
+        // This matches Python xacro's shlex.split behavior
+        // Note: split_whitespace already trims leading/trailing whitespace
+        let mut parts_iter = content.split_whitespace();
 
         // Extract extension type (required)
         let ext_type = parts_iter
@@ -311,25 +308,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             .next()
             .ok_or_else(|| XacroError::InvalidExtension {
                 content: content.to_string(),
-                reason: "Extensions must have format: $(type arg)".to_string(),
+                reason: format!("Extension '{}' requires an argument.", ext_type),
             })?;
 
-        // Validate argument name is not empty
-        if arg_name.is_empty() {
+        // Validate no extra parts (rejects multi-word arguments like "foo bar")
+        if parts_iter.next().is_some() {
             return Err(XacroError::InvalidExtension {
                 content: content.to_string(),
-                reason: format!(
-                    "Argument for extension type '{}' cannot be empty.",
-                    ext_type
-                ),
-            });
-        }
-
-        // Validate argument name is a single word (no whitespace)
-        if arg_name.chars().any(char::is_whitespace) {
-            return Err(XacroError::InvalidExtension {
-                content: content.to_string(),
-                reason: format!("Argument names must be single words; got: '{}'", arg_name),
+                reason: "Extensions must have format: $(type arg). Extra parts found.".to_string(),
             });
         }
 
@@ -507,8 +493,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                             source: e,
                         })?;
 
+                        // Only mark changed if evaluation actually modified the expression
+                        if eval_result != wrapped_expr {
+                            changed = true;
+                        }
                         new_result.push_str(&eval_result);
-                        changed = true;
                     }
                     TokenType::DollarDollarBrace => {
                         // Preserve escape sequence

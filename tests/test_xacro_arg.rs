@@ -346,3 +346,120 @@ fn test_env_extension_unimplemented() {
     let err = result.unwrap_err().to_string();
     assert!(err.contains("$(env") || err.contains("not yet implemented"));
 }
+
+// ============================================================================
+// WHITESPACE HANDLING TESTS
+// ============================================================================
+
+#[test]
+fn test_extension_multiple_spaces() {
+    // Test that multiple spaces between type and arg are handled correctly
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="robot_name" default="myrobot"/>
+  <link name="$(arg    robot_name)_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect("Processing failed");
+
+    assert!(result.contains("myrobot_link"));
+    assert!(!result.contains("$(arg"));
+}
+
+#[test]
+fn test_extension_tab_whitespace() {
+    // Test that tabs between type and arg are handled correctly
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="robot_name" default="myrobot"/>
+  <link name="$(arg	robot_name)_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect("Processing failed");
+
+    assert!(result.contains("myrobot_link"));
+    assert!(!result.contains("$(arg"));
+}
+
+#[test]
+fn test_extension_mixed_whitespace() {
+    // Test mixed spaces and tabs
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="value" default="42"/>
+  <link name="link_$(arg 	 	value)"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect("Processing failed");
+
+    assert!(result.contains("link_42"));
+}
+
+#[test]
+fn test_extension_leading_trailing_spaces() {
+    // Test leading and trailing spaces (should be trimmed by split_whitespace)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="name" default="base"/>
+  <link name="$(  arg name  )_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect("Processing failed");
+
+    assert!(result.contains("base_link"));
+}
+
+#[test]
+fn test_extension_newline_as_whitespace() {
+    // Newlines within extensions are treated as whitespace separators
+    // XML parsers normalize newlines in attributes, and split_whitespace treats them as delimiters
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="val" default="test"/>
+  <link name="$(arg
+val)_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect("Processing failed");
+
+    // Newline is treated as whitespace, so "arg\nval" splits to ["arg", "val"]
+    assert!(result.contains("test_link"));
+    assert!(!result.contains("$(arg"));
+}
+
+#[test]
+fn test_extension_only_whitespace() {
+    // Extension with only whitespace should error
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="$(   )_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("empty") || err.contains("Extension"));
+}
+
+#[test]
+fn test_extension_three_parts_rejected() {
+    // Extension with three parts should be rejected (catches multi-word args)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="$(arg foo bar)_link"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Extra parts") || err.contains("format"));
+}
