@@ -23,6 +23,22 @@ const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("nan", f64::NAN),
 ];
 
+/// Truncate text to a safe length (100 chars) respecting UTF-8 boundaries
+///
+/// Used for error messages to prevent overwhelming output while ensuring
+/// we don't panic on UTF-8 character boundaries.
+fn truncate_snippet(text: &str) -> String {
+    if text.len() > 100 {
+        let mut end_idx = 100;
+        while !text.is_char_boundary(end_idx) {
+            end_idx -= 1;
+        }
+        format!("{}...", &text[..end_idx])
+    } else {
+        text.to_string()
+    }
+}
+
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: Interpreter,
     // Lazy evaluation infrastructure for Python xacro compatibility
@@ -40,9 +56,6 @@ pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // NEW: Shared reference to arguments map (injected from XacroContext)
     // Args are separate from properties and follow CLI-precedence semantics
     args: Rc<RefCell<HashMap<String, String>>>,
-    // NEW: Stack for circular argument dependency detection: ["a", "b"]
-    // Separate from property resolution_stack for clearer error messages
-    arg_resolution_stack: RefCell<Vec<String>>,
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
@@ -93,7 +106,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
             args,
-            arg_resolution_stack: RefCell::new(Vec::new()),
         };
 
         // Initialize math constants from BUILTIN_CONSTANTS (single source of truth)
@@ -249,18 +261,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
 
         // If we hit the limit with remaining placeholders, this indicates a problem
         if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
-            let snippet = if result.len() > 100 {
-                let mut end_idx = 100;
-                while !result.is_char_boundary(end_idx) {
-                    end_idx -= 1;
-                }
-                format!("{}...", &result[..end_idx])
-            } else {
-                result.clone()
-            };
             return Err(XacroError::MaxSubstitutionDepth {
                 depth: MAX_SUBSTITUTION_DEPTH,
-                snippet,
+                snippet: truncate_snippet(&result),
             });
         }
 
@@ -270,7 +273,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
     ///
     /// Extensions are distinct from expressions - they provide external data sources.
-    /// This method handles circular dependency detection for arguments.
+    /// Document-order eager evaluation prevents circular dependencies naturally.
     ///
     /// # Arguments
     /// * `content` - The extension content without `$(` and `)`, e.g., "arg foo"
@@ -279,67 +282,69 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// The resolved value from the appropriate extension handler
     ///
     /// # Errors
-    /// * `InvalidExtension` - Malformed syntax (empty, missing argument, etc.)
+    /// * `InvalidExtension` - Malformed syntax (empty, missing argument, multi-word, etc.)
     /// * `UnknownExtension` - Extension type not recognized
     /// * `UndefinedArgument` - Argument not found in args map
-    /// * `CircularArgumentDependency` - Circular reference detected
     /// * `UnimplementedFeature` - Extension type not yet implemented (find, env)
     fn resolve_extension(
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        // Parse: "arg foo" → ["arg", "foo"]
-        let parts: Vec<&str> = content.splitn(2, char::is_whitespace).collect();
+        // Trim leading/trailing whitespace before parsing
+        let trimmed = content.trim();
 
-        // Validate format
-        if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
-            return Err(XacroError::InvalidExtension {
+        // Split on whitespace and filter out empty strings
+        let mut parts_iter = trimmed
+            .splitn(2, char::is_whitespace)
+            .filter(|s| !s.is_empty());
+
+        // Extract extension type (required)
+        let ext_type = parts_iter
+            .next()
+            .ok_or_else(|| XacroError::InvalidExtension {
                 content: content.to_string(),
                 reason: "Extension cannot be empty: $()".to_string(),
-            });
-        }
+            })?;
 
-        if parts.len() != 2 {
-            return Err(XacroError::InvalidExtension {
+        // Extract argument name (required)
+        let arg_name = parts_iter
+            .next()
+            .ok_or_else(|| XacroError::InvalidExtension {
                 content: content.to_string(),
                 reason: "Extensions must have format: $(type arg)".to_string(),
+            })?;
+
+        // Validate argument name is not empty
+        if arg_name.is_empty() {
+            return Err(XacroError::InvalidExtension {
+                content: content.to_string(),
+                reason: format!(
+                    "Argument for extension type '{}' cannot be empty.",
+                    ext_type
+                ),
             });
         }
 
-        let ext_type = parts[0].trim();
-        let arg_name = parts[1].trim();
+        // Validate argument name is a single word (no whitespace)
+        if arg_name.chars().any(char::is_whitespace) {
+            return Err(XacroError::InvalidExtension {
+                content: content.to_string(),
+                reason: format!("Argument names must be single words; got: '{}'", arg_name),
+            });
+        }
 
         match ext_type {
             "arg" => {
-                // Check for circular reference
-                if self
-                    .arg_resolution_stack
-                    .borrow()
-                    .contains(&arg_name.to_string())
-                {
-                    let mut chain = self.arg_resolution_stack.borrow().clone();
-                    chain.push(arg_name.to_string());
-                    return Err(XacroError::CircularArgumentDependency {
-                        chain: chain.join(" -> "),
-                    });
-                }
-
-                // Track resolution for cycle detection
-                self.arg_resolution_stack
-                    .borrow_mut()
-                    .push(arg_name.to_string());
-
                 // Lookup in args map
-                let result = self.args.borrow().get(arg_name).cloned().ok_or_else(|| {
+                // Note: Circular dependencies are prevented by document-order eager evaluation.
+                // If arg A's default references arg B, B must be defined earlier in the document.
+                // Self-references like <xacro:arg name="a" default="$(arg a)"/> naturally fail
+                // with UndefinedArgument because 'a' doesn't exist yet when its default is evaluated.
+                self.args.borrow().get(arg_name).cloned().ok_or_else(|| {
                     XacroError::UndefinedArgument {
                         name: arg_name.to_string(),
                     }
-                });
-
-                // Pop from resolution stack
-                self.arg_resolution_stack.borrow_mut().pop();
-
-                result
+                })
             }
             "find" => Err(XacroError::UnimplementedFeature(
                 "$(find ...) extension not yet implemented".to_string(),
@@ -368,6 +373,30 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         text: &str,
     ) -> Result<String, XacroError> {
+        self.substitute_extensions_only_inner(text, 0)
+    }
+
+    /// Inner recursive implementation of substitute_extensions_only with depth tracking
+    ///
+    /// # Arguments
+    /// * `text` - Text potentially containing both `$()` and `${}`
+    /// * `depth` - Current recursion depth (for overflow protection)
+    ///
+    /// # Returns
+    /// Text with `$()` resolved but `${}` preserved
+    fn substitute_extensions_only_inner(
+        &self,
+        text: &str,
+        depth: usize,
+    ) -> Result<String, XacroError> {
+        // Prevent infinite recursion
+        if depth >= MAX_SUBSTITUTION_DEPTH {
+            return Err(XacroError::MaxSubstitutionDepth {
+                depth: MAX_SUBSTITUTION_DEPTH,
+                snippet: truncate_snippet(text),
+            });
+        }
+
         let lexer = Lexer::new(text);
         let mut result = String::new();
 
@@ -382,7 +411,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     // Don't evaluate expressions - just preserve them
                     // BUT: recursively resolve any $() inside the expression content
                     let content_with_extensions_resolved =
-                        self.substitute_extensions_only(&content)?;
+                        self.substitute_extensions_only_inner(&content, depth + 1)?;
                     result.push_str("${");
                     result.push_str(&content_with_extensions_resolved);
                     result.push('}');
@@ -500,18 +529,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
 
         // Check if we hit the depth limit with remaining substitutions
         if iteration >= MAX_SUBSTITUTION_DEPTH && (result.contains("${") || result.contains("$(")) {
-            let snippet = if result.len() > 100 {
-                let mut end_idx = 100;
-                while !result.is_char_boundary(end_idx) {
-                    end_idx -= 1;
-                }
-                format!("{}...", &result[..end_idx])
-            } else {
-                result.clone()
-            };
             return Err(XacroError::MaxSubstitutionDepth {
                 depth: MAX_SUBSTITUTION_DEPTH,
-                snippet,
+                snippet: truncate_snippet(&result),
             });
         }
 
@@ -585,19 +605,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
 
         // If we hit the limit with remaining placeholders, this indicates a problem
         if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
-            let snippet = if result.len() > 100 {
-                // Find a safe UTF-8 character boundary to avoid panic
-                let mut end_idx = 100;
-                while !result.is_char_boundary(end_idx) {
-                    end_idx -= 1;
-                }
-                format!("{}...", &result[..end_idx])
-            } else {
-                result.clone()
-            };
             return Err(XacroError::MaxSubstitutionDepth {
                 depth: MAX_SUBSTITUTION_DEPTH,
-                snippet,
+                snippet: truncate_snippet(&result),
             });
         }
 

@@ -98,7 +98,7 @@ pub enum XacroError {
 
     /// Unknown extension type (not arg/find/env)
     #[error(
-        "Unknown extension type: '$({}  ...)'.\n\
+        "Unknown extension type: '$({} ...)'.\n\
              \n\
              Supported extensions:\n\
              - $(arg name)  - Access xacro argument\n\
@@ -117,18 +117,6 @@ pub enum XacroError {
         reason
     )]
     InvalidExtension { content: String, reason: String },
-
-    /// Circular argument dependency detected
-    ///
-    /// Similar to CircularPropertyDependency, but for arguments.
-    /// The chain shows the dependency path: "a -> b -> c -> a"
-    #[error(
-        "Circular argument dependency detected: {chain}.\n\
-             \n\
-             Arguments cannot reference each other in a cycle.\n\
-             Check your <xacro:arg> defaults for circular references."
-    )]
-    CircularArgumentDependency { chain: String },
 
     /// Property substitution exceeded maximum depth
     ///
