@@ -437,11 +437,10 @@ fn expand_children_list(
     children: Vec<XMLNode>,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
-    let mut result = Vec::new();
-    for child in children {
-        result.extend(expand_node(child, ctx)?);
-    }
-    Ok(result)
+    children.into_iter().try_fold(Vec::new(), |mut acc, child| {
+        acc.extend(expand_node(child, ctx)?);
+        Ok::<Vec<XMLNode>, XacroError>(acc)
+    })
 }
 
 /// Check if an element is a macro call
@@ -572,7 +571,7 @@ mod tests {
 
     #[test]
     fn test_expand_text_node() {
-        let mut ctx = XacroContext::new(
+        let ctx = XacroContext::new(
             PathBuf::from("/test"),
             "http://www.ros.org/wiki/xacro".to_string(),
         );
@@ -582,7 +581,7 @@ mod tests {
             .add_raw_property("x".to_string(), "42".to_string());
 
         let text_node = XMLNode::Text("value: ${x}".to_string());
-        let result = expand_node(text_node, &mut ctx).unwrap();
+        let result = expand_node(text_node, &ctx).unwrap();
 
         assert_eq!(result.len(), 1);
         match &result[0] {

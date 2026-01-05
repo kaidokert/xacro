@@ -2,6 +2,7 @@ use crate::{
     error::XacroError,
     expander::{expand_node, XacroContext},
 };
+use xmltree::XMLNode;
 
 pub struct XacroProcessor {
     /// Maximum recursion depth for macro expansion and insert_block
@@ -130,11 +131,13 @@ impl XacroProcessor {
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 
         // Expand the root element's children (keep root element itself)
-        let mut expanded_children = Vec::new();
-        for child in core::mem::take(&mut root.children) {
-            expanded_children.extend(expand_node(child, &ctx)?);
-        }
-        root.children = expanded_children;
+        root.children = core::mem::take(&mut root.children).into_iter().try_fold(
+            Vec::new(),
+            |mut acc, child| {
+                acc.extend(expand_node(child, &ctx)?);
+                Ok::<Vec<XMLNode>, XacroError>(acc)
+            },
+        )?;
 
         // Final cleanup: check for unprocessed xacro elements and remove namespace
         Self::finalize_tree(&mut root, &xacro_ns)?;

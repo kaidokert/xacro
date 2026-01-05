@@ -436,8 +436,17 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // Try to resolve, but skip if not found (extract_property_references over-captures)
             // Properties in string literals (e.g., 'test' in "${var == 'test'}") will be
             // extracted but can't be resolved - that's OK, they're not actually property references
-            if let Ok(resolved) = self.resolve_property(&prop_name) {
-                context.insert(prop_name, resolved);
+            match self.resolve_property(&prop_name) {
+                Ok(resolved) => {
+                    context.insert(prop_name, resolved);
+                }
+                Err(XacroError::UndefinedProperty(_)) => {
+                    // Skip undefined - likely over-captured from string literal
+                }
+                Err(e) => {
+                    // Propagate critical errors (CircularPropertyDependency, evaluation errors, etc.)
+                    return Err(e);
+                }
             }
         }
 
