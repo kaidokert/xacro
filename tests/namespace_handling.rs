@@ -451,3 +451,165 @@ fn test_invalid_xacro_namespace_uri_with_typo() {
         err
     );
 }
+
+#[test]
+fn test_include_different_namespace_prefix() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create included file with different namespace prefix (xmlns:x instead of xmlns:xacro)
+    let included_content = r#"<?xml version="1.0"?>
+<part xmlns:x="http://www.ros.org/wiki/xacro">
+  <x:property name="included_prop" value="from_include"/>
+  <link name="included_link">
+    <visual name="${included_prop}"/>
+  </link>
+</part>"#;
+
+    let included_path = temp_path.join("included.xacro");
+    fs::write(&included_path, included_content).unwrap();
+
+    // Root file with standard xmlns:xacro prefix
+    let root_content = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="root_prop" value="from_root"/>
+  <xacro:include filename="{}"/>
+  <link name="root_link">
+    <visual name="${{root_prop}}"/>
+  </link>
+</robot>"#,
+        included_path.display()
+    );
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(&root_content);
+
+    assert!(
+        result.is_ok(),
+        "Should handle included file with different namespace prefix: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    // Verify property from included file was evaluated
+    assert!(
+        output.contains("from_include"),
+        "Property from included file should be evaluated"
+    );
+    // Verify property from root file still works
+    assert!(
+        output.contains("from_root"),
+        "Property from root file should be evaluated"
+    );
+}
+
+#[test]
+fn test_include_different_xacro_uri() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create included file with different but valid xacro URI
+    let included_content = r#"<?xml version="1.0"?>
+<part xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:property name="uri_test" value="different_uri"/>
+</part>"#;
+
+    let included_path = temp_path.join("different_uri.xacro");
+    fs::write(&included_path, included_content).unwrap();
+
+    // Root file with standard URI
+    let root_content = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:include filename="{}"/>
+  <link name="test" value="${{uri_test}}"/>
+</robot>"#,
+        included_path.display()
+    );
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(&root_content);
+
+    assert!(
+        result.is_ok(),
+        "Should handle included file with different valid xacro URI: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("different_uri"),
+        "Property from file with different URI should be evaluated"
+    );
+}
+
+#[test]
+fn test_nested_includes_namespace_isolation() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path();
+
+    // Create first included file with prefix "x"
+    let include_a_content = r#"<?xml version="1.0"?>
+<part_a xmlns:x="http://www.ros.org/wiki/xacro">
+  <x:property name="from_a" value="value_a"/>
+  <link name="link_a" value="${from_a}"/>
+</part_a>"#;
+    let include_a_path = temp_path.join("include_a.xacro");
+    fs::write(&include_a_path, include_a_content).unwrap();
+
+    // Create second included file with prefix "y"
+    let include_b_content = r#"<?xml version="1.0"?>
+<part_b xmlns:y="http://www.ros.org/wiki/xacro">
+  <y:property name="from_b" value="value_b"/>
+  <link name="link_b" value="${from_b}"/>
+</part_b>"#;
+    let include_b_path = temp_path.join("include_b.xacro");
+    fs::write(&include_b_path, include_b_content).unwrap();
+
+    // Root file includes both
+    let root_content = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="from_root" value="value_root"/>
+  <xacro:include filename="{}"/>
+  <xacro:include filename="{}"/>
+  <link name="root" value="${{from_root}}"/>
+</robot>"#,
+        include_a_path.display(),
+        include_b_path.display()
+    );
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(&root_content);
+
+    assert!(
+        result.is_ok(),
+        "Should handle nested includes with different namespace prefixes: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    // Verify all three properties were evaluated correctly
+    assert!(
+        output.contains("value_a"),
+        "Property from include A should be evaluated"
+    );
+    assert!(
+        output.contains("value_b"),
+        "Property from include B should be evaluated"
+    );
+    assert!(
+        output.contains("value_root"),
+        "Property from root should be evaluated"
+    );
+}

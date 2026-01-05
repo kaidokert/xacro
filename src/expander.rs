@@ -13,6 +13,7 @@
 use crate::{
     error::XacroError,
     features::{macros::MacroDefinition, properties::PropertyProcessor},
+    utils::xml::extract_xacro_namespace,
     utils::xml::is_xacro_element,
 };
 use core::cell::RefCell;
@@ -41,13 +42,14 @@ impl Drop for DepthGuard<'_> {
     }
 }
 
-/// RAII guard for include stack and base path
+/// RAII guard for include stack, base path, and namespace stack
 ///
-/// Automatically restores base_path and pops include_stack when dropped,
-/// ensuring correct file context even if include expansion panics.
+/// Automatically restores base_path and pops include_stack and namespace_stack when dropped,
+/// ensuring correct file context and per-file namespace isolation even if include expansion panics.
 struct IncludeGuard<'a> {
     base_path: &'a RefCell<PathBuf>,
     include_stack: &'a RefCell<Vec<PathBuf>>,
+    namespace_stack: &'a RefCell<Vec<(PathBuf, String)>>,
     old_base_path: PathBuf,
 }
 
@@ -55,6 +57,7 @@ impl Drop for IncludeGuard<'_> {
     fn drop(&mut self) {
         *self.base_path.borrow_mut() = self.old_base_path.clone();
         self.include_stack.borrow_mut().pop();
+        self.namespace_stack.borrow_mut().pop();
     }
 }
 
@@ -367,7 +370,10 @@ fn expand_element(
             ))
         })?;
 
-        // Push to include stack and update base_path with RAII guard for automatic cleanup
+        // Extract xacro namespace from included file (may differ from root file)
+        let included_ns = extract_xacro_namespace(&included_root)?;
+
+        // Push to include stack, namespace stack, and update base_path with RAII guard for automatic cleanup
         let old_base_path = ctx.base_path.borrow().clone();
         // Use PathBuf::pop() to get parent directory - handles root directories correctly
         // (unlike parent().unwrap_or() which would incorrectly fall back to old_base_path at root)
@@ -375,15 +381,19 @@ fn expand_element(
         new_base_path.pop(); // Removes filename, leaving parent directory (or root if already at root)
         *ctx.base_path.borrow_mut() = new_base_path;
         ctx.include_stack.borrow_mut().push(file_path.clone());
+        ctx.namespace_stack
+            .borrow_mut()
+            .push((file_path.clone(), included_ns));
 
         let _include_guard = IncludeGuard {
             base_path: &ctx.base_path,
             include_stack: &ctx.include_stack,
+            namespace_stack: &ctx.namespace_stack,
             old_base_path,
         };
 
         // Recursively expand all children of the included file
-        // Guard will restore base_path and pop include_stack on scope exit, even if panic occurs
+        // Guard will restore base_path and pop include_stack and namespace_stack on scope exit, even if panic occurs
         let mut expanded = Vec::new();
         for child in included_root.children {
             expanded.extend(expand_node(child, ctx)?);

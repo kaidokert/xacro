@@ -1,6 +1,7 @@
 use crate::{
     error::XacroError,
     expander::{expand_node, XacroContext},
+    utils::xml::{extract_xacro_namespace, is_known_xacro_uri},
 };
 use xmltree::XMLNode;
 
@@ -11,16 +12,6 @@ pub struct XacroProcessor {
 }
 
 impl XacroProcessor {
-    /// Known xacro namespace URIs used in the wild
-    /// Used for fallback namespace detection and lazy checking
-    const KNOWN_XACRO_URIS: &'static [&'static str] = &[
-        "http://www.ros.org/wiki/xacro",
-        "http://ros.org/wiki/xacro",
-        "http://wiki.ros.org/xacro",
-        "http://www.ros.org/xacro",
-        "http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro",
-    ];
-
     /// Create a new xacro processor with default settings
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
@@ -43,18 +34,6 @@ impl XacroProcessor {
         Self {
             max_recursion_depth: max_depth,
         }
-    }
-
-    /// Search namespace map for any prefix bound to a known xacro URI
-    fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
-        ns.0.values()
-            .find(|uri| Self::KNOWN_XACRO_URIS.contains(&uri.as_str()))
-            .map(|s| s.to_string())
-    }
-
-    /// Check if a namespace URI is a known xacro namespace
-    fn is_known_xacro_uri(uri: &str) -> bool {
-        Self::KNOWN_XACRO_URIS.contains(&uri)
     }
 
     /// Process xacro content from a file path
@@ -99,31 +78,7 @@ impl XacroProcessor {
         //
         // Documents with NO xacro elements don't need xacro namespace declaration.
         // Only error during finalize_tree if xacro elements are found.
-        // Validate xacro namespace and extract it
-        // First check if "xacro" prefix exists but is bound to invalid URI (catch typos)
-        if let Some(ns) = root.namespaces.as_ref() {
-            if let Some(xacro_uri) = ns.get("xacro") {
-                let uri_str: &str = xacro_uri;
-                if !Self::KNOWN_XACRO_URIS.contains(&uri_str) {
-                    return Err(XacroError::MissingNamespace(format!(
-                        "The 'xacro' prefix is bound to an unknown URI: '{}'. \
-                         This might be a typo. Known xacro URIs are: {}",
-                        xacro_uri,
-                        Self::KNOWN_XACRO_URIS.join(", ")
-                    )));
-                }
-            }
-        }
-
-        let xacro_ns: String = root
-            .namespaces
-            .as_ref()
-            .and_then(|ns| {
-                ns.get("xacro")
-                    .map(|s| s.to_string())
-                    .or_else(|| Self::find_xacro_namespace_in_map(ns))
-            })
-            .unwrap_or_default();
+        let xacro_ns = extract_xacro_namespace(&root)?;
 
         // Create expansion context
         // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
@@ -173,7 +128,7 @@ impl XacroProcessor {
         // This is the lazy checking: only error if xacro elements are actually used
         if xacro_ns.is_empty() {
             if let Some(elem_ns) = element.namespace.as_deref() {
-                if Self::is_known_xacro_uri(elem_ns) {
+                if is_known_xacro_uri(elem_ns) {
                     return Err(XacroError::MissingNamespace(format!(
                         "Found xacro element <{}> with namespace '{}', but no xacro namespace declared in document root. \
                          Please add xmlns:xacro=\"{}\" to your root element.",
