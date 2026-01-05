@@ -523,12 +523,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         expr: &str,
     ) -> Result<bool, XacroError> {
-        // Build context with only the properties referenced in this expression
-        // This is more efficient than resolving all properties upfront
-        let properties = self.build_eval_context(expr)?;
+        // FIRST: Resolve any $(arg ...) extensions in the expression
+        // Use substitute_extensions_only to preserve ${...} property refs for eval_boolean
+        let resolved_expr = self.substitute_extensions_only(expr)?;
 
-        // Evaluate the boolean expression
-        eval_boolean(expr, &properties).map_err(Into::into)
+        // THEN: Build context with properties referenced in the resolved expression
+        // This is more efficient than resolving all properties upfront
+        let properties = self.build_eval_context(&resolved_expr)?;
+
+        // FINALLY: Evaluate the fully resolved boolean expression
+        eval_boolean(&resolved_expr, &properties).map_err(Into::into)
     }
 
     pub(crate) fn substitute_in_text(
