@@ -61,9 +61,6 @@ pub enum XacroError {
     #[error("Block parameter '{param}' cannot be specified as an attribute (it must be provided as a child element)")]
     BlockParameterAttributeCollision { param: String },
 
-    #[error("Block insert recursion limit exceeded: depth {depth} > {limit} (possible circular block references)")]
-    BlockInsertRecursionLimit { depth: usize, limit: usize },
-
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 

@@ -3,10 +3,6 @@ pub mod lexer;
 pub mod xml;
 
 use crate::{error::XacroError, XacroProcessor};
-use std::collections::HashMap;
-
-#[cfg(test)]
-use similar::{ChangeTag, TextDiff};
 
 impl XacroProcessor {
     pub(crate) fn parse_file<P: AsRef<std::path::Path>>(
@@ -30,45 +26,4 @@ impl XacroProcessor {
         )?;
         Ok(String::from_utf8(writer)?)
     }
-
-    /// Helper for debug/logging that never panics
-    ///
-    /// Returns serialized XML or error message if serialization fails.
-    /// Use this in debug!() statements to avoid panics in logging code.
-    pub(crate) fn serialize_or_err(xml: &xmltree::Element) -> String {
-        Self::serialize(xml).unwrap_or_else(|e| format!("<xacro serialize error: {}>", e))
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn print_diff(
-    expected: &str,
-    actual: &str,
-) {
-    let diff = TextDiff::from_lines(expected, actual);
-
-    for change in diff.iter_all_changes() {
-        let sign = match change.tag() {
-            ChangeTag::Delete => "-",
-            ChangeTag::Insert => "+",
-            ChangeTag::Equal => " ",
-        };
-        print!("{}{}", sign, change);
-    }
-}
-
-pub(crate) fn pretty_print_hashmap<K, V>(map: &HashMap<K, V>) -> String
-where
-    K: core::fmt::Debug + core::cmp::Ord,
-    V: core::fmt::Debug,
-{
-    let mut entries: Vec<_> = map.iter().collect();
-    entries.sort_by(|a, b| a.0.cmp(b.0));
-
-    let mut output = String::from("{\n");
-    for (key, value) in entries {
-        output.push_str(&format!("  {:?}: {:?},\n", key, value));
-    }
-    output.push('}');
-    output
 }

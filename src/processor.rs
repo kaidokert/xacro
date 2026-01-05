@@ -1,16 +1,12 @@
 use crate::{
     error::XacroError,
-    features::{
-        conditions::ConditionProcessor, includes::IncludeProcessor, macros::MacroProcessor,
-        properties::PropertyProcessor,
-    },
+    expander::{expand_node, XacroContext},
 };
 
 pub struct XacroProcessor {
-    macros: MacroProcessor,
-    properties: PropertyProcessor,
-    conditions: ConditionProcessor,
-    includes: IncludeProcessor,
+    /// Maximum recursion depth for macro expansion and insert_block
+    /// Default: 50 (set conservatively to prevent stack overflow)
+    max_recursion_depth: usize,
 }
 
 impl XacroProcessor {
@@ -24,13 +20,27 @@ impl XacroProcessor {
         "http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro",
     ];
 
+    /// Create a new xacro processor with default settings
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            includes: IncludeProcessor::new(),
-            macros: MacroProcessor::new(),
-            properties: PropertyProcessor::new(),
-            conditions: ConditionProcessor::new(),
+            max_recursion_depth: 50,
+        }
+    }
+
+    /// Create a new xacro processor with custom max recursion depth
+    ///
+    /// # Arguments
+    /// * `max_depth` - Maximum recursion depth before triggering error (recommended: 50-100)
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    /// let processor = XacroProcessor::new_with_depth(100);
+    /// ```
+    pub fn new_with_depth(max_depth: usize) -> Self {
+        Self {
+            max_recursion_depth: max_depth,
         }
     }
 
@@ -52,7 +62,12 @@ impl XacroProcessor {
         path: P,
     ) -> Result<String, XacroError> {
         let xml = XacroProcessor::parse_file(&path)?;
-        self.run_impl(xml, path.as_ref())
+        self.run_impl(
+            xml,
+            path.as_ref()
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        )
     }
 
     /// Process xacro content from a string
@@ -72,7 +87,7 @@ impl XacroProcessor {
     /// Internal implementation
     fn run_impl(
         &self,
-        xml: xmltree::Element,
+        mut root: xmltree::Element,
         base_path: &std::path::Path,
     ) -> Result<String, XacroError> {
         // Extract xacro namespace from document root (if present)
@@ -85,7 +100,7 @@ impl XacroProcessor {
         // Only error during finalize_tree if xacro elements are found.
         // Validate xacro namespace and extract it
         // First check if "xacro" prefix exists but is bound to invalid URI (catch typos)
-        if let Some(ns) = xml.namespaces.as_ref() {
+        if let Some(ns) = root.namespaces.as_ref() {
             if let Some(xacro_uri) = ns.get("xacro") {
                 let uri_str: &str = xacro_uri;
                 if !Self::KNOWN_XACRO_URIS.contains(&uri_str) {
@@ -99,35 +114,46 @@ impl XacroProcessor {
             }
         }
 
-        let xacro_ns: String = xml
+        let xacro_ns: String = root
             .namespaces
             .as_ref()
             .and_then(|ns| {
-                // Try standard "xacro" prefix (already validated above)
-                ns.get("xacro").map(|s| s.to_string()).or_else(|| {
-                    // Fallback: find any prefix bound to a known xacro URI
-                    Self::find_xacro_namespace_in_map(ns)
-                })
+                ns.get("xacro")
+                    .map(|s| s.to_string())
+                    .or_else(|| Self::find_xacro_namespace_in_map(ns))
             })
-            .unwrap_or_default(); // Use empty string if no namespace declared (lazy checking)
+            .unwrap_or_default();
 
-        // Process features in order
-        let xml = self.includes.process(xml, base_path, &xacro_ns)?;
+        // Create expansion context
+        let mut ctx = XacroContext::new(base_path.to_path_buf(), xacro_ns.clone());
+        ctx.set_max_recursion_depth(self.max_recursion_depth);
 
-        // The HashMap contains all properties for use by subsequent processors
-        let (xml, properties) = self.properties.process(xml, &xacro_ns)?;
+        // Initialize math constants (pi, e, etc.)
+        // These are automatically added by PropertyProcessor::new()
+        // but we need to ensure they're in the context
+        let math_constants = [
+            ("pi", core::f64::consts::PI.to_string()),
+            ("e", core::f64::consts::E.to_string()),
+            ("tau", core::f64::consts::TAU.to_string()),
+            ("M_PI", core::f64::consts::PI.to_string()),
+            ("inf", f64::INFINITY.to_string()),
+            ("nan", f64::NAN.to_string()),
+        ];
+        for (name, value) in math_constants {
+            ctx.properties.add_raw_property(name.to_string(), value);
+        }
 
-        // Pass properties to MacroProcessor so macros can reference global properties
-        let xml = self.macros.process(xml, &properties, &xacro_ns)?;
+        // Expand the root element's children (keep root element itself)
+        let mut expanded_children = Vec::new();
+        for child in core::mem::take(&mut root.children) {
+            expanded_children.extend(expand_node(child, &mut ctx)?);
+        }
+        root.children = expanded_children;
 
-        // Pass properties to ConditionProcessor for expression evaluation
-        let mut xml = self.conditions.process(xml, &properties, &xacro_ns)?;
+        // Final cleanup: check for unprocessed xacro elements and remove namespace
+        Self::finalize_tree(&mut root, &xacro_ns)?;
 
-        // Final cleanup: check for unprocessed xacro:* elements and remove xacro namespace
-        // Does both in a single recursive pass for efficiency
-        Self::finalize_tree(&mut xml, &xacro_ns)?;
-
-        XacroProcessor::serialize(&xml)
+        XacroProcessor::serialize(&root)
     }
 
     fn finalize_tree(

@@ -4,6 +4,7 @@
 #![warn(clippy::std_instead_of_core)]
 
 pub mod error;
+pub mod expander;
 pub mod features;
 pub mod processor;
 pub mod utils;
