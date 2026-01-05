@@ -104,13 +104,26 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         // Initialize math constants in the interpreter
         // These are loaded directly into the interpreter's environment for use in expressions
         for (name, value) in BUILTIN_CONSTANTS {
-            let _ = interpreter.eval(&format!("{} = {}", name, value));
+            if let Err(e) = interpreter.eval(&format!("{} = {}", name, value)) {
+                // Some constants like 'inf' and 'nan' may not be assignable in pyisheval
+                // Log a warning but continue initialization
+                log::debug!(
+                    "Could not initialize built-in constant '{}': {}. \
+                     This constant will not be available in expressions.",
+                    name,
+                    e
+                );
+            }
         }
 
         // Add math conversion functions as lambda expressions directly in the interpreter
         // This makes them available as callable functions in all expressions
-        let _ = interpreter.eval("radians = lambda x: x * pi / 180");
-        let _ = interpreter.eval("degrees = lambda x: x * 180 / pi");
+        interpreter
+            .eval("radians = lambda x: x * pi / 180")
+            .expect("Failed to define radians function");
+        interpreter
+            .eval("degrees = lambda x: x * 180 / pi")
+            .expect("Failed to define degrees function");
 
         Self {
             interpreter,

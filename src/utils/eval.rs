@@ -51,7 +51,12 @@ pub fn eval_text(
 /// Converts string properties to pyisheval Values, parsing numbers when possible.
 /// For lambda expressions, evaluates them to callable lambda values.
 /// This allows properties to be used in expressions with correct types.
-fn build_pyisheval_context(properties: &HashMap<String, String>) -> HashMap<String, Value> {
+///
+/// # Errors
+/// Returns `EvalError` if a lambda expression fails to evaluate.
+fn build_pyisheval_context(
+    properties: &HashMap<String, String>
+) -> Result<HashMap<String, Value>, EvalError> {
     let mut interp = Interpreter::new();
 
     // First pass: Load all constants and non-lambda properties into the interpreter
@@ -59,10 +64,29 @@ fn build_pyisheval_context(properties: &HashMap<String, String>) -> HashMap<Stri
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
-            // Load constants and regular properties into interpreter
+            // Load both numeric and string properties into interpreter
             if let Ok(num) = value.parse::<f64>() {
-                let _ = interp.eval(&format!("{} = {}", name, num));
+                // Numeric property: load as number
+                interp
+                    .eval(&format!("{} = {}", name, num))
+                    .map_err(|e| EvalError::PyishEval {
+                        expr: format!("{} = {}", name, num),
+                        source: e,
+                    })?;
+            } else if !value.is_empty() {
+                // String property: load as quoted string literal
+                // Skip empty strings as pyisheval can't parse ''
+                // Escape single quotes in the value to prevent syntax errors
+                let escaped_value = value.replace('\'', "\\'");
+                interp
+                    .eval(&format!("{} = '{}'", name, escaped_value))
+                    .map_err(|e| EvalError::PyishEval {
+                        expr: format!("{} = '{}'", name, escaped_value),
+                        source: e,
+                    })?;
             }
+            // Empty strings are skipped in first pass (pyisheval can't handle '')
+            // They'll be stored as Value::StringLit("") in the second pass
         }
     }
 
@@ -72,25 +96,25 @@ fn build_pyisheval_context(properties: &HashMap<String, String>) -> HashMap<Stri
         .map(|(name, value)| {
             // Try to parse as number first
             if let Ok(num) = value.parse::<f64>() {
-                return (name.clone(), Value::Number(num));
+                return Ok((name.clone(), Value::Number(num)));
             }
 
             // Check if it's a lambda expression
             let trimmed = value.trim();
             if trimmed.starts_with("lambda ") {
                 // Evaluate the lambda expression to get a callable lambda value
-                // The interpreter now has all constants loaded from first pass
-                match interp.eval(trimmed) {
-                    Ok(lambda_value) => return (name.clone(), lambda_value),
-                    Err(_) => {
-                        // If evaluation fails, treat as string
-                        // This shouldn't happen for valid lambda expressions
-                    }
-                }
+                // The interpreter now has all constants and properties loaded from first pass
+                return interp
+                    .eval(trimmed)
+                    .map(|lambda_value| (name.clone(), lambda_value))
+                    .map_err(|e| EvalError::PyishEval {
+                        expr: trimmed.to_string(),
+                        source: e,
+                    });
             }
 
             // Default: store as string literal
-            (name.clone(), Value::StringLit(value.clone()))
+            Ok((name.clone(), Value::StringLit(value.clone())))
         })
         .collect()
 }
@@ -104,8 +128,8 @@ pub fn eval_text_with_interpreter(
     properties: &HashMap<String, String>,
     interp: &Interpreter,
 ) -> Result<String, EvalError> {
-    // Build context for pyisheval
-    let context = build_pyisheval_context(properties);
+    // Build context for pyisheval (may fail if lambdas have errors)
+    let context = build_pyisheval_context(properties)?;
 
     // Tokenize the input text
     let lexer = Lexer::new(text);
@@ -199,8 +223,8 @@ pub fn eval_boolean(
 ) -> Result<bool, EvalError> {
     let interp = Interpreter::new();
 
-    // Build context for pyisheval
-    let context = build_pyisheval_context(properties);
+    // Build context for pyisheval (may fail if lambdas have errors)
+    let context = build_pyisheval_context(properties)?;
 
     // Tokenize input to detect structure
     let lexer = Lexer::new(text);
