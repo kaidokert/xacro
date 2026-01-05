@@ -351,9 +351,21 @@ fn expand_element(
         }
 
         // Read and parse included file
-        let content = std::fs::read_to_string(&file_path)?;
+        let content = std::fs::read_to_string(&file_path).map_err(|e| {
+            XacroError::Include(format!(
+                "Failed to read file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
 
-        let included_root = Element::parse(content.as_bytes())?;
+        let included_root = Element::parse(content.as_bytes()).map_err(|e| {
+            XacroError::Include(format!(
+                "Failed to parse XML in file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
 
         // Push to include stack and update base_path with RAII guard for automatic cleanup
         let old_base_path = ctx.base_path.borrow().clone();
