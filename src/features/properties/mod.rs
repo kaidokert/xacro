@@ -1,26 +1,11 @@
 use crate::error::XacroError;
-use crate::utils::xml::is_xacro_element;
+use crate::utils::eval::{eval_boolean, eval_text_with_interpreter};
+use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
-use log::warn;
 use pyisheval::Interpreter;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
-use xmltree::{
-    Element,
-    XMLNode::{Element as NodeElement, Text as TextElement},
-};
-
-/// Built-in math constants (name, value) that are pre-initialized
-/// Users can override these, but will receive a warning
-const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
-    ("pi", core::f64::consts::PI),
-    ("e", core::f64::consts::E),
-    ("tau", core::f64::consts::TAU),
-    ("M_PI", core::f64::consts::PI), // Legacy alias
-    ("inf", f64::INFINITY),
-    ("nan", f64::NAN),
-];
 
 /// Cached regex for extracting variable names from expressions
 /// Compiled once and reused across all property reference extractions
@@ -32,108 +17,14 @@ pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
     // Cache fully evaluated values: "x" -> "20"
+    // NOTE: Cache is only used when scope_stack is empty (global scope)
     evaluated_cache: RefCell<HashMap<String, String>>,
     // Stack for circular dependency detection: ["x", "y"]
     resolution_stack: RefCell<Vec<String>>,
-}
-
-/// Helper: Check if we should skip processing this element's body
-/// Macro definition bodies should NOT be processed during property collection/substitution
-/// because macro parameters (like ${name}) don't exist until expansion time.
-fn should_skip_macro_body(
-    element: &Element,
-    xacro_ns: &str,
-) -> bool {
-    is_xacro_element(element, "macro", xacro_ns)
-}
-
-/// Collect properties from an element tree into a provided HashMap
-///
-/// This is a recursive tree walker that collects `<xacro:property>` elements
-/// and stores their RAW (unevaluated) values into the provided HashMap.
-/// Used by macro expansion for scoped property collection.
-///
-/// # Arguments
-/// * `element` - The XML element to process
-/// * `properties` - The HashMap to populate with property name -> raw value mappings
-/// * `xacro_ns` - The xacro namespace prefix
-pub(crate) fn collect_properties_into_map(
-    element: &Element,
-    properties: &mut HashMap<String, String>,
-    xacro_ns: &str,
-) -> Result<(), XacroError> {
-    // CRITICAL: Skip macro definition bodies
-    if should_skip_macro_body(element, xacro_ns) {
-        return Ok(());
-    }
-
-    // Check if this is a property element
-    let is_property = element.name == "property"
-        && (element.namespace.is_none() || element.namespace.as_deref() == Some(xacro_ns));
-
-    if is_property {
-        if let (Some(name), Some(value)) = (
-            element.attributes.get("name"),
-            element.attributes.get("value"),
-        ) {
-            // Store RAW value (lazy evaluation)
-            properties.insert(name.clone(), value.clone());
-        }
-    }
-
-    // Recursively process children
-    for child in &element.children {
-        if let NodeElement(child_elem) = child {
-            collect_properties_into_map(child_elem, properties, xacro_ns)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Remove property elements from XML tree
-///
-/// Recursively removes `<xacro:property>` elements from the tree after they have been
-/// collected and substituted. Properties inside macro definitions are preserved since
-/// they need to be available during macro expansion.
-pub(crate) fn remove_property_elements(
-    element: &mut Element,
-    xacro_ns: &str,
-) {
-    element.children.retain_mut(|child| {
-        if let NodeElement(child_elem) = child {
-            // Remove property elements (either <property> or <xacro:property>)
-            // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
-            let is_property = child_elem.name == "property"
-                && (child_elem.namespace.is_none()
-                    || child_elem.namespace.as_deref() == Some(xacro_ns));
-
-            if is_property {
-                return false;
-            }
-
-            // CRITICAL: Don't recurse into macro bodies
-            // Properties inside macros need to stay until macro expansion
-            if !should_skip_macro_body(child_elem, xacro_ns) {
-                remove_property_elements(child_elem, xacro_ns);
-            }
-        }
-        true
-    });
-}
-
-/// Initialize math constants for property evaluation
-///
-/// Python xacro exposes all math module symbols for backwards compatibility.
-/// This includes constants like pi, e, tau, and functions like sin, cos, etc.
-/// For now, we add the most commonly used constants. Functions would require
-/// extending pyisheval or the expression evaluator.
-fn init_math_constants(properties: &mut HashMap<String, String>) {
-    properties.extend(
-        BUILTIN_CONSTANTS
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string())),
-    );
+    // Stack of scopes for macro parameter shadowing
+    // Each scope is a HashMap of parameter bindings for a macro call
+    // Innermost scope is at the end of the vector
+    scope_stack: RefCell<Vec<HashMap<String, String>>>,
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
@@ -163,154 +54,211 @@ fn is_python_keyword(name: &str) -> bool {
 impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
+        let processor = Self {
             interpreter: Interpreter::new(),
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
-        }
-    }
+            scope_stack: RefCell::new(Vec::new()),
+        };
 
-    /// Process properties in XML tree, returning both the processed tree and the properties map
-    ///
-    /// CRITICAL: Returns (Element, HashMap) so that properties can be passed to subsequent
-    /// processors (like ConditionProcessor) that need them for expression evaluation.
-    ///
-    /// Uses lazy evaluation to match Python xacro behavior:
-    /// 1. Collect properties - store RAW values without evaluation in struct field
-    /// 2. Resolve properties - lazily evaluate all properties with circular dependency detection
-    /// 3. Substitute - replace ${...} expressions in XML with resolved values
-    /// 4. Remove property elements from XML
-    ///
-    /// This approach allows:
-    /// - Forward property references (A can reference B even if B is defined later)
-    /// - Unused properties with undefined variables (only error when accessed)
-    /// - Proper circular dependency detection
-    pub fn process(
-        &self,
-        mut xml: Element,
-        xacro_ns: &str,
-    ) -> Result<(Element, HashMap<String, String>), XacroError> {
-        // Clear state from any previous processing
-        self.raw_properties.borrow_mut().clear();
-        self.evaluated_cache.borrow_mut().clear();
-        self.resolution_stack.borrow_mut().clear();
-
-        // Initialize built-in math constants (as raw strings for lazy evaluation)
-        init_math_constants(&mut self.raw_properties.borrow_mut());
-
-        // Step 1: Collect properties (stores RAW values in struct field)
-        self.collect_properties(&xml, xacro_ns)?;
-
-        // Step 2: Resolve all properties lazily (with circular dependency detection)
-        // This is where forward references are resolved and circular dependencies are caught
-        let resolved_properties = self.resolve_all_properties()?;
-
-        // Step 3: Remove property elements BEFORE substitution
-        // CRITICAL: This prevents substitute_properties from trying to evaluate
-        // the value attributes of property definitions themselves!
-        // We've already collected them into resolved_properties, so the elements
-        // are no longer needed and removing them avoids "double evaluation"
-        remove_property_elements(&mut xml, xacro_ns);
-
-        // Step 4: Substitute using resolved properties in the remaining tree
-        // Now the tree only contains actual content (links, joints, etc.), not definitions
-        self.substitute_properties(&mut xml, &resolved_properties, xacro_ns)?;
-
-        Ok((xml, resolved_properties)) // Return both Element and resolved properties!
-    }
-
-    /// Collect properties into struct field (used by main processing)
-    pub(crate) fn collect_properties(
-        &self,
-        element: &Element,
-        xacro_ns: &str,
-    ) -> Result<(), XacroError> {
-        // CRITICAL: Skip macro definition bodies
-        // Macro parameters don't exist during definition, only during expansion
-        if should_skip_macro_body(element, xacro_ns) {
-            return Ok(()); // Don't recurse into macro bodies
+        // Initialize math constants (pi, e, tau, etc.)
+        // These are commonly used in xacro expressions
+        let math_constants = [
+            ("pi", core::f64::consts::PI.to_string()),
+            ("e", core::f64::consts::E.to_string()),
+            ("tau", core::f64::consts::TAU.to_string()),
+            ("M_PI", core::f64::consts::PI.to_string()),
+            ("inf", f64::INFINITY.to_string()),
+            ("nan", f64::NAN.to_string()),
+        ];
+        for (name, value) in math_constants {
+            processor.add_raw_property(name.to_string(), value);
         }
 
-        // Check if this is a property element (either <property> or <xacro:property>)
-        // Check namespace (not prefix) - robust against xmlns:x="..." aliasing
-        let is_property = element.name == "property"
-            && (element.namespace.is_none() || element.namespace.as_deref() == Some(xacro_ns));
+        processor
+    }
 
-        if is_property {
-            if let (Some(name), Some(value)) = (
-                element.attributes.get("name"),
-                element.attributes.get("value"),
-            ) {
-                // Warn if user is overriding a built-in constant
-                if BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str()) {
-                    warn!(
-                        "Property '{}' overrides built-in math constant. \
-                         This may cause unexpected behavior. \
-                         Consider using a different name.",
-                        name
-                    );
+    /// Push a new scope for macro parameter bindings
+    ///
+    /// Used during macro expansion to create a temporary scope where macro parameters
+    /// shadow global properties. The scope must be popped when the macro expansion completes.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Illustrative example (requires internal access for setup)
+    /// use std::collections::HashMap;
+    ///
+    /// // Global: x=10
+    /// let mut scope = HashMap::new();
+    /// scope.insert("x".to_string(), "5".to_string());
+    /// processor.push_scope(scope);
+    ///
+    /// // Now ${x} resolves to "5" (shadowing global x=10)
+    /// processor.pop_scope();
+    /// // Now ${x} resolves to "10" again
+    /// ```
+    pub fn push_scope(
+        &self,
+        bindings: HashMap<String, String>,
+    ) {
+        self.scope_stack.borrow_mut().push(bindings);
+    }
+
+    /// Pop the innermost scope
+    ///
+    /// Should be called when a macro expansion completes to restore the previous scope.
+    /// Panics if the scope stack is empty (indicates a programming error).
+    pub fn pop_scope(&self) {
+        self.scope_stack
+            .borrow_mut()
+            .pop()
+            .expect("Scope stack underflow - mismatched push/pop");
+    }
+
+    /// Add a property to the current (top) scope
+    ///
+    /// This is used for incrementally building macro parameter scopes
+    /// without O(N²) cloning overhead.
+    ///
+    /// # Panics
+    /// Panics if the scope stack is empty (no scope has been pushed)
+    pub fn add_to_current_scope(
+        &self,
+        name: String,
+        value: String,
+    ) {
+        self.scope_stack
+            .borrow_mut()
+            .last_mut()
+            .expect("No scope to add to - push a scope first")
+            .insert(name, value);
+    }
+
+    /// Add a raw property definition
+    ///
+    /// Used by the single-pass expander to add properties as they are encountered.
+    /// The value is stored unevaluated (lazy evaluation).
+    pub fn add_raw_property(
+        &self,
+        name: String,
+        value: String,
+    ) {
+        self.raw_properties.borrow_mut().insert(name.clone(), value);
+        // Invalidate cache for this property if it exists
+        self.evaluated_cache.borrow_mut().remove(&name);
+    }
+
+    /// Check if a property is defined (in scope stack or global properties)
+    ///
+    /// Used by the single-pass expander to implement the `default` attribute behavior:
+    /// `<xacro:property name="x" default="5"/>` only sets x if x is not already defined.
+    ///
+    /// # Arguments
+    /// * `name` - The property name to check
+    ///
+    /// # Returns
+    /// true if the property is defined (either in a macro scope or globally), false otherwise
+    pub fn has_property(
+        &self,
+        name: &str,
+    ) -> bool {
+        self.lookup_raw_value(name).is_some()
+    }
+
+    /// Substitute ${...} expressions in text using scope-aware resolution
+    ///
+    /// This is the public API for the single-pass expander. It uses the current
+    /// scope stack to resolve properties, properly handling macro parameter shadowing.
+    ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} expressions to substitute
+    ///
+    /// # Returns
+    /// The text with all ${...} expressions resolved
+    pub fn substitute_text(
+        &self,
+        text: &str,
+    ) -> Result<String, XacroError> {
+        // Iterative substitution: keep evaluating as long as ${...} expressions remain
+        let mut result = text.to_string();
+        let mut iteration = 0;
+
+        while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
+            // Build context with only the properties referenced in this iteration
+            // This is more efficient than resolving all properties upfront
+            let properties = self.build_eval_context(&result)?;
+
+            let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)
+                .map_err(|e| XacroError::EvalError {
+                    expr: match &e {
+                        crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                        crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
+                            condition.clone()
+                        }
+                    },
+                    source: e,
+                })?;
+
+            // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
+            if next == result {
+                break;
+            }
+
+            result = next;
+            iteration += 1;
+        }
+
+        // If we hit the limit with remaining placeholders, this indicates a problem
+        if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
+            let snippet = if result.len() > 100 {
+                let mut end_idx = 100;
+                while !result.is_char_boundary(end_idx) {
+                    end_idx -= 1;
                 }
-
-                // LAZY EVALUATION: Store RAW value in struct field, don't evaluate yet
-                // Python xacro behavior: properties are evaluated only when accessed
-                // This allows forward references and avoids errors for unused properties
-                self.raw_properties
-                    .borrow_mut()
-                    .insert(name.clone(), value.clone());
-            }
+                format!("{}...", &result[..end_idx])
+            } else {
+                result.clone()
+            };
+            return Err(XacroError::MaxSubstitutionDepth {
+                depth: MAX_SUBSTITUTION_DEPTH,
+                snippet,
+            });
         }
 
-        for child in &element.children {
-            if let NodeElement(child_elem) = child {
-                self.collect_properties(child_elem, xacro_ns)?;
-            }
-        }
-
-        Ok(())
+        Ok(result)
     }
 
-    pub(crate) fn substitute_properties(
+    /// Evaluate a boolean expression using scope-aware resolution
+    ///
+    /// This is used for conditional evaluation (xacro:if, xacro:unless).
+    /// It uses the current scope stack to resolve properties.
+    ///
+    /// # Arguments
+    /// * `expr` - The expression to evaluate (e.g., "${x > 5}" or "true")
+    ///
+    /// # Returns
+    /// * `Ok(true)` if the expression evaluates to true
+    /// * `Ok(false)` if the expression evaluates to false
+    /// * `Err` if the expression can't be evaluated
+    pub fn eval_boolean(
         &self,
-        element: &mut Element,
-        properties: &HashMap<String, String>,
-        xacro_ns: &str,
-    ) -> Result<(), XacroError> {
-        // CRITICAL: Skip macro definition bodies
-        // Macro parameters (like ${name}, ${size}) don't exist during definition
-        // They'll be substituted by MacroProcessor during expansion
-        if should_skip_macro_body(element, xacro_ns) {
-            return Ok(()); // Don't recurse into macro bodies
-        }
+        expr: &str,
+    ) -> Result<bool, XacroError> {
+        // Build context with only the properties referenced in this expression
+        // This is more efficient than resolving all properties upfront
+        let properties = self.build_eval_context(expr)?;
 
-        // CRITICAL: Check if this is a conditional element (xacro:if or xacro:unless)
-        // We must NOT substitute the 'value' attribute on conditionals because:
-        // 1. ConditionProcessor needs the raw expression like "${3*0.1}"
-        // 2. If we substitute, it becomes "0.3" string, losing type information
-        // 3. This breaks float truthiness in eval_boolean
-        let is_conditional = is_xacro_element(element, "if", xacro_ns)
-            || is_xacro_element(element, "unless", xacro_ns);
-
-        // Process attributes
-        for (key, value) in element.attributes.iter_mut() {
-            // Skip 'value' attribute on conditionals - preserve raw expression
-            if is_conditional && key == "value" {
-                continue; // Keep original expression unchanged
-            }
-            // Normal substitution for all other attributes
-            *value = self.substitute_in_text(value, properties)?;
-        }
-
-        // Recurse into children
-        for child in &mut element.children {
-            if let NodeElement(child_elem) = child {
-                self.substitute_properties(child_elem, properties, xacro_ns)?;
-            } else if let TextElement(text) = child {
-                *text = self.substitute_in_text(text, properties)?;
-            }
-        }
-
-        Ok(())
+        // Evaluate the boolean expression
+        eval_boolean(expr, &properties).map_err(|e| XacroError::EvalError {
+            expr: match &e {
+                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
+                    condition.clone()
+                }
+            },
+            source: e,
+        })
     }
 
     pub(crate) fn substitute_in_text(
@@ -318,8 +266,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use crate::utils::eval::eval_text_with_interpreter;
-
         // Iterative substitution: keep evaluating as long as ${...} expressions remain
         // This handles cases where property values themselves contain expressions
         // Example: full_name = "link_${name}" where name = "base" → "link_base"
@@ -369,27 +315,61 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         Ok(result)
     }
 
-    /// Lazy property resolution with circular dependency detection
+    /// Look up raw property value, searching scopes first, then global
+    ///
+    /// This is the core lookup mechanism that implements scope shadowing for macro parameters.
+    /// Search order:
+    /// 1. scope_stack (innermost to outermost) - macro parameters
+    /// 2. raw_properties - global properties
+    ///
+    /// Returns None if the property is not found in any scope.
+    fn lookup_raw_value(
+        &self,
+        name: &str,
+    ) -> Option<String> {
+        // Search scope stack (innermost first)
+        let scope_stack = self.scope_stack.borrow();
+        for scope in scope_stack.iter().rev() {
+            if let Some(value) = scope.get(name) {
+                return Some(value.clone());
+            }
+        }
+
+        // Fall back to global properties
+        self.raw_properties.borrow().get(name).cloned()
+    }
+
+    /// Lazy property resolution with circular dependency detection and scope support
     ///
     /// Python xacro stores property values as raw strings and evaluates them only when accessed.
     /// This allows forward references (property A can reference B even if B is defined later)
     /// and avoids errors for unused properties with undefined variables.
     ///
-    /// This method implements the same lazy evaluation strategy (from PHASE_X_PLAN.md):
-    /// 1. Check cache - if already resolved, return cached value
-    /// 2. Check circular dependency - if currently resolving, error
-    /// 3. Get raw value from raw_properties field
-    /// 4. Mark active (push to resolution stack)
-    /// 5. Dependency Discovery & Resolution - recursively resolve all vars in expression
-    /// 6. Evaluate using context with resolved dependencies
-    /// 7. Unmark & Cache result
+    /// This method implements the same lazy evaluation strategy with scope support:
+    /// 1. If in macro scope (scope_stack non-empty), SKIP cache to avoid stale values
+    /// 2. Check cache (only in global scope)
+    /// 3. Check circular dependency
+    /// 4. Get raw value (searches scopes, then global)
+    /// 5. Mark active (push to resolution stack)
+    /// 6. Dependency Discovery & Resolution
+    /// 7. Evaluate using context with resolved dependencies
+    /// 8. Unmark & Cache result (only in global scope)
     fn resolve_property(
         &self,
         name: &str,
     ) -> Result<String, XacroError> {
-        // 1. Check cache
-        if let Some(cached) = self.evaluated_cache.borrow().get(name) {
-            return Ok(cached.clone());
+        // CRITICAL: Skip cache when in macro scope to avoid stale cached values
+        // Example bug this prevents:
+        //   Global: x=10 (cached)
+        //   Push macro scope: x=5
+        //   Lookup ${x} → BUG: would return cached 10, should be 5
+        let in_macro_scope = !self.scope_stack.borrow().is_empty();
+
+        // 1. Check cache (only in global scope)
+        if !in_macro_scope {
+            if let Some(cached) = self.evaluated_cache.borrow().get(name) {
+                return Ok(cached.clone());
+            }
         }
 
         // 2. Check circular dependency
@@ -400,12 +380,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             });
         }
 
-        // 3. Get raw value from struct field
+        // 3. Get raw value (searches scopes, then global)
         let raw_value = self
-            .raw_properties
-            .borrow()
-            .get(name)
-            .cloned()
+            .lookup_raw_value(name)
             .ok_or_else(|| XacroError::UndefinedProperty(name.to_string()))?;
 
         // 4. Mark active (push to resolution stack)
@@ -430,10 +407,13 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         // Evaluate using the context (all dependencies are now resolved)
         let evaluated = self.substitute_in_text(&raw_value, &eval_context)?;
 
-        // _guard drops here, ensuring pop() is always called (even on panic or error)
-        self.evaluated_cache
-            .borrow_mut()
-            .insert(name.to_string(), evaluated.clone());
+        // 7. Cache result (only in global scope)
+        // Don't cache in macro scope - parameters are short-lived and caching would waste memory
+        if !in_macro_scope {
+            self.evaluated_cache
+                .borrow_mut()
+                .insert(name.to_string(), evaluated.clone());
+        }
 
         Ok(evaluated)
     }
@@ -453,8 +433,21 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let referenced_props = self.extract_property_references(value);
 
         for prop_name in referenced_props {
-            let resolved = self.resolve_property(&prop_name)?;
-            context.insert(prop_name, resolved);
+            // Try to resolve, but skip if not found (extract_property_references over-captures)
+            // Properties in string literals (e.g., 'test' in "${var == 'test'}") will be
+            // extracted but can't be resolved - that's OK, they're not actually property references
+            match self.resolve_property(&prop_name) {
+                Ok(resolved) => {
+                    context.insert(prop_name, resolved);
+                }
+                Err(XacroError::UndefinedProperty(_)) => {
+                    // Skip undefined - likely over-captured from string literal
+                }
+                Err(e) => {
+                    // Propagate critical errors (CircularPropertyDependency, evaluation errors, etc.)
+                    return Err(e);
+                }
+            }
         }
 
         Ok(context)
@@ -475,8 +468,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         value: &str,
     ) -> HashSet<String> {
-        use crate::utils::lexer::{Lexer, TokenType};
-
         let mut refs = HashSet::new();
         let lexer = Lexer::new(value);
 
@@ -513,52 +504,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         }
 
         refs
-    }
-
-    /// Resolve all properties lazily
-    ///
-    /// Iterates through all properties in raw_properties field and resolves them.
-    /// Properties are resolved on-demand using the resolution cache.
-    ///
-    /// IMPORTANT: This tries to resolve all properties, but skips properties that
-    /// cannot be resolved (e.g., properties with undefined variables). This matches
-    /// Python xacro's behavior where unused properties with undefined variables
-    /// don't cause errors.
-    ///
-    /// Returns a new HashMap with all resolved values.
-    fn resolve_all_properties(&self) -> Result<HashMap<String, String>, XacroError> {
-        let mut resolved = HashMap::new();
-
-        // Get snapshot of property names to iterate over
-        let prop_names: Vec<String> = self.raw_properties.borrow().keys().cloned().collect();
-
-        // Try to resolve each property
-        // If resolution fails, skip it (don't add to resolved map)
-        // This allows unused properties with undefined variables to exist without error
-        // If they're actually used during substitution, the error will occur then
-        for name in prop_names {
-            match self.resolve_property(&name) {
-                Ok(value) => {
-                    log::trace!("Property '{}' resolved to: {}", name, value);
-                    resolved.insert(name, value);
-                }
-                Err(e) => {
-                    log::debug!("Property '{}' resolution failed: {:?}", name, e);
-
-                    // Check if this is a circular dependency - those should propagate immediately
-                    if matches!(e, XacroError::CircularPropertyDependency { .. }) {
-                        log::debug!("  -> Circular dependency, propagating error");
-                        return Err(e);
-                    }
-
-                    // For other errors (undefined vars, eval errors), skip this property
-                    // If it's used later during substitution, the error will surface then
-                    log::debug!("  -> Skipping unresolvable property");
-                }
-            }
-        }
-
-        Ok(resolved)
     }
 }
 

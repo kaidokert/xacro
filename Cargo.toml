@@ -20,6 +20,7 @@ env_logger = "0.11"
 
 [dev-dependencies]
 similar = "2.7"
+tempfile = "3.14"
 
 [[bin]]
 name = "xacro"

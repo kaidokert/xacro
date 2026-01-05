@@ -1,49 +1,39 @@
 use crate::{
     error::XacroError,
-    features::{
-        conditions::ConditionProcessor, includes::IncludeProcessor, macros::MacroProcessor,
-        properties::PropertyProcessor,
-    },
+    expander::{expand_node, XacroContext},
+    utils::xml::{extract_xacro_namespace, is_known_xacro_uri},
 };
+use xmltree::XMLNode;
 
 pub struct XacroProcessor {
-    macros: MacroProcessor,
-    properties: PropertyProcessor,
-    conditions: ConditionProcessor,
-    includes: IncludeProcessor,
+    /// Maximum recursion depth for macro expansion and insert_block
+    /// Default: 50 (set conservatively to prevent stack overflow)
+    max_recursion_depth: usize,
 }
 
 impl XacroProcessor {
-    /// Known xacro namespace URIs used in the wild
-    /// Used for fallback namespace detection and lazy checking
-    const KNOWN_XACRO_URIS: &'static [&'static str] = &[
-        "http://www.ros.org/wiki/xacro",
-        "http://ros.org/wiki/xacro",
-        "http://wiki.ros.org/xacro",
-        "http://www.ros.org/xacro",
-        "http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro",
-    ];
-
+    /// Create a new xacro processor with default settings
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            includes: IncludeProcessor::new(),
-            macros: MacroProcessor::new(),
-            properties: PropertyProcessor::new(),
-            conditions: ConditionProcessor::new(),
+            max_recursion_depth: 50,
         }
     }
 
-    /// Search namespace map for any prefix bound to a known xacro URI
-    fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
-        ns.0.values()
-            .find(|uri| Self::KNOWN_XACRO_URIS.contains(&uri.as_str()))
-            .map(|s| s.to_string())
-    }
-
-    /// Check if a namespace URI is a known xacro namespace
-    fn is_known_xacro_uri(uri: &str) -> bool {
-        Self::KNOWN_XACRO_URIS.contains(&uri)
+    /// Create a new xacro processor with custom max recursion depth
+    ///
+    /// # Arguments
+    /// * `max_depth` - Maximum recursion depth before triggering error (recommended: 50-100)
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    /// let processor = XacroProcessor::new_with_depth(100);
+    /// ```
+    pub fn new_with_depth(max_depth: usize) -> Self {
+        Self {
+            max_recursion_depth: max_depth,
+        }
     }
 
     /// Process xacro content from a file path
@@ -52,7 +42,12 @@ impl XacroProcessor {
         path: P,
     ) -> Result<String, XacroError> {
         let xml = XacroProcessor::parse_file(&path)?;
-        self.run_impl(xml, path.as_ref())
+        self.run_impl(
+            xml,
+            path.as_ref()
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(".")),
+        )
     }
 
     /// Process xacro content from a string
@@ -72,7 +67,7 @@ impl XacroProcessor {
     /// Internal implementation
     fn run_impl(
         &self,
-        xml: xmltree::Element,
+        mut root: xmltree::Element,
         base_path: &std::path::Path,
     ) -> Result<String, XacroError> {
         // Extract xacro namespace from document root (if present)
@@ -83,51 +78,39 @@ impl XacroProcessor {
         //
         // Documents with NO xacro elements don't need xacro namespace declaration.
         // Only error during finalize_tree if xacro elements are found.
-        // Validate xacro namespace and extract it
-        // First check if "xacro" prefix exists but is bound to invalid URI (catch typos)
-        if let Some(ns) = xml.namespaces.as_ref() {
-            if let Some(xacro_uri) = ns.get("xacro") {
-                let uri_str: &str = xacro_uri;
-                if !Self::KNOWN_XACRO_URIS.contains(&uri_str) {
-                    return Err(XacroError::MissingNamespace(format!(
-                        "The 'xacro' prefix is bound to an unknown URI: '{}'. \
-                         This might be a typo. Known xacro URIs are: {}",
-                        xacro_uri,
-                        Self::KNOWN_XACRO_URIS.join(", ")
-                    )));
-                }
-            }
+        let xacro_ns = extract_xacro_namespace(&root)?;
+
+        // Create expansion context
+        // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
+        let mut ctx = XacroContext::new(base_path.to_path_buf(), xacro_ns.clone());
+        ctx.set_max_recursion_depth(self.max_recursion_depth);
+
+        // Expand the root element itself. This will handle attributes on the root
+        // and any xacro directives at the root level (though unlikely).
+        let expanded_nodes = expand_node(XMLNode::Element(root), &ctx)?;
+
+        // The expansion of the root must result in a single root element.
+        if expanded_nodes.len() != 1 {
+            return Err(XacroError::InvalidRoot(format!(
+                "Root element expanded to {} nodes, expected 1",
+                expanded_nodes.len()
+            )));
         }
 
-        let xacro_ns: String = xml
-            .namespaces
-            .as_ref()
-            .and_then(|ns| {
-                // Try standard "xacro" prefix (already validated above)
-                ns.get("xacro").map(|s| s.to_string()).or_else(|| {
-                    // Fallback: find any prefix bound to a known xacro URI
-                    Self::find_xacro_namespace_in_map(ns)
-                })
-            })
-            .unwrap_or_default(); // Use empty string if no namespace declared (lazy checking)
+        root = match expanded_nodes.into_iter().next().unwrap() {
+            XMLNode::Element(elem) => elem,
+            _ => {
+                return Err(XacroError::InvalidRoot(
+                    "Root element expanded to a non-element node (e.g., text or comment)"
+                        .to_string(),
+                ))
+            }
+        };
 
-        // Process features in order
-        let xml = self.includes.process(xml, base_path, &xacro_ns)?;
+        // Final cleanup: check for unprocessed xacro elements and remove namespace
+        Self::finalize_tree(&mut root, &xacro_ns)?;
 
-        // The HashMap contains all properties for use by subsequent processors
-        let (xml, properties) = self.properties.process(xml, &xacro_ns)?;
-
-        // Pass properties to MacroProcessor so macros can reference global properties
-        let xml = self.macros.process(xml, &properties, &xacro_ns)?;
-
-        // Pass properties to ConditionProcessor for expression evaluation
-        let mut xml = self.conditions.process(xml, &properties, &xacro_ns)?;
-
-        // Final cleanup: check for unprocessed xacro:* elements and remove xacro namespace
-        // Does both in a single recursive pass for efficiency
-        Self::finalize_tree(&mut xml, &xacro_ns)?;
-
-        XacroProcessor::serialize(&xml)
+        XacroProcessor::serialize(&root)
     }
 
     fn finalize_tree(
@@ -158,7 +141,7 @@ impl XacroProcessor {
         // This is the lazy checking: only error if xacro elements are actually used
         if xacro_ns.is_empty() {
             if let Some(elem_ns) = element.namespace.as_deref() {
-                if Self::is_known_xacro_uri(elem_ns) {
+                if is_known_xacro_uri(elem_ns) {
                     return Err(XacroError::MissingNamespace(format!(
                         "Found xacro element <{}> with namespace '{}', but no xacro namespace declared in document root. \
                          Please add xmlns:xacro=\"{}\" to your root element.",

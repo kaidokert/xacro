@@ -61,9 +61,6 @@ pub enum XacroError {
     #[error("Block parameter '{param}' cannot be specified as an attribute (it must be provided as a child element)")]
     BlockParameterAttributeCollision { param: String },
 
-    #[error("Block insert recursion limit exceeded: depth {depth} > {limit} (possible circular block references)")]
-    BlockInsertRecursionLimit { depth: usize, limit: usize },
-
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 
@@ -87,6 +84,13 @@ pub enum XacroError {
     /// property definitions that cannot be fully resolved.
     #[error("Property substitution exceeded maximum depth of {depth} iterations. Remaining unresolved expressions in: {snippet}")]
     MaxSubstitutionDepth { depth: usize, snippet: String },
+
+    /// Invalid root element after expansion
+    ///
+    /// The root element must expand to exactly one element node. This error indicates
+    /// that expansion resulted in multiple nodes, zero nodes, or a non-element node.
+    #[error("Invalid root element: {0}")]
+    InvalidRoot(String),
 }
 
 // Feature lists for consistent error messages
