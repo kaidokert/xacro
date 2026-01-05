@@ -85,14 +85,27 @@ impl XacroProcessor {
         let mut ctx = XacroContext::new(base_path.to_path_buf(), xacro_ns.clone());
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 
-        // Expand the root element's children (keep root element itself)
-        root.children = core::mem::take(&mut root.children).into_iter().try_fold(
-            Vec::new(),
-            |mut acc, child| {
-                acc.extend(expand_node(child, &ctx)?);
-                Ok::<Vec<XMLNode>, XacroError>(acc)
-            },
-        )?;
+        // Expand the root element itself. This will handle attributes on the root
+        // and any xacro directives at the root level (though unlikely).
+        let expanded_nodes = expand_node(XMLNode::Element(root), &ctx)?;
+
+        // The expansion of the root must result in a single root element.
+        if expanded_nodes.len() != 1 {
+            return Err(XacroError::InvalidRoot(format!(
+                "Root element expanded to {} nodes, expected 1",
+                expanded_nodes.len()
+            )));
+        }
+
+        root = match expanded_nodes.into_iter().next().unwrap() {
+            XMLNode::Element(elem) => elem,
+            _ => {
+                return Err(XacroError::InvalidRoot(
+                    "Root element expanded to a non-element node (e.g., text or comment)"
+                        .to_string(),
+                ))
+            }
+        };
 
         // Final cleanup: check for unprocessed xacro elements and remove namespace
         Self::finalize_tree(&mut root, &xacro_ns)?;

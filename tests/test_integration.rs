@@ -1,4 +1,5 @@
 use xacro::XacroProcessor;
+use xmltree::Element;
 
 #[test]
 fn test_basic_property() {
@@ -258,7 +259,7 @@ fn test_nested_macro_calls_with_expressions() {
     let output = result.unwrap();
 
     // Parse and verify numeric value
-    let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+    let root = Element::parse(output.as_bytes()).expect("Should parse output XML");
     let link = root.get_child("link").expect("Should find link element");
     let inertia = link
         .get_child("inertia")
@@ -1355,8 +1356,7 @@ fn test_property_multiple_out_of_order() {
 fn test_property_attributes() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
-<robot name="test_${robot_name}" xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="robot_name" value="robot"/>
+<robot name="test_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="prefix" value="arm"/>
   <link name="${prefix}_link"/>
 </robot>"#;
@@ -1365,17 +1365,15 @@ fn test_property_attributes() {
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
-    // Root element attributes are NOT substituted (this is a known limitation/feature)
-    // Only child element attributes are substituted
     assert!(
         output.contains(r#"name="arm_link""#),
         "Property in link name should be substituted, output:\n{}",
         output
     );
-    // The link element should have property substituted
+    // No unsubstituted expressions should remain
     assert!(
         !output.contains("${prefix}"),
-        "Property expression in child elements should be expanded"
+        "Property expressions should be fully expanded"
     );
 }
 
@@ -2175,5 +2173,60 @@ fn test_insert_block_dynamic_name_conditional() {
         !output.contains("<right>Right content</right>"),
         "Right block should NOT be inserted when use_left=1: {}",
         output
+    );
+}
+
+/// Test root element attribute substitution with macro parameters
+/// Gemini Code Assist discovered that root element attributes weren't being
+/// substituted because we only expanded children. This test ensures that fix works.
+#[test]
+fn test_root_element_attribute_substitution() {
+    let processor = XacroProcessor::new();
+    // Test case: macro parameter should be substitutable in root element attributes
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="make_robot" params="robot_name">
+    <robot_model name="${robot_name}_v1">
+      <link name="base"/>
+    </robot_model>
+  </xacro:macro>
+  <xacro:make_robot robot_name="test"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Root element attribute substitution failed: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"name="test_v1""#),
+        "Macro parameter in element attribute should be substituted: {}",
+        output
+    );
+}
+
+/// Test that root element attributes with undefined properties fail gracefully
+#[test]
+fn test_root_element_undefined_property_error() {
+    let processor = XacroProcessor::new();
+    // This should fail because robot_name is not defined when root element is processed
+    let input = r#"<?xml version="1.0"?>
+<robot name="${undefined_prop}" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <link name="base"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_err(),
+        "Should fail with undefined property in root element"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        format!("{:?}", err).contains("undefined_prop"),
+        "Error should mention the undefined property"
     );
 }

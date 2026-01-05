@@ -637,9 +637,128 @@ mod tests {
         let result = expand_node(text_node, &ctx).unwrap();
 
         assert_eq!(result.len(), 1);
-        match &result[0] {
-            XMLNode::Text(t) => assert_eq!(t, "value: 42"),
-            _ => panic!("Expected text node"),
-        }
+        let text = result[0].as_text().expect("Expected text node");
+        assert_eq!(text, "value: 42");
+    }
+
+    #[test]
+    fn test_expand_empty_property() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        // Add property with empty value
+        ctx.properties
+            .add_raw_property("empty".to_string(), "".to_string());
+
+        let text_node = XMLNode::Text("prefix_${empty}_suffix".to_string());
+        let result = expand_node(text_node, &ctx).unwrap();
+
+        assert_eq!(result.len(), 1);
+        let text = result[0].as_text().expect("Expected text node");
+        assert_eq!(text, "prefix__suffix");
+    }
+
+    #[test]
+    fn test_expand_nested_expressions() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        // Set up properties for nested substitution
+        ctx.properties
+            .add_raw_property("x".to_string(), "10".to_string());
+        ctx.properties
+            .add_raw_property("y".to_string(), "20".to_string());
+
+        // Multiple expressions in one text node
+        let text_node = XMLNode::Text("sum: ${x + y}, product: ${x * y}".to_string());
+        let result = expand_node(text_node, &ctx).unwrap();
+
+        assert_eq!(result.len(), 1);
+        let text = result[0].as_text().expect("Expected text node");
+        assert_eq!(text, "sum: 30, product: 200");
+    }
+
+    #[test]
+    fn test_expand_nested_property_reference() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        // Property containing reference to another property
+        ctx.properties
+            .add_raw_property("base".to_string(), "value".to_string());
+        ctx.properties
+            .add_raw_property("derived".to_string(), "${base}_extended".to_string());
+
+        let text_node = XMLNode::Text("result: ${derived}".to_string());
+        let result = expand_node(text_node, &ctx).unwrap();
+
+        assert_eq!(result.len(), 1);
+        let text = result[0].as_text().expect("Expected text node");
+        assert_eq!(text, "result: value_extended");
+    }
+
+    #[test]
+    fn test_expand_error_undefined_property() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        // Try to expand text with undefined property
+        let text_node = XMLNode::Text("value: ${undefined_property}".to_string());
+        let result = expand_node(text_node, &ctx);
+
+        let err = result.expect_err("Should error on undefined property reference");
+        assert!(
+            matches!(
+                err,
+                XacroError::EvalError { ref expr, .. } if expr.contains("undefined_property")
+            ),
+            "Expected EvalError mentioning 'undefined_property', got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_expand_error_malformed_expression() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        // Try to expand text with malformed expression (invalid syntax)
+        let text_node = XMLNode::Text("value: ${1 +* 2}".to_string());
+        let result = expand_node(text_node, &ctx);
+
+        assert!(
+            result.is_err(),
+            "Should error on malformed expression syntax"
+        );
+    }
+
+    #[test]
+    fn test_expand_error_invalid_operation() {
+        let ctx = XacroContext::new(
+            PathBuf::from("/test"),
+            "http://www.ros.org/wiki/xacro".to_string(),
+        );
+
+        ctx.properties
+            .add_raw_property("text".to_string(), "hello".to_string());
+
+        // Try to perform numeric operation on string
+        let text_node = XMLNode::Text("value: ${text * 2}".to_string());
+        let result = expand_node(text_node, &ctx);
+
+        assert!(
+            result.is_err(),
+            "Should error on invalid operation (multiply string)"
+        );
     }
 }
