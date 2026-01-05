@@ -159,7 +159,7 @@ impl XacroContext {
             .borrow()
             .last()
             .map(|(_, ns)| ns.clone())
-            .unwrap_or_else(|| "xacro:".to_string())
+            .expect("namespace_stack should never be empty - initialized in XacroContext::new()")
     }
 
     /// Look up a named block from the current macro scope
@@ -369,7 +369,11 @@ fn expand_element(
 
         // Push to include stack and update base_path with RAII guard for automatic cleanup
         let old_base_path = ctx.base_path.borrow().clone();
-        *ctx.base_path.borrow_mut() = file_path.parent().unwrap_or(&old_base_path).to_path_buf();
+        // Use PathBuf::pop() to get parent directory - handles root directories correctly
+        // (unlike parent().unwrap_or() which would incorrectly fall back to old_base_path at root)
+        let mut new_base_path = file_path.clone();
+        new_base_path.pop(); // Removes filename, leaving parent directory (or root if already at root)
+        *ctx.base_path.borrow_mut() = new_base_path;
         ctx.include_stack.borrow_mut().push(file_path.clone());
 
         let _include_guard = IncludeGuard {
@@ -403,7 +407,28 @@ fn expand_element(
         return expand_node(XMLNode::Element(block), ctx);
     }
 
-    // 6. Macro calls (with re-scan for nested macros)
+    // 6. Check for known but unimplemented xacro directives
+    // These should error explicitly rather than silently pass through as literal XML
+    use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
+    for feature in UNIMPLEMENTED_FEATURES {
+        // Strip "xacro:" prefix to get element name
+        let directive = feature.strip_prefix("xacro:").unwrap_or(feature);
+        if is_xacro_element(&elem, directive, &xacro_ns) {
+            return Err(XacroError::UnimplementedFeature(format!(
+                "<xacro:{}>\n\
+                 This element was not processed. Either:\n\
+                 1. The feature is not implemented yet (known unimplemented: {})\n\
+                 2. There's a bug in the processor\n\
+                 \n\
+                 Currently implemented: {}",
+                elem.name,
+                UNIMPLEMENTED_FEATURES.join(", "),
+                IMPLEMENTED_FEATURES.join(", ")
+            )));
+        }
+    }
+
+    // 7. Macro calls (with re-scan for nested macros)
     if is_macro_call(&elem, &ctx.macros.borrow(), &xacro_ns) {
         // CRITICAL: Substitute ${...} expressions in macro call attributes BEFORE expansion
         // This allows nested macros to use parameters from outer macro scope:
@@ -423,7 +448,7 @@ fn expand_element(
         return Ok(final_nodes);
     }
 
-    // 7. Regular elements: Substitute attributes and recurse to children
+    // 8. Regular elements: Substitute attributes and recurse to children
     // Substitute ${...} expressions in all attributes
     for attr_value in elem.attributes.values_mut() {
         *attr_value = ctx.properties.substitute_text(attr_value)?;
