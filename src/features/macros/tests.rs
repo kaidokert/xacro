@@ -5,6 +5,7 @@ mod macro_tests {
     use crate::features::macros::MacroDefinition;
 
     use crate::{features::macros::MacroProcessor, XacroError};
+    use xmltree::XMLNode;
 
     #[test]
     fn test_empty_param_name_with_default() {
@@ -231,9 +232,6 @@ mod macro_tests {
 
     #[test]
     fn test_collect_macro_args_attributes_only() {
-        use crate::features::macros::MacroProcessor;
-        use xmltree::Element;
-
         // Create macro definition with regular params
         let (params, param_order, block_params) =
             MacroProcessor::parse_params("x y z:=default").expect("Valid params");
@@ -268,8 +266,6 @@ mod macro_tests {
 
     #[test]
     fn test_collect_macro_args_blocks_only() {
-        use xmltree::{Element, XMLNode};
-
         // Create macro definition with block params
         let (params, param_order, block_params) =
             MacroProcessor::parse_params("*origin *geometry").expect("Valid params");
@@ -324,8 +320,6 @@ mod macro_tests {
 
     #[test]
     fn test_collect_macro_args_missing_block_parameter() {
-        use xmltree::Element;
-
         // Create macro definition expecting a block param
         let (params, param_order, block_params) =
             MacroProcessor::parse_params("*content").expect("Valid params");
@@ -358,8 +352,6 @@ mod macro_tests {
 
     #[test]
     fn test_collect_macro_args_extra_children() {
-        use xmltree::{Element, XMLNode};
-
         // Create macro definition expecting 1 block param
         let (params, param_order, block_params) =
             MacroProcessor::parse_params("*content").expect("Valid params");
@@ -401,8 +393,6 @@ mod macro_tests {
 
     #[test]
     fn test_collect_macro_args_mixed_params_and_blocks() {
-        use xmltree::{Element, XMLNode};
-
         // Create macro definition with both types
         let (params, param_order, block_params) =
             MacroProcessor::parse_params("prefix *content suffix").expect("Valid params");

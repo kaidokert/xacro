@@ -1,4 +1,6 @@
 use crate::error::XacroError;
+use crate::utils::eval::{eval_boolean, eval_text_with_interpreter};
+use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
 use pyisheval::Interpreter;
 use regex::Regex;
@@ -178,8 +180,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         text: &str,
     ) -> Result<String, XacroError> {
-        use crate::utils::eval::eval_text_with_interpreter;
-
         // Iterative substitution: keep evaluating as long as ${...} expressions remain
         let mut result = text.to_string();
         let mut iteration = 0;
@@ -245,8 +245,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         expr: &str,
     ) -> Result<bool, XacroError> {
-        use crate::utils::eval::eval_boolean;
-
         // Build context with only the properties referenced in this expression
         // This is more efficient than resolving all properties upfront
         let properties = self.build_eval_context(expr)?;
@@ -268,8 +266,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use crate::utils::eval::eval_text_with_interpreter;
-
         // Iterative substitution: keep evaluating as long as ${...} expressions remain
         // This handles cases where property values themselves contain expressions
         // Example: full_name = "link_${name}" where name = "base" → "link_base"
@@ -463,8 +459,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         value: &str,
     ) -> HashSet<String> {
-        use crate::utils::lexer::{Lexer, TokenType};
-
         let mut refs = HashSet::new();
         let lexer = Lexer::new(value);
 

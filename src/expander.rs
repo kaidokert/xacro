@@ -503,6 +503,11 @@ fn expand_macro_call(
     // push a single scope and incrementally add parameters to it (O(N))
     ctx.properties.push_scope(HashMap::new());
 
+    // Create guard immediately after push to ensure cleanup on any error path
+    let _scope_guard = ScopeGuard {
+        properties: &ctx.properties,
+    };
+
     for param_name in &macro_def.param_order {
         if macro_def.block_params.contains(param_name) {
             continue; // Skip block parameters
@@ -524,19 +529,13 @@ fn expand_macro_call(
                 .add_to_current_scope(param_name.clone(), evaluated);
         } else {
             // No default and not provided -> error
-            // Clean up the scope we pushed
-            ctx.properties.pop_scope();
+            // Guard will clean up the scope
             return Err(XacroError::MissingParameter {
                 macro_name: macro_def.name.clone(),
                 param: param_name.clone(),
             });
         }
     }
-
-    // Scope is already pushed above; just set up the guard for cleanup
-    let _scope_guard = ScopeGuard {
-        properties: &ctx.properties,
-    };
 
     ctx.block_stack.borrow_mut().push(blocks);
     let _block_guard = BlockGuard {
