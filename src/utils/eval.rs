@@ -20,7 +20,7 @@ pub fn init_interpreter() -> Interpreter {
         if let Err(e) = interp.eval(&format!("{} = {}", name, value)) {
             // Some constants like 'inf' and 'nan' may not be assignable in pyisheval
             // Log a warning but continue initialization
-            log::debug!(
+            log::warn!(
                 "Could not initialize built-in constant '{}': {}. \
                  This constant will not be available in expressions.",
                 name,
@@ -31,12 +31,22 @@ pub fn init_interpreter() -> Interpreter {
 
     // Add math conversion functions as lambda expressions directly in the interpreter
     // This makes them available as callable functions in all expressions
-    interp
-        .eval("radians = lambda x: x * pi / 180")
-        .expect("Failed to define radians function");
-    interp
-        .eval("degrees = lambda x: x * 180 / pi")
-        .expect("Failed to define degrees function");
+    if let Err(e) = interp.eval("radians = lambda x: x * pi / 180") {
+        log::warn!(
+            "Could not define built-in function 'radians': {}. \
+             This function will not be available in expressions. \
+             (May be due to missing 'pi' constant)",
+            e
+        );
+    }
+    if let Err(e) = interp.eval("degrees = lambda x: x * 180 / pi") {
+        log::warn!(
+            "Could not define built-in function 'degrees': {}. \
+             This function will not be available in expressions. \
+             (May be due to missing 'pi' constant)",
+            e
+        );
+    }
 
     interp
 }
@@ -81,23 +91,26 @@ pub fn eval_text(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<String, EvalError> {
-    let interp = init_interpreter();
-    eval_text_with_interpreter(text, properties, &interp)
+    let mut interp = init_interpreter();
+    eval_text_with_interpreter(text, properties, &mut interp)
 }
 
 /// Build a pyisheval context HashMap from properties
 ///
 /// Converts string properties to pyisheval Values, parsing numbers when possible.
-/// For lambda expressions, evaluates them to callable lambda values.
-/// This allows properties to be used in expressions with correct types.
+/// For lambda expressions, evaluates them to callable lambda values using the
+/// provided interpreter. This ensures lambdas capture the correct environment.
+///
+/// # Arguments
+/// * `properties` - Property name-value pairs to convert to pyisheval Values
+/// * `interp` - The interpreter to use for evaluating lambda expressions
 ///
 /// # Errors
 /// Returns `EvalError` if a lambda expression fails to evaluate.
 fn build_pyisheval_context(
-    properties: &HashMap<String, String>
+    properties: &HashMap<String, String>,
+    interp: &mut Interpreter,
 ) -> Result<HashMap<String, Value>, EvalError> {
-    let mut interp = init_interpreter();
-
     // First pass: Load all constants and non-lambda properties into the interpreter
     // This ensures that lambda expressions can reference them during evaluation
     for (name, value) in properties.iter() {
@@ -162,13 +175,17 @@ fn build_pyisheval_context(
 ///
 /// This version allows reusing an Interpreter instance for better performance
 /// when processing multiple text blocks with the same properties context.
+///
+/// Takes a mutable reference to ensure lambdas are created in the same
+/// interpreter context where they'll be evaluated.
 pub fn eval_text_with_interpreter(
     text: &str,
     properties: &HashMap<String, String>,
-    interp: &Interpreter,
+    interp: &mut Interpreter,
 ) -> Result<String, EvalError> {
     // Build context for pyisheval (may fail if lambdas have errors)
-    let context = build_pyisheval_context(properties)?;
+    // This loads properties into the interpreter and evaluates lambda expressions
+    let context = build_pyisheval_context(properties, interp)?;
 
     // Tokenize the input text
     let lexer = Lexer::new(text);
@@ -260,10 +277,10 @@ pub fn eval_boolean(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<bool, EvalError> {
-    let interp = init_interpreter();
+    let mut interp = init_interpreter();
 
     // Build context for pyisheval (may fail if lambdas have errors)
-    let context = build_pyisheval_context(properties)?;
+    let context = build_pyisheval_context(properties, &mut interp)?;
 
     // Tokenize input to detect structure
     let lexer = Lexer::new(text);
@@ -296,7 +313,7 @@ pub fn eval_boolean(
 
     // CASE 2: Multiple tokens or plain text → Evaluate to string, then parse
     // Example: "text ${expr} more" or just "true"
-    let evaluated = eval_text_with_interpreter(text, properties, &interp)?;
+    let evaluated = eval_text_with_interpreter(text, properties, &mut interp)?;
     apply_string_truthiness(&evaluated, text)
 }
 

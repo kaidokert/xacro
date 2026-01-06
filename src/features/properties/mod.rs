@@ -40,7 +40,7 @@ fn truncate_snippet(text: &str) -> String {
 }
 
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
-    interpreter: Interpreter,
+    interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
@@ -101,7 +101,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
         use crate::utils::eval::init_interpreter;
 
-        let interpreter = init_interpreter();
+        let interpreter = RefCell::new(init_interpreter());
 
         Self {
             interpreter,
@@ -235,7 +235,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // This is more efficient than resolving all properties upfront
             let properties = self.build_eval_context(&result)?;
 
-            let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)?;
+            let next = eval_text_with_interpreter(
+                &result,
+                &properties,
+                &mut self.interpreter.borrow_mut(),
+            )?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -466,7 +470,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                         let eval_result = eval_text_with_interpreter(
                             &wrapped_expr,
                             &properties,
-                            &self.interpreter,
+                            &mut self.interpreter.borrow_mut(),
                         )?;
 
                         // Only mark changed if evaluation actually modified the expression
@@ -543,7 +547,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            let next = eval_text_with_interpreter(&result, properties, &self.interpreter)?;
+            let next = eval_text_with_interpreter(
+                &result,
+                properties,
+                &mut self.interpreter.borrow_mut(),
+            )?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
