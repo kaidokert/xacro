@@ -128,8 +128,9 @@ fn build_pyisheval_context(
             } else if !value.is_empty() {
                 // String property: load as quoted string literal
                 // Skip empty strings as pyisheval can't parse ''
-                // Escape single quotes in the value to prevent syntax errors
-                let escaped_value = value.replace('\'', "\\'");
+                // Escape backslashes first, then single quotes (order matters!)
+                // This handles Windows paths (C:\Users), regex patterns, etc.
+                let escaped_value = value.replace('\\', "\\\\").replace('\'', "\\'");
                 interp
                     .eval(&format!("{} = '{}'", name, escaped_value))
                     .map_err(|e| EvalError::PyishEval {
