@@ -14,7 +14,7 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Built-in math constants (name, value) that are pre-initialized
 /// Users can override these, but will receive a warning
-const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
+pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
     ("tau", core::f64::consts::TAU),
@@ -99,31 +99,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        let mut interpreter = Interpreter::new();
+        use crate::utils::eval::init_interpreter;
 
-        // Initialize math constants in the interpreter
-        // These are loaded directly into the interpreter's environment for use in expressions
-        for (name, value) in BUILTIN_CONSTANTS {
-            if let Err(e) = interpreter.eval(&format!("{} = {}", name, value)) {
-                // Some constants like 'inf' and 'nan' may not be assignable in pyisheval
-                // Log a warning but continue initialization
-                log::debug!(
-                    "Could not initialize built-in constant '{}': {}. \
-                     This constant will not be available in expressions.",
-                    name,
-                    e
-                );
-            }
-        }
-
-        // Add math conversion functions as lambda expressions directly in the interpreter
-        // This makes them available as callable functions in all expressions
-        interpreter
-            .eval("radians = lambda x: x * pi / 180")
-            .expect("Failed to define radians function");
-        interpreter
-            .eval("degrees = lambda x: x * 180 / pi")
-            .expect("Failed to define degrees function");
+        let interpreter = init_interpreter();
 
         Self {
             interpreter,

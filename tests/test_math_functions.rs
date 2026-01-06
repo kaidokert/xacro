@@ -87,3 +87,32 @@ fn test_radians_with_negative() {
         angle_val
     );
 }
+
+#[test]
+fn test_degrees_with_negative() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${degrees(-1.5707963267948966)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor
+        .run_from_string(input)
+        .expect("Should process degrees() with negative value");
+
+    // degrees(-pi/2) = -90
+    // Extract angle value and compare numerically
+    let re = regex::Regex::new(r#"angle="([^"]+)""#).expect("Valid regex");
+    let caps = re
+        .captures(&result)
+        .expect("angle attribute not found in output");
+    let angle_val: f64 = caps[1].parse().expect("angle value is not a valid float");
+    assert!(
+        (angle_val - (-90.0)).abs() < 1e-9,
+        "Expected angle to be close to -90.0, got {}",
+        angle_val
+    );
+}

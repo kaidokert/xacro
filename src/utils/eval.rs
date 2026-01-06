@@ -1,6 +1,45 @@
+use crate::features::properties::BUILTIN_CONSTANTS;
 use crate::utils::lexer::{Lexer, TokenType};
 use pyisheval::{Interpreter, Value};
 use std::collections::HashMap;
+
+/// Initialize an Interpreter with builtin constants and math functions
+///
+/// This ensures all interpreters have access to:
+/// - Math constants: pi, e, tau, M_PI, inf, nan
+/// - Math functions: radians(), degrees()
+///
+/// # Returns
+/// A fully initialized Interpreter ready for expression evaluation
+pub fn init_interpreter() -> Interpreter {
+    let mut interp = Interpreter::new();
+
+    // Initialize math constants in the interpreter
+    // These are loaded directly into the interpreter's environment for use in expressions
+    for (name, value) in BUILTIN_CONSTANTS {
+        if let Err(e) = interp.eval(&format!("{} = {}", name, value)) {
+            // Some constants like 'inf' and 'nan' may not be assignable in pyisheval
+            // Log a warning but continue initialization
+            log::debug!(
+                "Could not initialize built-in constant '{}': {}. \
+                 This constant will not be available in expressions.",
+                name,
+                e
+            );
+        }
+    }
+
+    // Add math conversion functions as lambda expressions directly in the interpreter
+    // This makes them available as callable functions in all expressions
+    interp
+        .eval("radians = lambda x: x * pi / 180")
+        .expect("Failed to define radians function");
+    interp
+        .eval("degrees = lambda x: x * 180 / pi")
+        .expect("Failed to define degrees function");
+
+    interp
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvalError {
@@ -42,7 +81,7 @@ pub fn eval_text(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<String, EvalError> {
-    let interp = Interpreter::new();
+    let interp = init_interpreter();
     eval_text_with_interpreter(text, properties, &interp)
 }
 
@@ -57,7 +96,7 @@ pub fn eval_text(
 fn build_pyisheval_context(
     properties: &HashMap<String, String>
 ) -> Result<HashMap<String, Value>, EvalError> {
-    let mut interp = Interpreter::new();
+    let mut interp = init_interpreter();
 
     // First pass: Load all constants and non-lambda properties into the interpreter
     // This ensures that lambda expressions can reference them during evaluation
@@ -221,7 +260,7 @@ pub fn eval_boolean(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<bool, EvalError> {
-    let interp = Interpreter::new();
+    let interp = init_interpreter();
 
     // Build context for pyisheval (may fail if lambdas have errors)
     let context = build_pyisheval_context(properties)?;
