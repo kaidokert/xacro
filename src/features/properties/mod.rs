@@ -14,7 +14,7 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Built-in math constants (name, value) that are pre-initialized
 /// Users can override these, but will receive a warning
-const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
+pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
     ("tau", core::f64::consts::TAU),
@@ -40,7 +40,7 @@ fn truncate_snippet(text: &str) -> String {
 }
 
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
-    interpreter: Interpreter,
+    interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
@@ -99,22 +99,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        let processor = Self {
-            interpreter: Interpreter::new(),
+        use crate::utils::eval::init_interpreter;
+
+        let interpreter = RefCell::new(init_interpreter());
+
+        Self {
+            interpreter,
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
             args,
-        };
-
-        // Initialize math constants from BUILTIN_CONSTANTS (single source of truth)
-        // These are commonly used in xacro expressions
-        for (name, value) in BUILTIN_CONSTANTS {
-            processor.add_raw_property(name.to_string(), value.to_string());
         }
-
-        processor
     }
 
     /// Push a new scope for macro parameter bindings
@@ -239,7 +235,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // This is more efficient than resolving all properties upfront
             let properties = self.build_eval_context(&result)?;
 
-            let next = eval_text_with_interpreter(&result, &properties, &self.interpreter)?;
+            let next = eval_text_with_interpreter(
+                &result,
+                &properties,
+                &mut self.interpreter.borrow_mut(),
+            )?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -470,7 +470,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                         let eval_result = eval_text_with_interpreter(
                             &wrapped_expr,
                             &properties,
-                            &self.interpreter,
+                            &mut self.interpreter.borrow_mut(),
                         )?;
 
                         // Only mark changed if evaluation actually modified the expression
@@ -547,7 +547,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            let next = eval_text_with_interpreter(&result, properties, &self.interpreter)?;
+            let next = eval_text_with_interpreter(
+                &result,
+                properties,
+                &mut self.interpreter.borrow_mut(),
+            )?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {

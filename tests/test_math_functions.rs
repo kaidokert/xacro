@@ -1,0 +1,96 @@
+use xacro::processor::XacroProcessor;
+
+/// Helper function to run a math function test and verify the angle result
+fn run_angle_test(
+    input: &str,
+    expected_value: f64,
+    tolerance: f64,
+    expect_msg: &str,
+) {
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).expect(expect_msg);
+
+    // Extract angle value and compare numerically
+    let re = regex::Regex::new(r#"angle="([^"]+)""#).expect("Valid regex");
+    let caps = re
+        .captures(&result)
+        .expect("angle attribute not found in output");
+    let angle_val: f64 = caps[1].parse().expect("angle value is not a valid float");
+    assert!(
+        (angle_val - expected_value).abs() < tolerance,
+        "Expected angle to be close to {}, got {}",
+        expected_value,
+        angle_val
+    );
+}
+
+#[test]
+fn test_radians_function() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${radians(90)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // radians(90) = 90 * pi / 180 = pi/2
+    run_angle_test(
+        input,
+        std::f64::consts::FRAC_PI_2,
+        1e-6,
+        "Should process radians() function",
+    );
+}
+
+#[test]
+fn test_degrees_function() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${degrees(1.5707963267948966)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // degrees(pi/2) = 90
+    run_angle_test(input, 90.0, 1e-9, "Should process degrees() function");
+}
+
+#[test]
+fn test_radians_with_negative() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${radians(-111)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // radians(-111) = -111 * pi / 180 ≈ -1.9373154
+    run_angle_test(
+        input,
+        -1.9373154,
+        1e-6,
+        "Should process radians() with negative value",
+    );
+}
+
+#[test]
+fn test_degrees_with_negative() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${degrees(-1.5707963267948966)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // degrees(-pi/2) = -90
+    run_angle_test(
+        input,
+        -90.0,
+        1e-9,
+        "Should process degrees() with negative value",
+    );
+}
