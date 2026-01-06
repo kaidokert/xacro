@@ -6,8 +6,11 @@ use std::collections::HashMap;
 /// Initialize an Interpreter with builtin constants and math functions
 ///
 /// This ensures all interpreters have access to:
-/// - Math constants: pi, e, tau, M_PI, inf, nan
+/// - Math constants: pi, e, tau, M_PI
 /// - Math functions: radians(), degrees()
+///
+/// Note: inf and nan are NOT initialized here - they are injected directly into
+/// the context HashMap in build_pyisheval_context() to bypass parsing issues.
 ///
 /// # Returns
 /// A fully initialized Interpreter ready for expression evaluation
@@ -16,10 +19,15 @@ pub fn init_interpreter() -> Interpreter {
 
     // Initialize math constants in the interpreter
     // These are loaded directly into the interpreter's environment for use in expressions
+    // Note: inf and nan are skipped here (pyisheval can't parse them as literals)
+    // They are injected directly into the context map in build_pyisheval_context()
     for (name, value) in BUILTIN_CONSTANTS {
+        // Skip inf and nan - they're handled by direct HashMap injection
+        if *name == "inf" || *name == "nan" {
+            continue;
+        }
+
         if let Err(e) = interp.eval(&format!("{} = {}", name, value)) {
-            // Some constants like 'inf' and 'nan' may not be assignable in pyisheval
-            // Log a warning but continue initialization
             log::warn!(
                 "Could not initialize built-in constant '{}': {}. \
                  This constant will not be available in expressions.",
@@ -113,11 +121,17 @@ fn build_pyisheval_context(
 ) -> Result<HashMap<String, Value>, EvalError> {
     // First pass: Load all constants and non-lambda properties into the interpreter
     // This ensures that lambda expressions can reference them during evaluation
+    // Note: We skip inf/nan/NaN as they can't be created via arithmetic in pyisheval
+    // (10**400 creates inf but 0.0/0.0 fails with DivisionByZero)
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
             // Load both numeric and string properties into interpreter
             if let Ok(num) = value.parse::<f64>() {
+                // Skip inf and nan - they'll be injected into context HashMap instead
+                if num.is_infinite() || num.is_nan() {
+                    continue;
+                }
                 // Numeric property: load as number
                 interp
                     .eval(&format!("{} = {}", name, num))
@@ -126,6 +140,11 @@ fn build_pyisheval_context(
                         source: e,
                     })?;
             } else if !value.is_empty() {
+                // Skip string values that are inf/nan identifiers
+                // These will be available via context HashMap injection
+                if value == "inf" || value == "nan" || value == "NaN" {
+                    continue;
+                }
                 // String property: load as quoted string literal
                 // Skip empty strings as pyisheval can't parse ''
                 // Escape backslashes first, then single quotes (order matters!)
@@ -144,9 +163,9 @@ fn build_pyisheval_context(
     }
 
     // Second pass: Build the actual context, evaluating lambdas
-    properties
+    let mut context: HashMap<String, Value> = properties
         .iter()
-        .map(|(name, value)| {
+        .map(|(name, value)| -> Result<(String, Value), EvalError> {
             // Try to parse as number first
             if let Ok(num) = value.parse::<f64>() {
                 return Ok((name.clone(), Value::Number(num)));
@@ -169,7 +188,16 @@ fn build_pyisheval_context(
             // Default: store as string literal
             Ok((name.clone(), Value::StringLit(value.clone())))
         })
-        .collect()
+        .collect::<Result<HashMap<_, _>, _>>()?;
+
+    // Manually inject inf and nan constants (Strategy 3: bypass parsing)
+    // Python xacro provides these via float('inf') and math.inf, but they're also
+    // used as bare identifiers in expressions. Pyisheval cannot parse these as
+    // literals, so we inject them directly into the context.
+    context.insert("inf".to_string(), Value::Number(f64::INFINITY));
+    context.insert("nan".to_string(), Value::Number(f64::NAN));
+
+    Ok(context)
 }
 
 /// Evaluate text containing ${...} expressions using a provided interpreter
@@ -645,6 +673,60 @@ mod tests {
         // But not other cases (should error)
         assert!(eval_boolean("TRUE", &props).is_err());
         assert!(eval_boolean("tRuE", &props).is_err());
+    }
+
+    // Test that inf and nan are available via direct context injection
+    #[test]
+    fn test_inf_nan_direct_injection() {
+        let props = HashMap::new();
+        let mut interp = init_interpreter();
+
+        // Build context with direct inf/nan injection
+        let context = build_pyisheval_context(&props, &mut interp).unwrap();
+
+        // Verify inf and nan are in the context
+        assert!(
+            context.contains_key("inf"),
+            "Context should contain 'inf' key"
+        );
+        assert!(
+            context.contains_key("nan"),
+            "Context should contain 'nan' key"
+        );
+
+        // Test 1: inf should be positive infinity
+        if let Some(Value::Number(n)) = context.get("inf") {
+            assert!(
+                n.is_infinite() && n.is_sign_positive(),
+                "inf should be positive infinity, got: {}",
+                n
+            );
+        } else {
+            panic!("inf should be a Number value");
+        }
+
+        // Test 2: nan should be NaN
+        if let Some(Value::Number(n)) = context.get("nan") {
+            assert!(n.is_nan(), "nan should be NaN, got: {}", n);
+        } else {
+            panic!("nan should be a Number value");
+        }
+
+        // Test 3: inf should be usable in expressions
+        let result = interp.eval_with_context("inf * 2", &context);
+        assert!(
+            matches!(result, Ok(Value::Number(n)) if n.is_infinite() && n.is_sign_positive()),
+            "inf * 2 should return positive infinity, got: {:?}",
+            result
+        );
+
+        // Test 4: nan should be usable in expressions
+        let result = interp.eval_with_context("nan + 1", &context);
+        assert!(
+            matches!(result, Ok(Value::Number(n)) if n.is_nan()),
+            "nan + 1 should return NaN, got: {:?}",
+            result
+        );
     }
 
     // Test type preservation: the key feature!

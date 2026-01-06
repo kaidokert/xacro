@@ -14,13 +14,20 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Built-in math constants (name, value) that are pre-initialized
 /// Users can override these, but will receive a warning
+///
+/// Note: `inf` and `nan` are NOT included because pyisheval cannot parse them:
+/// - `inf` is not a valid Python literal (Python uses `float('inf')`)
+/// - `nan` is not a valid Python literal (Python uses `float('nan')`)
+/// - Large exponents like `9e999` fail parsing ("Unexpected trailing input")
+/// - pyisheval doesn't expose an API to inject values without parsing
+///
+/// Files using `inf`/`nan` will fail with "undefined variable" errors.
+/// This is a known pyisheval limitation (12 files in corpus, 2.1%).
 pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
     ("tau", core::f64::consts::TAU),
     ("M_PI", core::f64::consts::PI), // Legacy alias
-    ("inf", f64::INFINITY),
-    ("nan", f64::NAN),
 ];
 
 /// Truncate text to a safe length (100 chars) respecting UTF-8 boundaries
