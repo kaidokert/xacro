@@ -233,3 +233,58 @@ fn test_inf_nan_with_args() {
     assert!(!result.contains("xacro:arg"));
     assert!(!result.contains("$(arg"));
 }
+
+/// Test that lambda expressions can reference properties with inf values
+#[test_log::test]
+fn test_lambda_referencing_inf_property() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="test">
+  <xacro:property name="my_inf" value="${inf}"/>
+  <xacro:property name="is_inf" value="lambda x: x == my_inf"/>
+  <link name="base">
+    <test value="${is_inf(inf)}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor
+        .run_from_string(input)
+        .expect("Lambda should be able to reference infinite property");
+
+    // The lambda should evaluate to true (1) since inf == inf
+    assert!(
+        result.contains(r#"value="1"#),
+        "Lambda should correctly evaluate inf == inf as true"
+    );
+}
+
+/// Test that lambda expressions CANNOT reference properties with nan values
+///
+/// LIMITATION: pyisheval cannot create NaN values (0.0/0.0 triggers DivisionByZero error).
+/// Properties with NaN values are not loaded into the interpreter context, so lambdas
+/// that reference them will fail with "undefined variable" errors.
+///
+/// This test is ignored because it demonstrates a known limitation that cannot be fixed
+/// without modifying pyisheval's division operator to allow IEEE-754 behavior.
+///
+#[test]
+#[ignore = "pyisheval cannot create NaN - lambdas cannot reference nan properties"]
+fn test_lambda_referencing_nan_property_fails() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="test">
+  <xacro:property name="my_nan" value="${nan}"/>
+  <xacro:property name="check_nan" value="lambda x: x != x"/>
+  <link name="base">
+    <test value="${check_nan(my_nan)}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // This will fail with an error because my_nan is not loaded into the interpreter
+    assert!(
+        result.is_err(),
+        "Lambda referencing NaN property should fail (known limitation)"
+    );
+}

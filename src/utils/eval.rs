@@ -123,8 +123,26 @@ fn build_pyisheval_context(
         if !trimmed.starts_with("lambda ") {
             // Load both numeric and string properties into interpreter
             if let Ok(num) = value.parse::<f64>() {
-                // Skip inf and nan - they'll be injected into context HashMap instead
-                if num.is_infinite() || num.is_nan() {
+                // Special handling for inf/nan so lambdas can reference them
+                if num.is_infinite() {
+                    // Use 10**400 to create infinity (pyisheval can't parse "inf" literal)
+                    let sign = if num.is_sign_negative() { "-" } else { "" };
+                    interp
+                        .eval(&format!("{} = {}10 ** 400", name, sign))
+                        .map_err(|e| EvalError::PyishEval {
+                            expr: format!("{} = {}10 ** 400", name, sign),
+                            source: e,
+                        })?;
+                    continue;
+                }
+                if num.is_nan() {
+                    // LIMITATION: Cannot create NaN in pyisheval (0.0/0.0 triggers DivisionByZero)
+                    // Lambdas that reference NaN properties will fail with "undefined variable"
+                    log::warn!(
+                        "Property '{}' has NaN value, which cannot be loaded into interpreter. \
+                         Lambda expressions referencing this property will fail.",
+                        name
+                    );
                     continue;
                 }
                 // Numeric property: load as number
@@ -135,11 +153,6 @@ fn build_pyisheval_context(
                         source: e,
                     })?;
             } else if !value.is_empty() {
-                // Skip string values that are inf/nan identifiers
-                // These will be available via context HashMap injection
-                if value == "inf" || value == "nan" || value == "NaN" {
-                    continue;
-                }
                 // String property: load as quoted string literal
                 // Skip empty strings as pyisheval can't parse ''
                 // Escape backslashes first, then single quotes (order matters!)
@@ -169,15 +182,21 @@ fn build_pyisheval_context(
             // Check if it's a lambda expression
             let trimmed = value.trim();
             if trimmed.starts_with("lambda ") {
-                // Evaluate the lambda expression to get a callable lambda value
+                // Evaluate and assign the lambda expression to the variable name
                 // The interpreter now has all constants and properties loaded from first pass
-                return interp
-                    .eval(trimmed)
-                    .map(|lambda_value| (name.clone(), lambda_value))
-                    .map_err(|e| EvalError::PyishEval {
-                        expr: trimmed.to_string(),
-                        source: e,
-                    });
+                let assignment = format!("{} = {}", name, trimmed);
+                interp.eval(&assignment).map_err(|e| EvalError::PyishEval {
+                    expr: assignment.clone(),
+                    source: e,
+                })?;
+
+                // Retrieve the lambda value to store in context
+                let lambda_value = interp.eval(name).map_err(|e| EvalError::PyishEval {
+                    expr: name.clone(),
+                    source: e,
+                })?;
+
+                return Ok((name.clone(), lambda_value));
             }
 
             // Default: store as string literal
@@ -748,5 +767,65 @@ mod tests {
         assert_eq!(eval_boolean("${1 == 1}", &props).unwrap(), true);
         assert_eq!(eval_boolean("${1 == 2}", &props).unwrap(), false);
         assert_eq!(eval_boolean("${5 > 3}", &props).unwrap(), true);
+    }
+
+    // Lambda expression tests
+    #[test]
+    fn test_basic_lambda_works() {
+        let mut props = HashMap::new();
+        props.insert("f".to_string(), "lambda x: x * 2".to_string());
+        assert_eq!(eval_text("${f(5)}", &props).unwrap(), "10");
+    }
+
+    // NOTE: pyisheval doesn't support multi-parameter lambdas (parser limitation)
+    // lambda x, y: x + y fails with "Unexpected trailing input"
+    // This is a known pyisheval limitation - single parameter lambdas only
+
+    #[test]
+    fn test_lambda_referencing_property() {
+        let mut props = HashMap::new();
+        props.insert("offset".to_string(), "10".to_string());
+        props.insert("add_offset".to_string(), "lambda x: x + offset".to_string());
+        assert_eq!(eval_text("${add_offset(5)}", &props).unwrap(), "15");
+    }
+
+    #[test]
+    fn test_lambda_referencing_multiple_properties() {
+        let mut props = HashMap::new();
+        props.insert("a".to_string(), "2".to_string());
+        props.insert("b".to_string(), "3".to_string());
+        props.insert("scale".to_string(), "lambda x: x * a + b".to_string());
+        assert_eq!(eval_text("${scale(5)}", &props).unwrap(), "13");
+    }
+
+    #[test]
+    fn test_lambda_with_conditional() {
+        let mut props = HashMap::new();
+        props.insert(
+            "sign".to_string(),
+            "lambda x: 1 if x > 0 else -1".to_string(),
+        );
+        assert_eq!(eval_text("${sign(5)}", &props).unwrap(), "1");
+        assert_eq!(eval_text("${sign(-3)}", &props).unwrap(), "-1");
+    }
+
+    #[test]
+    fn test_multiple_lambdas() {
+        let mut props = HashMap::new();
+        props.insert("double".to_string(), "lambda x: x * 2".to_string());
+        props.insert("triple".to_string(), "lambda x: x * 3".to_string());
+        assert_eq!(
+            eval_text("${double(5)} ${triple(5)}", &props).unwrap(),
+            "10 15"
+        );
+    }
+
+    #[test]
+    fn test_lambda_referencing_inf_property() {
+        let mut props = HashMap::new();
+        props.insert("my_inf".to_string(), "inf".to_string());
+        props.insert("is_inf".to_string(), "lambda x: x == my_inf".to_string());
+        // inf == inf should be true (1)
+        assert_eq!(eval_text("${is_inf(inf)}", &props).unwrap(), "1");
     }
 }
