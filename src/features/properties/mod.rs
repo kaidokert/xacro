@@ -14,13 +14,25 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Built-in math constants (name, value) that are pre-initialized
 /// Users can override these, but will receive a warning
+///
+/// Note: `inf` and `nan` are NOT included because pyisheval cannot parse them:
+/// - `inf` is not a valid Python literal (Python uses `float('inf')`)
+/// - `nan` is not a valid Python literal (Python uses `float('nan')`)
+/// - Large exponents like `9e999` fail parsing ("Unexpected trailing input")
+/// - pyisheval doesn't expose an API to inject values without parsing
+///
+/// Instead, `inf` and `nan` are injected directly into the pyisheval context
+/// HashMap in `build_pyisheval_context()` to bypass parsing limitations.
+///
+/// LIMITATION: Lambda expressions that reference properties with `nan` values will
+/// fail with "undefined variable" errors because pyisheval cannot create NaN
+/// (0.0/0.0 triggers DivisionByZero). Properties with `inf` values work correctly
+/// (created using 10**400 arithmetic).
 pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
     ("tau", core::f64::consts::TAU),
     ("M_PI", core::f64::consts::PI), // Legacy alias
-    ("inf", f64::INFINITY),
-    ("nan", f64::NAN),
 ];
 
 /// Truncate text to a safe length (100 chars) respecting UTF-8 boundaries
@@ -56,6 +68,28 @@ pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // NEW: Shared reference to arguments map (injected from XacroContext)
     // Args are separate from properties and follow CLI-precedence semantics
     args: Rc<RefCell<HashMap<String, String>>>,
+}
+
+/// Check if a name is a lambda parameter in the given lambda expression
+///
+/// Example: in "lambda x: x + 1", "x" is a parameter
+/// Example: in "lambda x, y: x + y", both "x" and "y" are parameters
+fn is_lambda_parameter(
+    lambda_expr: &str,
+    name: &str,
+) -> bool {
+    // Extract the parameter list from "lambda <params>: <body>"
+    if let Some(after_lambda) = lambda_expr.strip_prefix("lambda") {
+        if let Some(colon_pos) = after_lambda.find(':') {
+            let param_part = &after_lambda[..colon_pos].trim();
+            // Split by comma and check if name matches any parameter
+            param_part.split(',').any(|param| param.trim() == name)
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
@@ -693,14 +727,33 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         value: &str,
     ) -> Result<HashMap<String, String>, XacroError> {
         let mut context = HashMap::new();
-        let referenced_props = self.extract_property_references(value);
+        let mut to_process: Vec<String> = self
+            .extract_property_references(value)
+            .into_iter()
+            .collect();
+        let mut processed = HashSet::new();
 
-        for prop_name in referenced_props {
+        // Recursively extract properties, including those referenced in lambda bodies
+        while let Some(prop_name) = to_process.pop() {
+            if processed.contains(&prop_name) {
+                continue;
+            }
+            processed.insert(prop_name.clone());
+
             // Try to resolve, but skip if not found (extract_property_references over-captures)
             // Properties in string literals (e.g., 'test' in "${var == 'test'}") will be
             // extracted but can't be resolved - that's OK, they're not actually property references
             match self.resolve_property(&prop_name) {
                 Ok(resolved) => {
+                    // If this property is a lambda, extract properties it references
+                    if resolved.trim().starts_with("lambda ") {
+                        let nested_refs = self.extract_property_references(&resolved);
+                        for nested_ref in nested_refs {
+                            if !processed.contains(&nested_ref) {
+                                to_process.push(nested_ref);
+                            }
+                        }
+                    }
                     context.insert(prop_name, resolved);
                 }
                 Err(XacroError::UndefinedProperty(_)) => {
@@ -732,7 +785,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         value: &str,
     ) -> HashSet<String> {
         let mut refs = HashSet::new();
-        let lexer = Lexer::new(value);
 
         // Get cached regex (compiled once on first use)
         // Matches: variable names (letters/underscore followed by letters/digits/underscore)
@@ -741,24 +793,39 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").expect("Valid regex pattern")
         });
 
+        // Special case: if value is a lambda expression (no ${...} wrapper),
+        // extract variables directly from the lambda body
+        let trimmed = value.trim();
+        if trimmed.starts_with("lambda ") {
+            // Extract variables from lambda body
+            for cap in var_regex.captures_iter(trimmed) {
+                if let Some(name_match) = cap.get(1) {
+                    let name = name_match.as_str();
+                    // Filter out Python keywords, built-in functions, and lambda parameter names
+                    // For lambda parameter detection, we look for "lambda <param>:" pattern
+                    if !is_python_keyword(name) && !is_lambda_parameter(trimmed, name) {
+                        refs.insert(name.to_string());
+                    }
+                }
+            }
+            return refs;
+        }
+
+        // Normal case: extract from ${...} blocks
+        let lexer = Lexer::new(value);
         for (token_type, token_value) in lexer {
             if token_type == TokenType::Expr {
                 // Extract all identifier-like tokens from the expression
                 for cap in var_regex.captures_iter(&token_value) {
                     if let Some(name_match) = cap.get(1) {
                         let name = name_match.as_str();
-                        let match_end = name_match.end();
 
-                        // Skip if this is a function call (identifier followed by '(')
-                        // Use defensive slicing to be robust against future regex changes
-                        let is_function_call = token_value
-                            .get(match_end..)
-                            .map(|s| s.trim_start().starts_with('('))
-                            .unwrap_or(false);
+                        // Note: We DO include function calls (identifier followed by '(')
+                        // because lambdas stored as properties need to be in the context.
+                        // Over-capturing is safe (undefined properties are skipped in build_eval_context)
 
-                        // Filter out Python keywords, built-in functions, and function calls
-                        // (over-capturing is safe, under-capturing breaks things)
-                        if !is_python_keyword(name) && !is_function_call {
+                        // Filter out Python keywords and built-in functions only
+                        if !is_python_keyword(name) {
                             refs.insert(name.to_string());
                         }
                     }
