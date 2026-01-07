@@ -235,7 +235,7 @@ fn test_inf_nan_with_args() {
 }
 
 /// Test that lambda expressions can reference properties with inf values
-#[test_log::test]
+#[test]
 fn test_lambda_referencing_inf_property() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://ros.org/wiki/xacro" name="test">
