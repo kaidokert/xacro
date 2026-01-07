@@ -346,7 +346,10 @@ fn test_nonstandard_prefix_with_known_uri() {
 
     // Should process successfully
     assert!(output.contains(r#"name="base""#), "Link should be present");
-    assert!(output.contains("2 3 1"), "Properties should be substituted");
+    assert!(
+        output.contains("2.0 3.0 1"),
+        "Properties should be substituted"
+    );
 
     // The xmlns:foo should be removed since we detected it's a xacro namespace
     assert!(

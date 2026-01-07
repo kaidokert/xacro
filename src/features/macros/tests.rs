@@ -632,11 +632,9 @@ mod macro_tests {
     /// This test documents a limitation: the tokenizer does not support escape
     /// sequences like \' or \" within quoted strings.
     ///
-    /// See: notes/MACRO_PARSER_LIMITATIONS.md Issue #1
-    ///
     /// Decision: Deferred pending verification that Python xacro supports this.
     #[test]
-    #[ignore = "Escape sequences not yet supported - see notes/MACRO_PARSER_LIMITATIONS.md"]
+    #[ignore = "Escape sequences not yet supported"]
     fn test_parse_params_escape_sequences_not_supported() {
         // Example: Literal single quote inside single-quoted string
         // Expected: name="it's here"

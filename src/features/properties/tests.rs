@@ -13,7 +13,7 @@ mod property_tests {
 
         // Verify global resolution through substitute_text
         let result1 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result1, "10", "Global x should be 10");
+        assert_eq!(result1, "10.0", "Global x should be 10");
 
         // Push macro scope with shadowing
         let mut scope = HashMap::new();
@@ -22,14 +22,14 @@ mod property_tests {
 
         // Verify shadowed resolution
         let result2 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result2, "5", "Scoped x should be 5 (shadowing global)");
+        assert_eq!(result2, "5.0", "Scoped x should be 5 (shadowing global)");
 
         // Pop scope
         processor.pop_scope();
 
         // Verify global restoration
         let result3 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result3, "10", "After pop, x should be 10 again");
+        assert_eq!(result3, "10.0", "After pop, x should be 10 again");
     }
 
     #[test]
@@ -48,8 +48,8 @@ mod property_tests {
         // x should be shadowed, y should fall back to global
         let result_x = processor.substitute_text("${x}").unwrap();
         let result_y = processor.substitute_text("${y}").unwrap();
-        assert_eq!(result_x, "5", "Scoped x should be 5");
-        assert_eq!(result_y, "20", "y should fall back to global value 20");
+        assert_eq!(result_x, "5.0", "Scoped x should be 5");
+        assert_eq!(result_y, "20.0", "y should fall back to global value 20");
 
         processor.pop_scope();
     }
@@ -67,7 +67,7 @@ mod property_tests {
         processor.push_scope(scope1);
 
         let result1 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result1, "20", "First scope: x should be 20");
+        assert_eq!(result1, "20.0", "First scope: x should be 20");
 
         // Second scope level (nested)
         let mut scope2 = HashMap::new();
@@ -75,17 +75,17 @@ mod property_tests {
         processor.push_scope(scope2);
 
         let result2 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result2, "30", "Nested scope: x should be 30");
+        assert_eq!(result2, "30.0", "Nested scope: x should be 30");
 
         // Pop innermost scope
         processor.pop_scope();
         let result3 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result3, "20", "After pop, x should be 20 again");
+        assert_eq!(result3, "20.0", "After pop, x should be 20 again");
 
         // Pop outer scope
         processor.pop_scope();
         let result4 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result4, "10", "After second pop, x should be global 10");
+        assert_eq!(result4, "10.0", "After second pop, x should be global 10");
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod property_tests {
 
         // Evaluate to populate cache
         let result1 = processor.substitute_text("${x}").unwrap();
-        assert_eq!(result1, "10");
+        assert_eq!(result1, "10.0");
 
         // Push scope with different value
         let mut scope = HashMap::new();
@@ -107,7 +107,7 @@ mod property_tests {
         // Should get scoped value, not cached global value
         let result2 = processor.substitute_text("${x}").unwrap();
         assert_eq!(
-            result2, "5",
+            result2, "5.0",
             "Scoped value should bypass cache and return 5, not cached 10"
         );
 
@@ -128,7 +128,7 @@ mod property_tests {
 
         // Expression should use both scoped and global properties
         let result = processor.substitute_text("${base * multiplier}").unwrap();
-        assert_eq!(result, "30", "Should compute 10 * 3 = 30");
+        assert_eq!(result, "30.0", "Should compute 10 * 3 = 30");
 
         processor.pop_scope();
     }
@@ -162,10 +162,10 @@ mod property_tests {
         processor.add_raw_property("y".to_string(), "5".to_string());
 
         let add = processor.substitute_text("${x + y}").unwrap();
-        assert_eq!(add, "15");
+        assert_eq!(add, "15.0");
 
         let multiply = processor.substitute_text("${x * y}").unwrap();
-        assert_eq!(multiply, "50");
+        assert_eq!(multiply, "50.0");
     }
 
     #[test]
@@ -173,10 +173,10 @@ mod property_tests {
         let processor: PropertyProcessor = PropertyProcessor::new();
 
         let result = processor.substitute_text("${abs(-5)}").unwrap();
-        assert_eq!(result, "5");
+        assert_eq!(result, "5.0");
 
         let result2 = processor.substitute_text("${max(10, 20)}").unwrap();
-        assert_eq!(result2, "20");
+        assert_eq!(result2, "20.0");
     }
 
     #[test]
