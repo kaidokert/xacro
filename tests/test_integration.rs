@@ -1091,9 +1091,9 @@ fn test_property_multi_substitution() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="x" value="1"/>
-  <xacro:property name="y" value="2"/>
-  <xacro:property name="z" value="3"/>
+  <xacro:property name="x" value="1.0"/>
+  <xacro:property name="y" value="2.0"/>
+  <xacro:property name="z" value="3.0"/>
   <link name="test">
     <origin xyz="${x} ${y} ${z}"/>
   </link>
@@ -1487,7 +1487,7 @@ fn test_property_namespace_handling() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" xmlns:other="http://example.com">
-  <xacro:property name="x" value="42.0"/>
+  <xacro:property name="x" value="42"/>
   <other:element value="${x}"/>
 </robot>"#;
 
@@ -1802,7 +1802,7 @@ fn test_if_integer_truthiness() {
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="1"><included_one/></xacro:if>
   <xacro:if value="0"><excluded_zero/></xacro:if>
-  <xacro:if value="42.0"><included_fortytwo/></xacro:if>
+  <xacro:if value="42"><included_fortytwo/></xacro:if>
 </robot>"#;
 
     let result = processor.run_from_string(input);
