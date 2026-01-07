@@ -70,6 +70,28 @@ pub enum EvalError {
     },
 }
 
+/// Format a pyisheval Value to match Python xacro's output format
+///
+/// Python always shows at least one decimal place for floats (e.g., "1.0" not "1"),
+/// which is required for exact output matching.
+fn format_value_python_style(value: &Value) -> String {
+    match value {
+        Value::Number(n) if n.is_finite() => {
+            // Python's `str()` for floats switches to scientific notation at 1e16.
+            // To align with this, we format whole numbers with `.0` below this threshold.
+            const PYTHON_SCIENTIFIC_THRESHOLD: f64 = 1e16;
+
+            if n.fract() == 0.0 && n.abs() < PYTHON_SCIENTIFIC_THRESHOLD {
+                format!("{:.1}", n)
+            } else {
+                // Has fractional part or is a large number: use default formatting.
+                n.to_string()
+            }
+        }
+        _ => value.to_string(),
+    }
+}
+
 /// Remove quotes from string values (handles both single and double quotes)
 fn remove_quotes(s: &str) -> &str {
     // pyisheval's StringLit to_string() returns strings with single quotes
@@ -243,7 +265,7 @@ pub fn eval_text_with_interpreter(
                 // ${expr} - evaluate using pyisheval
                 match interp.eval_with_context(&token_value, &context) {
                     Ok(value) => {
-                        let value_str = value.to_string();
+                        let value_str = format_value_python_style(&value);
                         result.push(remove_quotes(&value_str).to_string());
                     }
                     Err(e) => {
@@ -290,6 +312,11 @@ fn apply_string_truthiness(
     // Try integer conversion (Python's bool(int(value)))
     if let Ok(i) = trimmed.parse::<i64>() {
         return Ok(i != 0);
+    }
+
+    // Try float conversion (for values like "1.0")
+    if let Ok(f) = trimmed.parse::<f64>() {
+        return Ok(f != 0.0);
     }
 
     // Everything else is an error (STRICT mode)
@@ -391,7 +418,7 @@ mod tests {
 
         let result = eval_text("${width} x ${height}", &props).unwrap();
         // Note: pyisheval formats 1.0 as "1" since it's an integer value
-        assert_eq!(result, "0.5 x 1");
+        assert_eq!(result, "0.5 x 1.0");
     }
 
     // TEST 4: NEW - Simple arithmetic
@@ -401,7 +428,7 @@ mod tests {
         props.insert("width".to_string(), "0.5".to_string());
 
         let result = eval_text("${width * 2}", &props).unwrap();
-        assert_eq!(result, "1");
+        assert_eq!(result, "1.0");
     }
 
     // TEST 5: NEW - Arithmetic without properties
@@ -410,7 +437,7 @@ mod tests {
         let props = HashMap::new();
 
         let result = eval_text("${2 + 3}", &props).unwrap();
-        assert_eq!(result, "5");
+        assert_eq!(result, "5.0");
     }
 
     // TEST 6: NEW - Complex expression
@@ -421,7 +448,7 @@ mod tests {
         props.insert("height".to_string(), "2.0".to_string());
 
         let result = eval_text("${width * height + 1}", &props).unwrap();
-        assert_eq!(result, "2");
+        assert_eq!(result, "2.0");
     }
 
     // TEST 7: NEW - String concatenation with literals
@@ -443,10 +470,10 @@ mod tests {
         let props = HashMap::new();
 
         let result = eval_text("${abs(-5)}", &props).unwrap();
-        assert_eq!(result, "5");
+        assert_eq!(result, "5.0");
 
         let result = eval_text("${max(2, 5, 3)}", &props).unwrap();
-        assert_eq!(result, "5");
+        assert_eq!(result, "5.0");
     }
 
     // TEST 9: NEW - Conditional expressions
@@ -606,7 +633,7 @@ mod tests {
     ///
     /// This test exists to:
     /// 1. Verify our Number-based truthiness handling works for comparisons
-    /// 2. Document pyisheval's current behavior (see notes/PYISHEVAL_ISSUES.md)
+    /// 2. Document pyisheval's current behavior
     /// 3. Catch if pyisheval adds Value::Bool in future (this would fail, prompting us to update)
     #[test]
     fn test_eval_boolean_comparison_expressions() {
@@ -633,7 +660,6 @@ mod tests {
         // NOTE: pyisheval v0.9.0 does NOT support `and`/`or` operators
         // These would fail: ${1 and 1}, ${x > 3 and y < 15}
         // Fortunately, real xacro files don't use these - they use simpler expressions
-        // See notes/PYISHEVAL_ISSUES.md for details
 
         // Note: All these comparison expressions are evaluated by pyisheval as Value::Number(1.0) or Value::Number(0.0)
         // Our eval_boolean correctly applies != 0.0 truthiness to convert to bool
@@ -772,19 +798,72 @@ mod tests {
     fn test_basic_lambda_works() {
         let mut props = HashMap::new();
         props.insert("f".to_string(), "lambda x: x * 2".to_string());
-        assert_eq!(eval_text("${f(5)}", &props).unwrap(), "10");
+        assert_eq!(eval_text("${f(5)}", &props).unwrap(), "10.0");
     }
 
     // NOTE: pyisheval doesn't support multi-parameter lambdas (parser limitation)
     // lambda x, y: x + y fails with "Unexpected trailing input"
     // This is a known pyisheval limitation - single parameter lambdas only
 
+    // Python-style number formatting tests
+    #[test]
+    fn test_format_value_python_style_whole_numbers() {
+        use pyisheval::Value;
+
+        // Whole numbers should always have .0
+        assert_eq!(format_value_python_style(&Value::Number(0.0)), "0.0");
+        assert_eq!(format_value_python_style(&Value::Number(1.0)), "1.0");
+        assert_eq!(format_value_python_style(&Value::Number(2.0)), "2.0");
+        assert_eq!(format_value_python_style(&Value::Number(-1.0)), "-1.0");
+        assert_eq!(format_value_python_style(&Value::Number(100.0)), "100.0");
+    }
+
+    #[test]
+    fn test_format_value_python_style_fractional() {
+        use pyisheval::Value;
+
+        // Fractional numbers use default formatting (no trailing zeros)
+        assert_eq!(format_value_python_style(&Value::Number(1.5)), "1.5");
+        assert_eq!(format_value_python_style(&Value::Number(0.5)), "0.5");
+        assert_eq!(
+            format_value_python_style(&Value::Number(0.4235294117647059)),
+            "0.4235294117647059"
+        );
+    }
+
+    #[test]
+    fn test_format_value_python_style_special() {
+        use pyisheval::Value;
+
+        // Special values
+        assert_eq!(
+            format_value_python_style(&Value::Number(f64::INFINITY)),
+            "inf"
+        );
+        assert_eq!(
+            format_value_python_style(&Value::Number(f64::NEG_INFINITY)),
+            "-inf"
+        );
+        assert_eq!(format_value_python_style(&Value::Number(f64::NAN)), "NaN");
+    }
+
+    #[test]
+    fn test_eval_with_python_number_formatting() {
+        let mut props = HashMap::new();
+        props.insert("height".to_string(), "1.0".to_string());
+
+        // Should output "1.0" not "1"
+        assert_eq!(eval_text("${height}", &props).unwrap(), "1.0");
+        assert_eq!(eval_text("${1.0 + 0.0}", &props).unwrap(), "1.0");
+        assert_eq!(eval_text("${2.0 * 1.0}", &props).unwrap(), "2.0");
+    }
+
     #[test]
     fn test_lambda_referencing_property() {
         let mut props = HashMap::new();
         props.insert("offset".to_string(), "10".to_string());
         props.insert("add_offset".to_string(), "lambda x: x + offset".to_string());
-        assert_eq!(eval_text("${add_offset(5)}", &props).unwrap(), "15");
+        assert_eq!(eval_text("${add_offset(5)}", &props).unwrap(), "15.0");
     }
 
     #[test]
@@ -793,7 +872,7 @@ mod tests {
         props.insert("a".to_string(), "2".to_string());
         props.insert("b".to_string(), "3".to_string());
         props.insert("scale".to_string(), "lambda x: x * a + b".to_string());
-        assert_eq!(eval_text("${scale(5)}", &props).unwrap(), "13");
+        assert_eq!(eval_text("${scale(5)}", &props).unwrap(), "13.0");
     }
 
     #[test]
@@ -803,8 +882,8 @@ mod tests {
             "sign".to_string(),
             "lambda x: 1 if x > 0 else -1".to_string(),
         );
-        assert_eq!(eval_text("${sign(5)}", &props).unwrap(), "1");
-        assert_eq!(eval_text("${sign(-3)}", &props).unwrap(), "-1");
+        assert_eq!(eval_text("${sign(5)}", &props).unwrap(), "1.0");
+        assert_eq!(eval_text("${sign(-3)}", &props).unwrap(), "-1.0");
     }
 
     #[test]
@@ -814,7 +893,7 @@ mod tests {
         props.insert("triple".to_string(), "lambda x: x * 3".to_string());
         assert_eq!(
             eval_text("${double(5)} ${triple(5)}", &props).unwrap(),
-            "10 15"
+            "10.0 15.0"
         );
     }
 
@@ -824,6 +903,6 @@ mod tests {
         props.insert("my_inf".to_string(), "inf".to_string());
         props.insert("is_inf".to_string(), "lambda x: x == my_inf".to_string());
         // inf == inf should be true (1)
-        assert_eq!(eval_text("${is_inf(inf)}", &props).unwrap(), "1");
+        assert_eq!(eval_text("${is_inf(inf)}", &props).unwrap(), "1.0");
     }
 }

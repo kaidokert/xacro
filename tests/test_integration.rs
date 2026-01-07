@@ -503,7 +503,7 @@ fn test_property_forward_reference() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="20""#),
+        output.contains(r#"value="20.0""#),
         "derived should be 20 (base * 2)"
     );
 }
@@ -529,7 +529,7 @@ fn test_property_multilevel_dependencies() {
 
     let output = result.unwrap();
     // level3 = 5, level2 = 10, level1 = 20
-    assert!(output.contains(r#"value="20""#), "level1 should be 20");
+    assert!(output.contains(r#"value="20.0""#), "level1 should be 20");
 }
 
 /// Test unused property with undefined variable (should NOT error - lazy evaluation)
@@ -551,7 +551,7 @@ fn test_property_unused_with_undefined_var() {
     );
 
     let output = result.unwrap();
-    assert!(output.contains(r#"value="42""#));
+    assert!(output.contains(r#"value="42.0""#));
 }
 
 /// Test used property with undefined variable (SHOULD error)
@@ -665,7 +665,7 @@ fn test_insert_block_with_expressions() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="84""#),
+        output.contains(r#"value="84.0""#),
         "Expression in block should be evaluated"
     );
 }
@@ -801,7 +801,7 @@ fn test_deeply_nested_macros() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"<item value="42""#),
+        output.contains(r#"<item value="42.0""#),
         "Output should contain expanded item"
     );
 }
@@ -865,7 +865,7 @@ fn test_insert_block_with_global_property() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"xyz="1 2 0""#),
+        output.contains(r#"xyz="1.0 2.0 0""#),
         "Should substitute both global and local properties"
     );
 }
@@ -952,7 +952,7 @@ fn test_insert_block_nested_macros() {
     let output = result.unwrap();
     assert!(output.contains("<container>"), "Should have container");
     assert!(
-        output.contains("<item>42</item>"),
+        output.contains("<item>42.0</item>"),
         "Should expand inner macro with value"
     );
 }
@@ -1018,7 +1018,7 @@ fn test_property_forward_reference_official() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"doubled="84""#),
+        output.contains(r#"doubled="84.0""#),
         "a2 should resolve to 84 (2*42)"
     );
 }
@@ -1048,7 +1048,7 @@ fn test_property_transitive_chain_4_levels() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"d="42""#),
+        output.contains(r#"d="42.0""#),
         "d should resolve through 4-level chain to 42"
     );
 }
@@ -1108,7 +1108,7 @@ fn test_property_multi_substitution() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"xyz="1 2 3""#),
+        output.contains(r#"xyz="1.0 2.0 3.0""#),
         "All three properties should be substituted"
     );
 }
@@ -1252,7 +1252,7 @@ fn test_property_nested() {
     let output = result.unwrap();
     // Properties should be substituted recursively
     assert!(
-        output.contains(r#"coord="1""#),
+        output.contains(r#"coord="1.0""#),
         "Nested property should resolve to 1"
     );
     assert!(
@@ -1396,11 +1396,11 @@ fn test_property_arithmetic() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="8""#),
+        output.contains(r#"value="8.0""#),
         "Addition should work: 5 + 3 = 8"
     );
     assert!(
-        output.contains(r#"value="15""#),
+        output.contains(r#"value="15.0""#),
         "Multiplication should work: 5 * 3 = 15"
     );
 }
@@ -1425,7 +1425,7 @@ fn test_property_value_expressions() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="20""#),
+        output.contains(r#"value="20.0""#),
         "Computed property should be 20"
     );
 }
@@ -1452,7 +1452,7 @@ fn test_property_redefinition_lazy() {
     let output = result.unwrap();
     // With lazy evaluation, y should see the latest value of x (20)
     assert!(
-        output.contains(r#"value="20""#),
+        output.contains(r#"value="20.0""#),
         "Lazy evaluation should use latest x value"
     );
 }
@@ -1500,7 +1500,7 @@ fn test_property_namespace_handling() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="42""#),
+        output.contains(r#"value="42.0""#),
         "Property substitution should work across namespaces"
     );
 }
@@ -1540,7 +1540,7 @@ fn test_macro_call_evaluates_parameters() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"mass="20""#),
+        output.contains(r#"mass="20.0""#),
         "Macro parameter expression should be evaluated"
     );
 }
@@ -1654,8 +1654,11 @@ fn test_macro_with_global_property() {
     );
 
     let output = result.unwrap();
-    assert!(output.contains(r#"x="1""#), "Should access global property");
-    assert!(output.contains(r#"y="2""#), "Should use local parameter");
+    assert!(
+        output.contains(r#"x="1.0""#),
+        "Should access global property"
+    );
+    assert!(output.contains(r#"y="2.0""#), "Should use local parameter");
 }
 
 /// Test nested macro calls
@@ -1685,7 +1688,7 @@ fn test_nested_macro_calls() {
     let output = result.unwrap();
     assert!(output.contains("<container>"), "Should have container");
     assert!(
-        output.contains("<item>42</item>"),
+        output.contains("<item>42.0</item>"),
         "Nested macro should evaluate expression"
     );
 }
@@ -1909,8 +1912,6 @@ fn test_if_with_properties() {
 // Tests for ${...} substitution in xacro directive attributes (property name,
 // macro name, include filename, insert_block name). These are critical features
 // used extensively in real-world ROS URDF files.
-//
-// See: notes/DYNAMIC_WTF.md for detailed analysis
 
 /// Test dynamic property name substitution
 #[test]
@@ -1996,7 +1997,7 @@ fn test_macro_dynamic_name() {
         output
     );
     assert!(
-        output.contains(r#"size="1""#),
+        output.contains(r#"size="1.0""#),
         "Macro parameters should work: {}",
         output
     );
