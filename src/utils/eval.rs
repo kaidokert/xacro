@@ -19,14 +19,9 @@ pub fn init_interpreter() -> Interpreter {
 
     // Initialize math constants in the interpreter
     // These are loaded directly into the interpreter's environment for use in expressions
-    // Note: inf and nan are skipped here (pyisheval can't parse them as literals)
+    // Note: inf and nan are NOT in BUILTIN_CONSTANTS (pyisheval can't parse them as literals)
     // They are injected directly into the context map in build_pyisheval_context()
     for (name, value) in BUILTIN_CONSTANTS {
-        // Skip inf and nan - they're handled by direct HashMap injection
-        if *name == "inf" || *name == "nan" {
-            continue;
-        }
-
         if let Err(e) = interp.eval(&format!("{} = {}", name, value)) {
             log::warn!(
                 "Could not initialize built-in constant '{}': {}. \

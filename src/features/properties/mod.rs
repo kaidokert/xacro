@@ -21,8 +21,8 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 /// - Large exponents like `9e999` fail parsing ("Unexpected trailing input")
 /// - pyisheval doesn't expose an API to inject values without parsing
 ///
-/// Files using `inf`/`nan` will fail with "undefined variable" errors.
-/// This is a known pyisheval limitation (12 files in corpus, 2.1%).
+/// Instead, `inf` and `nan` are injected directly into the pyisheval context
+/// HashMap in `build_pyisheval_context()` to bypass parsing limitations.
 pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
