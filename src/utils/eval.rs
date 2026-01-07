@@ -77,13 +77,14 @@ pub enum EvalError {
 fn format_value_python_style(value: &Value) -> String {
     match value {
         Value::Number(n) if n.is_finite() => {
-            // Python always shows decimal point for floats
-            // Check if it's a whole number
-            if n.fract() == 0.0 && n.abs() < 1e15 {
-                // Whole number: format as "N.0"
+            // Python's `str()` for floats switches to scientific notation at 1e16.
+            // To align with this, we format whole numbers with `.0` below this threshold.
+            const PYTHON_SCIENTIFIC_THRESHOLD: f64 = 1e16;
+
+            if n.fract() == 0.0 && n.abs() < PYTHON_SCIENTIFIC_THRESHOLD {
                 format!("{:.1}", n)
             } else {
-                // Has fractional part: use default (removes trailing zeros)
+                // Has fractional part or is a large number: use default formatting.
                 n.to_string()
             }
         }
