@@ -25,3 +25,6 @@ tempfile = "3.14"
 [[bin]]
 name = "xacro"
 path = "src/bin/xacro.rs"
+
+[patch.crates-io]
+pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.9.0_patch1_emptystring" }
