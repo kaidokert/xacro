@@ -127,12 +127,10 @@ fn build_pyisheval_context(
                 if num.is_infinite() {
                     // Use 10**400 to create infinity (pyisheval can't parse "inf" literal)
                     let sign = if num.is_sign_negative() { "-" } else { "" };
+                    let expr = format!("{} = {}10 ** 400", name, sign);
                     interp
-                        .eval(&format!("{} = {}10 ** 400", name, sign))
-                        .map_err(|e| EvalError::PyishEval {
-                            expr: format!("{} = {}10 ** 400", name, sign),
-                            source: e,
-                        })?;
+                        .eval(&expr)
+                        .map_err(|e| EvalError::PyishEval { expr, source: e })?;
                     continue;
                 }
                 if num.is_nan() {

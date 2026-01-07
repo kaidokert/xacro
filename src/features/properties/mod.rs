@@ -79,10 +79,14 @@ fn is_lambda_parameter(
     name: &str,
 ) -> bool {
     // Extract the parameter list from "lambda <params>: <body>"
-    if let Some(colon_pos) = lambda_expr.find(':') {
-        let param_part = &lambda_expr[6..colon_pos].trim(); // Skip "lambda "
-                                                            // Split by comma and check if name matches any parameter
-        param_part.split(',').any(|param| param.trim() == name)
+    if let Some(after_lambda) = lambda_expr.strip_prefix("lambda") {
+        if let Some(colon_pos) = after_lambda.find(':') {
+            let param_part = &after_lambda[..colon_pos].trim();
+            // Split by comma and check if name matches any parameter
+            param_part.split(',').any(|param| param.trim() == name)
+        } else {
+            false
+        }
     } else {
         false
     }
