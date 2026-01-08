@@ -762,11 +762,13 @@ fn test_circular_block_references() {
     );
 
     let err = result.err().unwrap();
-    // Note: Uses unified recursion tracking, so all recursion depth errors
-    // are MacroRecursionLimit (covers macros, insert_block, and all expand_node calls)
+    // Python xacro gives UndefinedBlock error, not recursion error, because
+    // with pre-expansion (lexical scoping), blocks are expanded BEFORE entering
+    // the macro. When expanding block1, it tries to insert block2 which hasn't
+    // been collected yet.
     assert!(
-        matches!(err, xacro::XacroError::MacroRecursionLimit { .. }),
-        "Should be MacroRecursionLimit error, got: {:?}",
+        matches!(err, xacro::XacroError::UndefinedBlock { .. }),
+        "Should be UndefinedBlock error, got: {:?}",
         err
     );
 }
@@ -846,12 +848,13 @@ fn test_insert_block_with_global_property() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="global_x" value="1.0"/>
+  <xacro:property name="local_y" value="2.0"/> <!-- Lexical scope: must be global or caller-local -->
 
-  <xacro:macro name="foo" params="local_y *content">
+  <xacro:macro name="foo" params="*content">
     <xacro:insert_block name="content"/>
   </xacro:macro>
 
-  <xacro:foo local_y="2.0">
+  <xacro:foo>
     <origin xyz="${global_x} ${local_y} 0"/>
   </xacro:foo>
 </robot>"#;
@@ -866,7 +869,7 @@ fn test_insert_block_with_global_property() {
     let output = result.unwrap();
     assert!(
         output.contains(r#"xyz="1.0 2.0 0""#),
-        "Should substitute both global and local properties"
+        "Should substitute properties in lexical scope"
     );
 }
 

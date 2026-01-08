@@ -80,7 +80,7 @@ impl Drop for ScopeGuard<'_> {
 /// Automatically pops block stack when dropped, ensuring correct block
 /// resolution even if macro expansion panics.
 struct BlockGuard<'a> {
-    blocks: &'a RefCell<Vec<HashMap<String, Element>>>,
+    blocks: &'a RefCell<Vec<HashMap<String, Vec<XMLNode>>>>,
 }
 
 impl Drop for BlockGuard<'_> {
@@ -113,7 +113,8 @@ pub struct XacroContext {
     pub namespace_stack: RefCell<Vec<(PathBuf, String)>>,
 
     /// Block stack for insert_block arguments (uses RefCell for interior mutability)
-    pub block_stack: RefCell<Vec<HashMap<String, Element>>>,
+    /// Stores pre-expanded XMLNode content for each block parameter
+    pub block_stack: RefCell<Vec<HashMap<String, Vec<XMLNode>>>>,
 
     /// Current base path for resolving relative includes (uses RefCell for interior mutability)
     pub base_path: RefCell<PathBuf>,
@@ -185,10 +186,11 @@ impl XacroContext {
     }
 
     /// Look up a named block from the current macro scope
+    /// Returns pre-expanded XMLNodes
     pub fn lookup_block(
         &self,
         name: &str,
-    ) -> Result<Element, XacroError> {
+    ) -> Result<Vec<XMLNode>, XacroError> {
         self.block_stack
             .borrow()
             .last()
@@ -466,8 +468,9 @@ fn expand_element(
                 }
             })?)?;
 
-        let block = ctx.lookup_block(&name)?;
-        return expand_node(XMLNode::Element(block), ctx);
+        // Retrieve and return the pre-expanded block content
+        let nodes = ctx.lookup_block(&name)?;
+        return Ok(nodes);
     }
 
     // 6. Check for known but unimplemented xacro directives
@@ -585,6 +588,16 @@ fn expand_macro_call(
     let (args, blocks) =
         crate::features::macros::MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
 
+    // Pre-expand blocks in caller's scope before entering macro scope
+    // CRITICAL: Must happen BEFORE pushing macro's parameter scope to ensure
+    // block content is evaluated with caller's properties, not macro's parameters
+    let mut expanded_blocks = HashMap::new();
+    for (name, raw_block) in blocks {
+        // Wrap element in XMLNode and expand it in the current scope
+        let expanded = expand_node(XMLNode::Element(raw_block), ctx)?;
+        expanded_blocks.insert(name, expanded);
+    }
+
     // Resolve parameters with defaults, supporting chained defaults
     // Process in declaration order so later defaults can reference earlier ones
     // Example: params="a:=1 b:=${a*2} c:=${b*3}"
@@ -627,7 +640,8 @@ fn expand_macro_call(
         }
     }
 
-    ctx.block_stack.borrow_mut().push(blocks);
+    // Push pre-expanded blocks to block stack (blocks were expanded before entering macro scope)
+    ctx.block_stack.borrow_mut().push(expanded_blocks);
     let _block_guard = BlockGuard {
         blocks: &ctx.block_stack,
     };
