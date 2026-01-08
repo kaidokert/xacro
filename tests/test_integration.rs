@@ -762,12 +762,18 @@ fn test_circular_block_references() {
     );
 
     let err = result.err().unwrap();
-    // Note: Uses unified recursion tracking, so all recursion depth errors
-    // are MacroRecursionLimit (covers macros, insert_block, and all expand_node calls)
-    assert!(
-        matches!(err, xacro::XacroError::MacroRecursionLimit { .. }),
-        "Should be MacroRecursionLimit error, got: {:?}",
-        err
+    // Python xacro gives UndefinedBlock error, not recursion error, because
+    // with pre-expansion (lexical scoping), blocks are expanded BEFORE entering
+    // the macro. When expanding block1, it tries to insert block2 which hasn't
+    // been collected yet.
+    let undefined_block_name = match &err {
+        xacro::XacroError::UndefinedBlock { name, .. } => name,
+        other => panic!("Should be UndefinedBlock error, got: {:?}", other),
+    };
+    assert_eq!(
+        undefined_block_name, "block2",
+        "UndefinedBlock should report missing block2, got: {}",
+        undefined_block_name
     );
 }
 
@@ -846,12 +852,13 @@ fn test_insert_block_with_global_property() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="global_x" value="1.0"/>
+  <xacro:property name="local_y" value="2.0"/> <!-- Lexical scope: must be global or caller-local -->
 
-  <xacro:macro name="foo" params="local_y *content">
+  <xacro:macro name="foo" params="*content">
     <xacro:insert_block name="content"/>
   </xacro:macro>
 
-  <xacro:foo local_y="2.0">
+  <xacro:foo>
     <origin xyz="${global_x} ${local_y} 0"/>
   </xacro:foo>
 </robot>"#;
@@ -866,7 +873,7 @@ fn test_insert_block_with_global_property() {
     let output = result.unwrap();
     assert!(
         output.contains(r#"xyz="1.0 2.0 0""#),
-        "Should substitute both global and local properties"
+        "Should substitute properties in lexical scope"
     );
 }
 
@@ -2229,5 +2236,57 @@ fn test_root_element_undefined_property_error() {
     assert!(
         format!("{:?}", err).contains("undefined_prop"),
         "Error should mention the undefined property"
+    );
+}
+
+/// Regression test for parameter name collision (Root Cause #1)
+/// Tests that block parameters are evaluated in caller's scope, not macro's scope
+#[test]
+fn test_insert_block_parameter_collision_regression() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="global_x" value="1.0"/>
+  <xacro:property name="local_y" value="2.0"/>
+
+  <!-- Macro foo has a parameter named local_y (intentional collision) -->
+  <xacro:macro name="foo" params="local_y *content">
+    <xacro:insert_block name="content"/>
+  </xacro:macro>
+
+  <!-- Macro bar also has local_y and forwards to foo (nested collision) -->
+  <xacro:macro name="bar" params="local_y *content">
+    <xacro:foo local_y="${local_y}">
+      <xacro:insert_block name="content"/>
+    </xacro:foo>
+  </xacro:macro>
+
+  <!-- Direct call: foo receives local_y="3.0" as parameter -->
+  <xacro:foo local_y="3.0">
+    <origin name="direct" xyz="${global_x} ${local_y} 0"/>
+  </xacro:foo>
+
+  <!-- Nested call: bar receives local_y="4.0" and forwards to foo -->
+  <xacro:bar local_y="4.0">
+    <origin name="nested" xyz="${global_x} ${local_y} 1"/>
+  </xacro:bar>
+</robot>"#;
+
+    let result = processor
+        .run_from_string(input)
+        .expect("Processing should succeed");
+
+    // Verify block content uses caller's local_y (2.0), not macro parameters (3.0 or 4.0)
+    // Check for attribute presence regardless of order
+    assert!(
+        result.contains(r#"name="direct""#) && result.contains(r#"xyz="1.0 2.0 0""#),
+        "Direct call: block should use caller's local_y (2.0), not macro's (3.0). Got: {}",
+        result
+    );
+
+    assert!(
+        result.contains(r#"name="nested""#) && result.contains(r#"xyz="1.0 2.0 1""#),
+        "Nested call: block should use original caller's local_y (2.0), not macro's (4.0). Got: {}",
+        result
     );
 }
