@@ -592,10 +592,16 @@ fn expand_macro_call(
     // CRITICAL: Must happen BEFORE pushing macro's parameter scope to ensure
     // block content is evaluated with caller's properties, not macro's parameters
     let mut expanded_blocks = HashMap::new();
-    for (name, raw_block) in blocks {
-        // Wrap element in XMLNode and expand it in the current scope
-        let expanded = expand_node(XMLNode::Element(raw_block), ctx)?;
-        expanded_blocks.insert(name, expanded);
+    let mut unexpanded_blocks = blocks;
+
+    // Pre-expand blocks in declaration order to preserve in-order evaluation semantics
+    for param_name in &macro_def.param_order {
+        if macro_def.block_params.contains(param_name) {
+            // collect_macro_args guarantees the block exists, so unwrap is safe
+            let raw_block = unexpanded_blocks.remove(param_name).unwrap();
+            let expanded = expand_node(XMLNode::Element(raw_block), ctx)?;
+            expanded_blocks.insert(param_name.clone(), expanded);
+        }
     }
 
     // Resolve parameters with defaults, supporting chained defaults
