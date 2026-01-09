@@ -170,18 +170,18 @@ mod macro_tests {
 
         // All three should be distinct keys in param_values
         assert_eq!(
-            param_values.get("foo:x"),
-            Some(&"1".to_string()),
+            param_values.get("foo:x").map(String::as_str),
+            Some("1"),
             "foo:x should be preserved as distinct key"
         );
         assert_eq!(
-            param_values.get("bar:x"),
-            Some(&"2".to_string()),
+            param_values.get("bar:x").map(String::as_str),
+            Some("2"),
             "bar:x should be preserved as distinct key"
         );
         assert_eq!(
-            param_values.get("x"),
-            Some(&"3".to_string()),
+            param_values.get("x").map(String::as_str),
+            Some("3"),
             "x should be preserved as distinct key"
         );
         assert_eq!(
@@ -416,8 +416,8 @@ mod macro_tests {
         let origin_block = blocks.get("origin").expect("origin block");
         assert_eq!(origin_block.name, "origin");
         assert_eq!(
-            origin_block.get_attribute("xyz"),
-            Some(&"0 0 0".to_string())
+            origin_block.get_attribute("xyz").map(String::as_str),
+            Some("0 0 0")
         );
 
         let geometry_block = blocks.get("geometry").expect("geometry block");
@@ -542,8 +542,8 @@ mod macro_tests {
         let content_block = blocks.get("content").expect("content block");
         assert_eq!(content_block.name, "link");
         assert_eq!(
-            content_block.get_attribute("name"),
-            Some(&"base".to_string())
+            content_block.get_attribute("name").map(String::as_str),
+            Some("base")
         );
     }
 

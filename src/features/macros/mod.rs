@@ -146,11 +146,17 @@ impl MacroProcessor {
     /// Preserves namespace prefixes to avoid collisions between attributes
     /// that differ only by namespace (e.g., foo:x vs bar:x).
     ///
-    /// Returns "prefix:local_name" if prefix exists, otherwise just "local_name".
+    /// Returns:
+    /// - "prefix:local_name" if prefix exists
+    /// - "{namespace}local_name" (Clark notation) if namespace exists without prefix
+    /// - "local_name" if neither exists
     fn attribute_key(name: &xmltree::AttributeName) -> String {
-        match &name.prefix {
-            Some(prefix) => format!("{}:{}", prefix, name.local_name),
-            None => name.local_name.clone(),
+        match (&name.prefix, &name.namespace) {
+            (Some(prefix), _) => format!("{}:{}", prefix, name.local_name),
+            (None, None) => name.local_name.clone(),
+            // Defensive: attributes generally shouldn't be namespaced without a prefix,
+            // but use Clark notation if this occurs to avoid collisions
+            (None, Some(ns)) => format!("{{{}}}{}", ns, name.local_name),
         }
     }
 
