@@ -110,7 +110,7 @@ pub fn format_value_python_style(
 }
 
 /// Remove quotes from string values (handles both single and double quotes)
-fn remove_quotes(s: &str) -> &str {
+pub fn remove_quotes(s: &str) -> &str {
     // pyisheval's StringLit to_string() returns strings with single quotes
     if (s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')) {
         if s.len() >= 2 {

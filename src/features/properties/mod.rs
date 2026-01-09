@@ -1,5 +1,7 @@
 use crate::error::XacroError;
-use crate::utils::eval::{eval_boolean, eval_text_with_interpreter, format_value_python_style};
+use crate::utils::eval::{
+    eval_boolean, eval_text_with_interpreter, format_value_python_style, remove_quotes,
+};
 use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
 use pyisheval::Interpreter;
@@ -405,7 +407,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         // Special case: if expression is just a simple variable name (no operators),
         // check its metadata directly
         let trimmed = expr.trim();
-        if trimmed.chars().all(|c| c.is_alphanumeric() || c == '_')
+        if !is_python_keyword(trimmed)
+            && trimmed.chars().all(|c| c.is_alphanumeric() || c == '_')
             && trimmed
                 .chars()
                 .next()
@@ -465,17 +468,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         };
 
         // Strip quotes from string literals (always done, not compat-specific)
-        if formatted.starts_with('\'') && formatted.ends_with('\'')
-            || formatted.starts_with('"') && formatted.ends_with('"')
-        {
-            if formatted.len() >= 2 {
-                formatted[1..formatted.len() - 1].to_string()
-            } else {
-                formatted
-            }
-        } else {
-            formatted
-        }
+        remove_quotes(&formatted).to_string()
     }
 
     /// Perform one pass of substitution with metadata-aware formatting
@@ -530,8 +523,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     let formatted = self.format_evaluation_result(&value, &token_value);
                     result.push_str(&formatted);
                 }
-                _ => {
-                    // Extensions and other types: pass through
+                TokenType::Extension => {
+                    // Preserve extension syntax for later resolution
+                    result.push_str("$(");
+                    result.push_str(&token_value);
+                    result.push(')');
+                }
+                TokenType::DollarDollarBrace => {
+                    // Preserve escape sequence: $$ → $
+                    result.push('$');
                     result.push_str(&token_value);
                 }
             }
