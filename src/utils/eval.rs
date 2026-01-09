@@ -772,7 +772,36 @@ mod tests {
         assert!(eval_boolean("tRuE", &props).is_err());
     }
 
-    // Test xacro.print_location() stub function
+    // Test evaluate_expression special case handling directly
+    #[test]
+    fn test_evaluate_expression_special_cases() {
+        let mut interp = init_interpreter();
+        let context = HashMap::new();
+
+        // Test xacro.print_location() special case
+        let result = evaluate_expression(&mut interp, "xacro.print_location()", &context).unwrap();
+        assert!(
+            result.is_none(),
+            "xacro.print_location() should return None"
+        );
+
+        // Test with surrounding whitespace
+        let result =
+            evaluate_expression(&mut interp, "  xacro.print_location()  ", &context).unwrap();
+        assert!(
+            result.is_none(),
+            "xacro.print_location() with whitespace should return None"
+        );
+
+        // Test a normal expression to ensure it's not affected
+        let result = evaluate_expression(&mut interp, "1 + 1", &context).unwrap();
+        assert!(
+            matches!(result, Some(Value::Number(n)) if n == 2.0),
+            "Normal expression should evaluate correctly"
+        );
+    }
+
+    // Test xacro.print_location() stub function via integration
     #[test]
     fn test_xacro_print_location_stub() {
         let props = HashMap::new();
