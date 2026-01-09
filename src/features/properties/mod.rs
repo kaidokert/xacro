@@ -912,7 +912,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// 2. raw_properties - global properties
     ///
     /// Returns None if the property is not found in any scope.
-    fn lookup_raw_value(
+    /// Get raw property value without expansion or caching
+    ///
+    /// Used by lazy properties which need fresh expansion every time.
+    /// Searches scope stack first (innermost to outermost), then falls back
+    /// to global properties.
+    ///
+    /// # Arguments
+    /// * `name` - The property name to lookup
+    ///
+    /// # Returns
+    /// The raw, unexpanded property value if found, None otherwise
+    pub fn lookup_raw_value(
         &self,
         name: &str,
     ) -> Option<String> {

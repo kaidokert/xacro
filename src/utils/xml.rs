@@ -1,5 +1,6 @@
 use crate::error::XacroError;
-use xmltree::Element;
+use std::io::Write;
+use xmltree::{Element, XMLNode};
 
 /// The standard ROS xacro namespace URI
 ///
@@ -124,4 +125,107 @@ pub fn is_xacro_element(
             .namespace
             .as_deref()
             .is_some_and(|ns| ns == xacro_ns || is_known_xacro_uri(ns))
+}
+
+/// Serialize a list of XMLNodes to an XML string
+///
+/// This function preserves:
+/// - Element structure and attributes
+/// - Text content (with XML escaping)
+/// - Comments
+/// - Namespace prefixes and declarations
+/// - CDATA sections
+/// - Processing instructions
+///
+/// Used by lazy properties to store XML content as strings during property
+/// definition, which are later parsed and expanded at insertion time.
+///
+/// # Example
+/// ```rust,ignore
+/// let nodes = vec![
+///     XMLNode::Element(link_element),
+///     XMLNode::Comment("comment".to_string()),
+/// ];
+/// let xml_string = serialize_nodes(&nodes)?;
+/// ```
+pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
+    let mut buffer = Vec::new();
+
+    for node in nodes {
+        match node {
+            XMLNode::Element(elem) => {
+                // Use xmltree's write_with_config to control output format
+                // Disable XML declaration (write_document_declaration: false)
+                elem.write_with_config(
+                    &mut buffer,
+                    xmltree::EmitterConfig::new()
+                        .perform_indent(false) // No extra whitespace
+                        .write_document_declaration(false) // No <?xml...?>
+                        .pad_self_closing(false), // Use <tag/> not <tag />
+                )?;
+            }
+            XMLNode::Text(text) => {
+                // Write text directly (xmltree handles XML escaping)
+                buffer.extend_from_slice(text.as_bytes());
+            }
+            XMLNode::Comment(comment) => {
+                // Preserve comments
+                write!(&mut buffer, "<!--{}-->", comment)?;
+            }
+            XMLNode::CData(data) => {
+                // Preserve CDATA sections
+                write!(&mut buffer, "<![CDATA[{}]]>", data)?;
+            }
+            XMLNode::ProcessingInstruction(target, data) => {
+                // Preserve processing instructions (rare in xacro)
+                if let Some(d) = data {
+                    write!(&mut buffer, "<?{} {}?>", target, d)?;
+                } else {
+                    write!(&mut buffer, "<?{}?>", target)?;
+                }
+            }
+        }
+    }
+
+    String::from_utf8(buffer).map_err(XacroError::Utf8)
+}
+
+/// Parse an XML fragment (potentially multiple top-level nodes) into XMLNodes
+///
+/// This function handles fragments with multiple root elements by wrapping them
+/// in a temporary container element. The container is discarded and only the
+/// children are returned.
+///
+/// The dummy root includes the xacro namespace declaration to ensure nested
+/// xacro directives can be recognized during expansion.
+///
+/// # Edge cases
+/// - Empty string → returns empty Vec
+/// - Single element → returns Vec with one node
+/// - Multiple elements → returns Vec with all nodes
+/// - Mixed content (text + elements) → returns all nodes preserving order
+///
+/// # Example
+/// ```rust,ignore
+/// let fragment = r#"<link name="a"/><link name="b"/>"#;
+/// let nodes = parse_xml_fragment(fragment)?;
+/// assert_eq!(nodes.len(), 2);
+/// ```
+pub fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
+    // Edge case: empty string
+    let trimmed = fragment.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Wrap in dummy root to allow multiple top-level elements
+    // Include xacro namespace so nested directives are recognized
+    let wrapped = format!(
+        r#"<xacro_dummy_root xmlns:xacro="{}">{}</xacro_dummy_root>"#,
+        XACRO_NAMESPACE, fragment
+    );
+
+    let root = Element::parse(wrapped.as_bytes())?;
+
+    Ok(root.children)
 }
