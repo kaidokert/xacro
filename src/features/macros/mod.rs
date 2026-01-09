@@ -141,25 +141,6 @@ impl MacroProcessor {
         Ok((params, param_order, block_params))
     }
 
-    /// Convert AttributeName to qualified string for use as parameter key
-    ///
-    /// Preserves namespace prefixes to avoid collisions between attributes
-    /// that differ only by namespace (e.g., foo:x vs bar:x).
-    ///
-    /// Returns:
-    /// - "prefix:local_name" if prefix exists
-    /// - "{namespace}local_name" (Clark notation) if namespace exists without prefix
-    /// - "local_name" if neither exists
-    fn attribute_key(name: &xmltree::AttributeName) -> String {
-        match (&name.prefix, &name.namespace) {
-            (Some(prefix), _) => format!("{}:{}", prefix, name.local_name),
-            (None, None) => name.local_name.clone(),
-            // Defensive: attributes generally shouldn't be namespaced without a prefix,
-            // but use Clark notation if this occurs to avoid collisions
-            (None, Some(ns)) => format!("{{{}}}{}", ns, name.local_name),
-        }
-    }
-
     pub fn collect_macro_args(
         element: &Element,
         macro_def: &MacroDefinition,
@@ -173,9 +154,9 @@ impl MacroProcessor {
             let local_name = &name.local_name;
 
             // Reject namespaced attributes on macro calls (Python xacro behavior)
-            if name.prefix.is_some() {
+            if let Some(prefix) = &name.prefix {
                 return Err(XacroError::InvalidMacroParameter {
-                    param: Self::attribute_key(name),
+                    param: format!("{}:{}", prefix, name.local_name),
                     reason: "Macro parameters cannot have namespace prefixes".to_string(),
                 });
             }
