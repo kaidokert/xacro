@@ -621,3 +621,57 @@ fn test_nested_includes_namespace_isolation() {
         "Property from root should be evaluated"
     );
 }
+
+#[test]
+fn test_custom_namespace_attribute_prefix_preserved() {
+    // Test that custom namespace prefixes on attributes are preserved
+    // This was a bug where tesseract:make_convex became just make_convex
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro"
+       xmlns:tesseract="https://github.com/tesseract-robotics/tesseract"
+       name="test"
+       tesseract:make_convex="true">
+  <xacro:property name="size" value="0.5"/>
+  <link name="base">
+    <visual>
+      <geometry>
+        <box size="${size} ${size} ${size}"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    // Should preserve the tesseract: prefix on the attribute
+    assert!(
+        output.contains("tesseract:make_convex=\"true\""),
+        "Custom namespace prefix should be preserved in attributes. Output: {}",
+        output
+    );
+    // Ensure the prefix is NOT dropped
+    assert!(
+        !output.contains(" make_convex=\"true\""),
+        "Attribute must not lose its tesseract: prefix in output. Output: {}",
+        output
+    );
+
+    // Should still have the namespace declaration
+    assert!(
+        output.contains("xmlns:tesseract=\"https://github.com/tesseract-robotics/tesseract\""),
+        "Custom namespace declaration should be preserved"
+    );
+
+    // Should NOT have xacro namespace (it should be removed)
+    assert!(
+        !output.contains("xmlns:xacro"),
+        "xacro namespace should be removed from output"
+    );
+
+    // Property substitution should still work
+    assert!(
+        output.contains("0.5 0.5 0.5"),
+        "Property substitution should work"
+    );
+}

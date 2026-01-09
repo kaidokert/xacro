@@ -266,8 +266,7 @@ fn test_nested_macro_calls_with_expressions() {
         .expect("Should find inertia element");
 
     let izz: f64 = inertia
-        .attributes
-        .get("izz")
+        .get_attribute("izz")
         .expect("Should have izz attribute")
         .parse()
         .expect("izz should parse to f64");

@@ -149,14 +149,25 @@ impl MacroProcessor {
         let mut block_values = HashMap::new();
 
         // Extract regular parameters from attributes
+        // Reject namespaced attributes - macro parameters must be local names only
         for (name, value) in &element.attributes {
-            if macro_def.block_params.contains(name) {
-                // Block parameters cannot be specified as attributes
-                return Err(XacroError::BlockParameterAttributeCollision {
-                    param: name.clone(),
+            let local_name = &name.local_name;
+
+            // Reject namespaced attributes on macro calls (Python xacro behavior)
+            if let Some(prefix) = &name.prefix {
+                return Err(XacroError::InvalidMacroParameter {
+                    param: format!("{}:{}", prefix, name.local_name),
+                    reason: "Macro parameters cannot have namespace prefixes".to_string(),
                 });
             }
-            param_values.insert(name.clone(), value.clone());
+
+            if macro_def.block_params.contains(local_name) {
+                // Block parameters cannot be specified as attributes
+                return Err(XacroError::BlockParameterAttributeCollision {
+                    param: local_name.clone(),
+                });
+            }
+            param_values.insert(local_name.clone(), value.clone());
         }
 
         // Extract block parameters from child elements IN ORDER

@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod macro_tests {
+    use std::collections::{HashMap, HashSet};
 
     use crate::features::macros::Element;
     use crate::features::macros::MacroDefinition;
@@ -70,7 +71,7 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("content".to_string(), "bar".to_string());
+            .insert(xmltree::AttributeName::local("content"), "bar".to_string());
 
         // Should error - block param specified as attribute
         let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
@@ -81,6 +82,48 @@ mod macro_tests {
                 XacroError::BlockParameterAttributeCollision { ref param } if param == "content"
             ),
             "Expected BlockParameterAttributeCollision error, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_namespaced_macro_parameters_rejected() {
+        // Test that namespaced attributes are REJECTED on macro calls
+        // (Python xacro behavior: "Invalid parameter 'foo:x'")
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), None);
+
+        let param_order = vec!["x".to_string()];
+        let block_params = HashSet::new();
+
+        let macro_def = MacroDefinition {
+            name: "test".to_string(),
+            params,
+            param_order,
+            block_params,
+            content: Element::new("dummy"),
+        };
+
+        // Create call with namespaced foo:x attribute
+        let mut call_elem = Element::new("test");
+        call_elem.attributes.insert(
+            xmltree::AttributeName {
+                local_name: "x".to_string(),
+                namespace: Some("http://example.com/foo".to_string()),
+                prefix: Some("foo".to_string()),
+            },
+            "1".to_string(),
+        );
+
+        // Should error - macro parameters cannot have namespace prefixes
+        let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
+        let err = result.expect_err("Should reject namespaced macro parameter");
+        assert!(
+            matches!(
+                err,
+                XacroError::InvalidMacroParameter { ref param, .. } if param == "foo:x"
+            ),
+            "Expected InvalidMacroParameter for 'foo:x', got: {:?}",
             err
         );
     }
@@ -248,10 +291,10 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("x".to_string(), "1".to_string());
+            .insert(xmltree::AttributeName::local("x"), "1".to_string());
         call_elem
             .attributes
-            .insert("y".to_string(), "2".to_string());
+            .insert(xmltree::AttributeName::local("y"), "2".to_string());
 
         // Should successfully collect attributes
         let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
@@ -284,12 +327,12 @@ mod macro_tests {
         let mut origin_elem = Element::new("origin");
         origin_elem
             .attributes
-            .insert("xyz".to_string(), "0 0 0".to_string());
+            .insert(xmltree::AttributeName::local("xyz"), "0 0 0".to_string());
 
         let mut geometry_elem = Element::new("cylinder");
         geometry_elem
             .attributes
-            .insert("radius".to_string(), "0.1".to_string());
+            .insert(xmltree::AttributeName::local("radius"), "0.1".to_string());
 
         call_elem
             .children
@@ -310,8 +353,8 @@ mod macro_tests {
         let origin_block = blocks.get("origin").expect("origin block");
         assert_eq!(origin_block.name, "origin");
         assert_eq!(
-            origin_block.attributes.get("xyz"),
-            Some(&"0 0 0".to_string())
+            origin_block.get_attribute("xyz").map(String::as_str),
+            Some("0 0 0")
         );
 
         let geometry_block = blocks.get("geometry").expect("geometry block");
@@ -409,15 +452,15 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("prefix".to_string(), "pre_".to_string());
+            .insert(xmltree::AttributeName::local("prefix"), "pre_".to_string());
         call_elem
             .attributes
-            .insert("suffix".to_string(), "_post".to_string());
+            .insert(xmltree::AttributeName::local("suffix"), "_post".to_string());
 
         let mut content_elem = Element::new("link");
         content_elem
             .attributes
-            .insert("name".to_string(), "base".to_string());
+            .insert(xmltree::AttributeName::local("name"), "base".to_string());
         call_elem.children.push(XMLNode::Element(content_elem));
 
         // Should successfully collect both
@@ -436,8 +479,8 @@ mod macro_tests {
         let content_block = blocks.get("content").expect("content block");
         assert_eq!(content_block.name, "link");
         assert_eq!(
-            content_block.attributes.get("name"),
-            Some(&"base".to_string())
+            content_block.get_attribute("name").map(String::as_str),
+            Some("base")
         );
     }
 
