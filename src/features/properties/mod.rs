@@ -215,6 +215,37 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             .expect("Scope stack underflow - mismatched push/pop");
     }
 
+    /// Check if a variable has float metadata (compat feature only)
+    ///
+    /// Looks up a property by name across all scopes (current to global) to determine
+    /// if it should be formatted as a float. Checks scoped metadata first (depth:name),
+    /// then falls back to global metadata (no scope prefix).
+    ///
+    /// # Arguments
+    /// * `var` - The variable name to look up
+    ///
+    /// # Returns
+    /// `true` if the variable has float metadata, `false` otherwise
+    #[cfg(feature = "compat")]
+    fn is_var_float(
+        &self,
+        var: &str,
+    ) -> bool {
+        let metadata = self.property_metadata.borrow();
+        let scope_depth = self.scope_stack.borrow().len();
+
+        // Try scoped metadata first (current scope down to global)
+        for depth in (1..=scope_depth).rev() {
+            let scoped_key = format!("{}:{}", depth, var);
+            if let Some(meta) = metadata.get(&scoped_key) {
+                return meta.is_float;
+            }
+        }
+
+        // Fall back to checking global (no scope prefix)
+        metadata.get(var).map(|m| m.is_float).unwrap_or(false)
+    }
+
     /// Compute float metadata for a property value (compat feature only)
     ///
     /// Determines if a property should be formatted as float (with .0 for whole numbers)
@@ -235,32 +266,13 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         }
 
         let has_decimal = value.contains('.');
-        let is_special = value
-            .parse::<f64>()
-            .ok()
-            .map(|n| !n.is_finite())
-            .unwrap_or(false);
+        let is_special = value.parse::<f64>().is_ok_and(|n| !n.is_finite());
         let has_division = value.contains('/');
 
         // Check if expression references any float properties
         let refs_float_prop = if value.contains("${") {
             let refs = self.extract_property_references(value);
-            let metadata = self.property_metadata.borrow();
-            // Check all possible scopes for referenced properties
-            refs.iter().any(|r| {
-                // Try scoped metadata first, then fall back to global
-                let scope_depth = self.scope_stack.borrow().len();
-                for depth in (1..=scope_depth).rev() {
-                    let scoped_key = format!("{}:{}", depth, r);
-                    if let Some(meta) = metadata.get(&scoped_key) {
-                        if meta.is_float {
-                            return true;
-                        }
-                    }
-                }
-                // Fall back to checking global (no scope prefix)
-                metadata.get(r).map(|m| m.is_float).unwrap_or(false)
-            })
+            refs.iter().any(|r| self.is_var_float(r))
         } else {
             false
         };
@@ -390,22 +402,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             }
         }
 
-        let metadata = self.property_metadata.borrow();
-        let scope_depth = self.scope_stack.borrow().len();
-
-        // Helper to check metadata across all scopes
-        let check_var_metadata = |var: &str| -> bool {
-            // Try scoped metadata first (current scope down to global)
-            for depth in (1..=scope_depth).rev() {
-                let scoped_key = format!("{}:{}", depth, var);
-                if let Some(meta) = metadata.get(&scoped_key) {
-                    return meta.is_float;
-                }
-            }
-            // Fall back to checking global (no scope prefix)
-            metadata.get(var).map(|m| m.is_float).unwrap_or(false)
-        };
-
         // Special case: if expression is just a simple variable name (no operators),
         // check its metadata directly
         let trimmed = expr.trim();
@@ -415,7 +411,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                 .next()
                 .is_some_and(|c| c.is_alphabetic() || c == '_')
         {
-            return check_var_metadata(trimmed);
+            return self.is_var_float(trimmed);
         }
 
         // Complex expression: extract variables and check if any are float properties
@@ -423,7 +419,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         let vars = self.extract_property_references(&format!("${{{}}}", expr));
 
         for var in vars {
-            if check_var_metadata(&var) {
+            if self.is_var_float(&var) {
                 return true;
             }
         }
