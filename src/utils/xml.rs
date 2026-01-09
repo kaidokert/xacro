@@ -118,22 +118,10 @@ pub fn is_xacro_element(
     tag_name: &str,
     xacro_ns: &str,
 ) -> bool {
-    // Check if element name matches
-    if element.name != tag_name {
-        return false;
-    }
-
-    // Require that a xacro namespace was declared on the root
-    // (empty xacro_ns means no declaration, which is an error if xacro elements are used)
-    if xacro_ns.is_empty() {
-        return false;
-    }
-
-    // Check if namespace is ANY valid known xacro URI
-    // This allows mixing different xacro namespace variants in the same document tree
-    element
-        .namespace
-        .as_deref()
-        .map(is_known_xacro_uri)
-        .unwrap_or(false)
+    element.name == tag_name
+        && !xacro_ns.is_empty()
+        && element
+            .namespace
+            .as_deref()
+            .is_some_and(|ns| ns == xacro_ns || is_known_xacro_uri(ns))
 }

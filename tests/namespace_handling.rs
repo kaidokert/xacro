@@ -650,6 +650,12 @@ fn test_custom_namespace_attribute_prefix_preserved() {
         "Custom namespace prefix should be preserved in attributes. Output: {}",
         output
     );
+    // Ensure the prefix is NOT dropped
+    assert!(
+        !output.contains(" make_convex=\"true\""),
+        "Attribute must not lose its tesseract: prefix in output. Output: {}",
+        output
+    );
 
     // Should still have the namespace declaration
     assert!(

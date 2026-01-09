@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod macro_tests {
+    use std::collections::{HashMap, HashSet};
 
     use crate::features::macros::Element;
     use crate::features::macros::MacroDefinition;
@@ -82,6 +83,111 @@ mod macro_tests {
             ),
             "Expected BlockParameterAttributeCollision error, got: {:?}",
             err
+        );
+    }
+
+    #[test]
+    fn test_block_param_attribute_collision_namespaced() {
+        // Test that namespaced attributes are checked by local_name for block param collision
+        let params = HashMap::new();
+        let param_order = Vec::new();
+        let mut block_params = HashSet::new();
+        block_params.insert("content".to_string());
+
+        let macro_def = MacroDefinition {
+            name: "test".to_string(),
+            params,
+            param_order,
+            block_params,
+            content: Element::new("dummy"),
+        };
+
+        // Create call with namespaced attribute foo:content
+        let mut call_elem = Element::new("test");
+        call_elem.attributes.insert(
+            xmltree::AttributeName {
+                local_name: "content".to_string(),
+                namespace: Some("http://example.com/foo".to_string()),
+                prefix: Some("foo".to_string()),
+            },
+            "bar".to_string(),
+        );
+
+        // Should error - block param collision detected by local_name
+        let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
+        let err = result.expect_err("Should error for namespaced block param as attribute");
+        assert!(
+            matches!(
+                err,
+                XacroError::BlockParameterAttributeCollision { ref param } if param == "content"
+            ),
+            "Expected BlockParameterAttributeCollision for local_name, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_namespaced_macro_parameters_preserved() {
+        // Test that namespaced attributes are preserved as distinct parameters
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), None);
+
+        let param_order = vec!["x".to_string()];
+        let block_params = HashSet::new();
+
+        let macro_def = MacroDefinition {
+            name: "test".to_string(),
+            params,
+            param_order,
+            block_params,
+            content: Element::new("dummy"),
+        };
+
+        // Create call with both foo:x and bar:x attributes
+        let mut call_elem = Element::new("test");
+        call_elem.attributes.insert(
+            xmltree::AttributeName {
+                local_name: "x".to_string(),
+                namespace: Some("http://example.com/foo".to_string()),
+                prefix: Some("foo".to_string()),
+            },
+            "1".to_string(),
+        );
+        call_elem.attributes.insert(
+            xmltree::AttributeName {
+                local_name: "x".to_string(),
+                namespace: Some("http://example.com/bar".to_string()),
+                prefix: Some("bar".to_string()),
+            },
+            "2".to_string(),
+        );
+        call_elem
+            .attributes
+            .insert(xmltree::AttributeName::local("x"), "3".to_string());
+
+        let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
+        let (param_values, _block_values) = result.expect("Should collect all namespaced params");
+
+        // All three should be distinct keys in param_values
+        assert_eq!(
+            param_values.get("foo:x"),
+            Some(&"1".to_string()),
+            "foo:x should be preserved as distinct key"
+        );
+        assert_eq!(
+            param_values.get("bar:x"),
+            Some(&"2".to_string()),
+            "bar:x should be preserved as distinct key"
+        );
+        assert_eq!(
+            param_values.get("x"),
+            Some(&"3".to_string()),
+            "x should be preserved as distinct key"
+        );
+        assert_eq!(
+            param_values.len(),
+            3,
+            "Should have 3 distinct parameter keys"
         );
     }
 

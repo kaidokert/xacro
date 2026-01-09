@@ -141,6 +141,19 @@ impl MacroProcessor {
         Ok((params, param_order, block_params))
     }
 
+    /// Convert AttributeName to qualified string for use as parameter key
+    ///
+    /// Preserves namespace prefixes to avoid collisions between attributes
+    /// that differ only by namespace (e.g., foo:x vs bar:x).
+    ///
+    /// Returns "prefix:local_name" if prefix exists, otherwise just "local_name".
+    fn attribute_key(name: &xmltree::AttributeName) -> String {
+        match &name.prefix {
+            Some(prefix) => format!("{}:{}", prefix, name.local_name),
+            None => name.local_name.clone(),
+        }
+    }
+
     pub fn collect_macro_args(
         element: &Element,
         macro_def: &MacroDefinition,
@@ -149,6 +162,7 @@ impl MacroProcessor {
         let mut block_values = HashMap::new();
 
         // Extract regular parameters from attributes
+        // Use qualified names (prefix:local_name) to preserve namespace distinctions
         for (name, value) in &element.attributes {
             let local_name = &name.local_name;
             if macro_def.block_params.contains(local_name) {
@@ -157,7 +171,8 @@ impl MacroProcessor {
                     param: local_name.clone(),
                 });
             }
-            param_values.insert(local_name.clone(), value.clone());
+            let key = Self::attribute_key(name);
+            param_values.insert(key, value.clone());
         }
 
         // Extract block parameters from child elements IN ORDER
