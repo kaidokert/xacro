@@ -1,6 +1,7 @@
 use crate::error::XacroError;
 use crate::utils::eval::{
-    eval_boolean, eval_text_with_interpreter, format_value_python_style, remove_quotes,
+    eval_boolean, eval_text_with_interpreter, evaluate_expression, format_value_python_style,
+    remove_quotes,
 };
 use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
@@ -506,22 +507,32 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     result.push_str(&token_value);
                 }
                 TokenType::Expr => {
-                    // Evaluate expression
-                    let value = self
-                        .interpreter
-                        .borrow_mut()
-                        .eval_with_context(&token_value, &context)
-                        .map_err(|e| XacroError::EvalError {
+                    // Evaluate expression using centralized helper
+                    let value_opt = evaluate_expression(
+                        &mut self.interpreter.borrow_mut(),
+                        &token_value,
+                        &context,
+                    )
+                    .map_err(|e| XacroError::EvalError {
+                        expr: token_value.clone(),
+                        source: crate::utils::eval::EvalError::PyishEval {
                             expr: token_value.clone(),
-                            source: crate::utils::eval::EvalError::PyishEval {
-                                expr: token_value.clone(),
-                                source: e,
-                            },
-                        })?;
+                            source: e,
+                        },
+                    })?;
 
-                    // Format result with compat-aware number formatting
-                    let formatted = self.format_evaluation_result(&value, &token_value);
-                    result.push_str(&formatted);
+                    // Handle result
+                    match value_opt {
+                        Some(value) => {
+                            // Format result with compat-aware number formatting
+                            let formatted = self.format_evaluation_result(&value, &token_value);
+                            result.push_str(&formatted);
+                        }
+                        None => {
+                            // Special case returned no output (e.g., xacro.print_location())
+                            continue;
+                        }
+                    }
                 }
                 TokenType::Extension => {
                     // Preserve extension syntax for later resolution

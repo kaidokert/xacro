@@ -251,6 +251,41 @@ pub fn build_pyisheval_context(
     Ok(context)
 }
 
+/// Evaluate a single expression string, handling Xacro-specific special cases
+///
+/// This centralizes handling of special functions like xacro.print_location()
+/// that don't fit into the generic pyisheval evaluation model.
+///
+/// # Arguments
+/// * `interp` - The pyisheval interpreter to use
+/// * `expr` - The expression string to evaluate
+/// * `context` - The variable context for evaluation
+///
+/// # Returns
+/// * `Ok(Some(value))` - Normal expression evaluated successfully
+/// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
+/// * `Err(e)` - Evaluation error
+///
+/// # Special Cases
+/// * `xacro.print_location()` - Debug function that prints stack trace to stderr in Python.
+///   We stub it out by returning None (no output). This is handled as a special case because:
+///   1. pyisheval doesn't support object.method syntax
+///   2. This is a debug-only function with no production use
+///   3. We're not implementing the full debug functionality
+pub fn evaluate_expression(
+    interp: &mut Interpreter,
+    expr: &str,
+    context: &HashMap<String, Value>,
+) -> Result<Option<Value>, pyisheval::EvalError> {
+    let trimmed_expr = expr.trim();
+    if trimmed_expr == "xacro.print_location()" {
+        // Special case: stub debug function returns no output
+        return Ok(None);
+    }
+
+    interp.eval_with_context(expr, context).map(Some)
+}
+
 /// Evaluate text containing ${...} expressions using a provided interpreter
 ///
 /// This version allows reusing an Interpreter instance for better performance
@@ -279,14 +314,18 @@ pub fn eval_text_with_interpreter(
                 result.push(token_value);
             }
             TokenType::Expr => {
-                // ${expr} - evaluate using pyisheval
-                match interp.eval_with_context(&token_value, &context) {
-                    Ok(value) => {
+                // Evaluate expression using centralized helper
+                match evaluate_expression(interp, &token_value, &context) {
+                    Ok(Some(value)) => {
                         #[cfg(feature = "compat")]
                         let value_str = format_value_python_style(&value, false);
                         #[cfg(not(feature = "compat"))]
                         let value_str = format_value_python_style(&value, true);
                         result.push(remove_quotes(&value_str).to_string());
+                    }
+                    Ok(None) => {
+                        // Special case returned no output (e.g., xacro.print_location())
+                        continue;
                     }
                     Err(e) => {
                         return Err(EvalError::PyishEval {
@@ -731,6 +770,53 @@ mod tests {
         // But not other cases (should error)
         assert!(eval_boolean("TRUE", &props).is_err());
         assert!(eval_boolean("tRuE", &props).is_err());
+    }
+
+    // Test evaluate_expression special case handling directly
+    #[test]
+    fn test_evaluate_expression_special_cases() {
+        let mut interp = init_interpreter();
+        let context = HashMap::new();
+
+        // Test xacro.print_location() special case
+        let result = evaluate_expression(&mut interp, "xacro.print_location()", &context).unwrap();
+        assert!(
+            result.is_none(),
+            "xacro.print_location() should return None"
+        );
+
+        // Test with surrounding whitespace
+        let result =
+            evaluate_expression(&mut interp, "  xacro.print_location()  ", &context).unwrap();
+        assert!(
+            result.is_none(),
+            "xacro.print_location() with whitespace should return None"
+        );
+
+        // Test a normal expression to ensure it's not affected
+        let result = evaluate_expression(&mut interp, "1 + 1", &context).unwrap();
+        assert!(
+            matches!(result, Some(Value::Number(n)) if n == 2.0),
+            "Normal expression should evaluate correctly"
+        );
+    }
+
+    // Test xacro.print_location() stub function via integration
+    #[test]
+    fn test_xacro_print_location_stub() {
+        let props = HashMap::new();
+
+        // xacro.print_location() should return empty string
+        let result = eval_text("${xacro.print_location()}", &props).unwrap();
+        assert_eq!(result, "");
+
+        // Should work in text context too
+        let result = eval_text("before${xacro.print_location()}after", &props).unwrap();
+        assert_eq!(result, "beforeafter");
+
+        // With whitespace in expression
+        let result = eval_text("${ xacro.print_location() }", &props).unwrap();
+        assert_eq!(result, "");
     }
 
     // Test that inf and nan are available via direct context injection
