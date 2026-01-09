@@ -1,5 +1,7 @@
 use crate::error::XacroError;
-use crate::utils::eval::{eval_boolean, eval_text_with_interpreter};
+use crate::utils::eval::{
+    eval_boolean, eval_text_with_interpreter, format_value_python_style, remove_quotes,
+};
 use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
 use pyisheval::Interpreter;
@@ -51,6 +53,18 @@ fn truncate_snippet(text: &str) -> String {
     }
 }
 
+/// Metadata tracked for each property to support Python-like formatting
+#[cfg(feature = "compat")]
+#[derive(Debug, Clone)]
+struct PropertyMetadata {
+    /// Whether this property should be formatted as float (keep .0 for whole numbers)
+    /// True if:
+    /// - Property value contains decimal point (e.g., "1.5", "100.0")
+    /// - Property comes from division expression (e.g., "${255/255}")
+    /// - Property references a float property (e.g., "${float_prop * 2}")
+    is_float: bool,
+}
+
 pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
@@ -68,6 +82,11 @@ pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // NEW: Shared reference to arguments map (injected from XacroContext)
     // Args are separate from properties and follow CLI-precedence semantics
     args: Rc<RefCell<HashMap<String, String>>>,
+    // Python-compatible number formatting (compat feature)
+    #[cfg(feature = "compat")]
+    use_python_compat: bool,
+    #[cfg(feature = "compat")]
+    property_metadata: RefCell<HashMap<String, PropertyMetadata>>,
 }
 
 /// Check if a name is a lambda parameter in the given lambda expression
@@ -144,6 +163,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
             args,
+            #[cfg(feature = "compat")]
+            use_python_compat: true, // Enabled by default when compat feature is active
+            #[cfg(feature = "compat")]
+            property_metadata: RefCell::new(HashMap::new()),
         }
     }
 
@@ -178,10 +201,94 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// Should be called when a macro expansion completes to restore the previous scope.
     /// Panics if the scope stack is empty (indicates a programming error).
     pub fn pop_scope(&self) {
+        #[cfg(feature = "compat")]
+        {
+            // Clean up metadata for the scope being popped
+            let scope_depth = self.scope_stack.borrow().len();
+            let prefix = format!("{}:", scope_depth);
+            self.property_metadata
+                .borrow_mut()
+                .retain(|key, _| !key.starts_with(&prefix));
+        }
+
         self.scope_stack
             .borrow_mut()
             .pop()
             .expect("Scope stack underflow - mismatched push/pop");
+    }
+
+    /// Check if a variable has float metadata (compat feature only)
+    ///
+    /// Looks up a property by name across all scopes (current to global) to determine
+    /// if it should be formatted as a float. Checks scoped metadata first (depth:name),
+    /// then falls back to global metadata (no scope prefix).
+    ///
+    /// # Arguments
+    /// * `var` - The variable name to look up
+    ///
+    /// # Returns
+    /// `true` if the variable has float metadata, `false` otherwise
+    #[cfg(feature = "compat")]
+    fn is_var_float(
+        &self,
+        var: &str,
+    ) -> bool {
+        let metadata = self.property_metadata.borrow();
+        let scope_depth = self.scope_stack.borrow().len();
+
+        // Try scoped metadata first (current scope down to global)
+        for depth in (1..=scope_depth).rev() {
+            let scoped_key = format!("{}:{}", depth, var);
+            if let Some(meta) = metadata.get(&scoped_key) {
+                return meta.is_float;
+            }
+        }
+
+        // Fall back to checking global (no scope prefix)
+        metadata.get(var).map(|m| m.is_float).unwrap_or(false)
+    }
+
+    /// Compute float metadata for a property value (compat feature only)
+    ///
+    /// Determines if a property should be formatted as float (with .0 for whole numbers)
+    /// based on Python xacro's int/float distinction heuristics.
+    ///
+    /// Detection rules:
+    /// 1. Value contains decimal point → float
+    /// 2. Value is inf/nan → float
+    /// 3. Value contains division (/) → float
+    /// 4. Value references a float property → float (propagation)
+    #[cfg(feature = "compat")]
+    fn compute_float_metadata(
+        &self,
+        value: &str,
+    ) -> bool {
+        if !self.use_python_compat {
+            return false;
+        }
+
+        let has_decimal = value.contains('.');
+        let is_special = value.parse::<f64>().is_ok_and(|n| !n.is_finite());
+        let has_division = value.contains('/');
+
+        // Check if expression references any float properties
+        let refs_float_prop = if value.contains("${") {
+            let refs = self.extract_property_references(value);
+            refs.iter().any(|r| self.is_var_float(r))
+        } else {
+            false
+        };
+
+        has_decimal || is_special || has_division || refs_float_prop
+    }
+
+    #[cfg(not(feature = "compat"))]
+    #[allow(dead_code)]
+    fn compute_float_metadata(
+        &self,
+        _value: &str,
+    ) -> bool {
+        false
     }
 
     /// Add a property to the current (top) scope
@@ -196,6 +303,17 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         name: String,
         value: String,
     ) {
+        // Compat feature: Track float metadata for scoped properties
+        #[cfg(feature = "compat")]
+        {
+            let is_float = self.compute_float_metadata(&value);
+            let scope_depth = self.scope_stack.borrow().len();
+            let scoped_key = format!("{}:{}", scope_depth, name);
+            self.property_metadata
+                .borrow_mut()
+                .insert(scoped_key, PropertyMetadata { is_float });
+        }
+
         self.scope_stack
             .borrow_mut()
             .last_mut()
@@ -224,6 +342,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             );
         }
 
+        // Compat feature: Track float metadata for properties
+        #[cfg(feature = "compat")]
+        {
+            let is_float = self.compute_float_metadata(&value);
+            self.property_metadata
+                .borrow_mut()
+                .insert(name.clone(), PropertyMetadata { is_float });
+        }
+
         self.raw_properties.borrow_mut().insert(name.clone(), value);
         // Invalidate cache for this property if it exists
         self.evaluated_cache.borrow_mut().remove(&name);
@@ -244,6 +371,173 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         name: &str,
     ) -> bool {
         self.lookup_raw_value(name).is_some()
+    }
+
+    /// Check if an expression result should be formatted as float (keep .0 for whole numbers)
+    ///
+    /// Returns true if:
+    /// 1. Expression contains division (/) - division always produces float in Python
+    /// 2. Expression references a float property - float-ness propagates
+    /// 3. Result has fractional part - always float
+    ///
+    /// # Arguments
+    /// * `expr` - The expression string (e.g., "width * 2")
+    /// * `result_value` - The evaluated result
+    ///
+    /// # Returns
+    /// Whether to format the result as float (with .0 for whole numbers)
+    #[cfg(feature = "compat")]
+    fn should_format_as_float(
+        &self,
+        expr: &str,
+        result_value: &pyisheval::Value,
+    ) -> bool {
+        // Check if expression contains division (always produces float)
+        if expr.contains('/') {
+            return true;
+        }
+
+        // Check if result has fractional part (always float)
+        if let pyisheval::Value::Number(n) = result_value {
+            if n.fract() != 0.0 {
+                return true;
+            }
+        }
+
+        // Special case: if expression is just a simple variable name (no operators),
+        // check its metadata directly
+        let trimmed = expr.trim();
+        if !is_python_keyword(trimmed)
+            && trimmed.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && trimmed
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
+        {
+            return self.is_var_float(trimmed);
+        }
+
+        // Complex expression: extract variables and check if any are float properties
+        // Note: extract_property_references expects ${...} syntax, so wrap the expression
+        let vars = self.extract_property_references(&format!("${{{}}}", expr));
+
+        for var in vars {
+            if self.is_var_float(&var) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Format an evaluation result with Python-compatible number formatting
+    ///
+    /// When compat feature is enabled, uses metadata to decide whether to format
+    /// numbers as float (with .0) or int. When disabled, uses default formatting.
+    /// Always strips quotes from string literals.
+    ///
+    /// # Arguments
+    /// * `value` - The evaluated value to format
+    /// * `expr` - The original expression (used for metadata lookup)
+    ///
+    /// # Returns
+    /// Formatted string with quotes stripped if it was a string literal
+    #[cfg_attr(not(feature = "compat"), allow(unused_variables))]
+    fn format_evaluation_result(
+        &self,
+        value: &pyisheval::Value,
+        expr: &str,
+    ) -> String {
+        // Format the value
+        let formatted = {
+            #[cfg(feature = "compat")]
+            {
+                if self.use_python_compat {
+                    let force_float = self.should_format_as_float(expr, value);
+                    format_value_python_style(value, force_float)
+                } else {
+                    // Preserve old behavior: always format with .0 for whole numbers
+                    format_value_python_style(value, true)
+                }
+            }
+            #[cfg(not(feature = "compat"))]
+            {
+                // Preserve old behavior: always format with .0 for whole numbers
+                format_value_python_style(value, true)
+            }
+        };
+
+        // Strip quotes from string literals (always done, not compat-specific)
+        remove_quotes(&formatted).to_string()
+    }
+
+    /// Perform one pass of substitution with metadata-aware formatting
+    ///
+    /// This is similar to eval_text_with_interpreter but uses property metadata
+    /// to determine whether to format numbers as float (with .0) or int (without .0).
+    ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} to evaluate
+    /// * `properties` - The property context (pre-resolved)
+    ///
+    /// # Returns
+    /// The text with one level of ${...} expressions resolved
+    fn substitute_one_pass(
+        &self,
+        text: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<String, XacroError> {
+        use crate::utils::eval::build_pyisheval_context;
+
+        // Build pyisheval context
+        let context = build_pyisheval_context(properties, &mut self.interpreter.borrow_mut())
+            .map_err(|e| XacroError::EvalError {
+                expr: text.to_string(),
+                source: e,
+            })?;
+
+        // Tokenize and process
+        let lexer = Lexer::new(text);
+        let mut result = String::new();
+
+        for (token_type, token_value) in lexer {
+            match token_type {
+                TokenType::Text => {
+                    result.push_str(&token_value);
+                }
+                TokenType::Expr => {
+                    // Evaluate expression
+                    let value = self
+                        .interpreter
+                        .borrow_mut()
+                        .eval_with_context(&token_value, &context)
+                        .map_err(|e| XacroError::EvalError {
+                            expr: token_value.clone(),
+                            source: crate::utils::eval::EvalError::PyishEval {
+                                expr: token_value.clone(),
+                                source: e,
+                            },
+                        })?;
+
+                    // Format result with compat-aware number formatting
+                    let formatted = self.format_evaluation_result(&value, &token_value);
+                    result.push_str(&formatted);
+                }
+                TokenType::Extension => {
+                    // Preserve extension syntax for later resolution
+                    result.push_str("$(");
+                    result.push_str(&token_value);
+                    result.push(')');
+                }
+                TokenType::DollarDollarBrace => {
+                    // Preserve escape sequence: $$ → $
+                    result.push('$');
+                    result.push_str(&token_value);
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// Substitute ${...} expressions in text using scope-aware resolution
@@ -269,11 +563,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // This is more efficient than resolving all properties upfront
             let properties = self.build_eval_context(&result)?;
 
-            let next = eval_text_with_interpreter(
-                &result,
-                &properties,
-                &mut self.interpreter.borrow_mut(),
-            )?;
+            // Use metadata-aware substitution
+            let next = self.substitute_one_pass(&result, &properties)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -498,17 +789,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                             self.substitute_extensions_only(&content)?;
 
                         // Then evaluate the expression (which may still contain properties)
-                        // CRITICAL: wrap in ${...} so build_eval_context can extract variable names
+                        // Wrap in ${...} and use substitute_text for evaluation + formatting
                         let wrapped_expr = format!("${{{}}}", expr_with_extensions_resolved);
-                        let properties = self.build_eval_context(&wrapped_expr)?;
-                        let eval_result = eval_text_with_interpreter(
-                            &wrapped_expr,
-                            &properties,
-                            &mut self.interpreter.borrow_mut(),
-                        )?;
+                        let eval_result = self.substitute_text(&wrapped_expr)?;
 
                         // Only mark changed if evaluation actually modified the expression
-                        if eval_result != wrapped_expr {
+                        if eval_result != expr_with_extensions_resolved {
                             changed = true;
                         }
                         new_result.push_str(&eval_result);

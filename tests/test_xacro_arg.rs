@@ -314,7 +314,7 @@ fn test_arg_multiple_in_single_expression() {
     let result = processor.run_from_string(input).unwrap();
 
     // 2 * 3 = 6
-    assert!(result.contains("6.0 0.1 0.1"));
+    assert!(result.contains("6 0.1 0.1"));
 }
 
 #[test]

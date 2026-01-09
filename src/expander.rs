@@ -692,7 +692,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         let text = result[0].as_text().expect("Expected text node");
-        assert_eq!(text, "value: 42.0");
+        assert_eq!(text, "value: 42");
     }
 
     #[test]
@@ -733,7 +733,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         let text = result[0].as_text().expect("Expected text node");
-        assert_eq!(text, "sum: 30.0, product: 200.0");
+        assert_eq!(text, "sum: 30, product: 200");
     }
 
     #[test]
