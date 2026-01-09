@@ -182,9 +182,9 @@ fn test_macro_parameter_dependency() {
     let output = result.unwrap();
 
     // Verify 'a' is 5 and 'b' is 10 (a*2)
-    assert!(output.contains(r#"a="5.0""#), "Parameter 'a' should be 5");
+    assert!(output.contains(r#"a="5""#), "Parameter 'a' should be 5");
     assert!(
-        output.contains(r#"b="10.0""#),
+        output.contains(r#"b="10""#),
         "Parameter 'b' should be 10 (a*2 where a=5)"
     );
 }
@@ -217,15 +217,15 @@ fn test_macro_chained_parameter_defaults() {
 
     // Verify: a=1 (default), b=2 (1*2), c=6 (2*3)
     assert!(
-        output.contains(r#"a="1.0""#),
+        output.contains(r#"a="1""#),
         "Parameter 'a' should be 1 (default)"
     );
     assert!(
-        output.contains(r#"b="2.0""#),
+        output.contains(r#"b="2""#),
         "Parameter 'b' should be 2 (a*2 where a=1)"
     );
     assert!(
-        output.contains(r#"c="6.0""#),
+        output.contains(r#"c="6""#),
         "Parameter 'c' should be 6 (b*3 where b=2)"
     );
 }

@@ -7,6 +7,10 @@ description = "A xml preprocessor for xacro files to generate URDF files"
 license = "MIT"
 repository = "https://github.com/deniz-hofmeister/xacro"
 
+[features]
+default = ["compat"]
+compat = []  # Python-compatible number formatting (tracks int vs float distinction)
+
 [dependencies]
 xml = "0.8"
 xmltree = "0.12"

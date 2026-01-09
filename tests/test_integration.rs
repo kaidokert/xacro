@@ -503,7 +503,7 @@ fn test_property_forward_reference() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="20.0""#),
+        output.contains(r#"value="20""#),
         "derived should be 20 (base * 2)"
     );
 }
@@ -529,7 +529,7 @@ fn test_property_multilevel_dependencies() {
 
     let output = result.unwrap();
     // level3 = 5, level2 = 10, level1 = 20
-    assert!(output.contains(r#"value="20.0""#), "level1 should be 20");
+    assert!(output.contains(r#"value="20""#), "level1 should be 20");
 }
 
 /// Test unused property with undefined variable (should NOT error - lazy evaluation)
@@ -551,7 +551,7 @@ fn test_property_unused_with_undefined_var() {
     );
 
     let output = result.unwrap();
-    assert!(output.contains(r#"value="42.0""#));
+    assert!(output.contains(r#"value="42""#));
 }
 
 /// Test used property with undefined variable (SHOULD error)
@@ -665,7 +665,7 @@ fn test_insert_block_with_expressions() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="84.0""#),
+        output.contains(r#"value="84""#),
         "Expression in block should be evaluated"
     );
 }
@@ -807,7 +807,7 @@ fn test_deeply_nested_macros() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"<item value="42.0""#),
+        output.contains(r#"<item value="42""#),
         "Output should contain expanded item"
     );
 }
@@ -851,8 +851,8 @@ fn test_insert_block_with_global_property() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="global_x" value="1.0"/>
-  <xacro:property name="local_y" value="2.0"/> <!-- Lexical scope: must be global or caller-local -->
+  <xacro:property name="global_x" value="1"/>
+  <xacro:property name="local_y" value="2"/> <!-- Lexical scope: must be global or caller-local -->
 
   <xacro:macro name="foo" params="*content">
     <xacro:insert_block name="content"/>
@@ -872,7 +872,7 @@ fn test_insert_block_with_global_property() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"xyz="1.0 2.0 0""#),
+        output.contains(r#"xyz="1 2 0""#),
         "Should substitute properties in lexical scope"
     );
 }
@@ -959,7 +959,7 @@ fn test_insert_block_nested_macros() {
     let output = result.unwrap();
     assert!(output.contains("<container>"), "Should have container");
     assert!(
-        output.contains("<item>42.0</item>"),
+        output.contains("<item>42</item>"),
         "Should expand inner macro with value"
     );
 }
@@ -1025,7 +1025,7 @@ fn test_property_forward_reference_official() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"doubled="84.0""#),
+        output.contains(r#"doubled="84""#),
         "a2 should resolve to 84 (2*42)"
     );
 }
@@ -1055,7 +1055,7 @@ fn test_property_transitive_chain_4_levels() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"d="42.0""#),
+        output.contains(r#"d="42""#),
         "d should resolve through 4-level chain to 42"
     );
 }
@@ -1098,9 +1098,9 @@ fn test_property_multi_substitution() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="x" value="1.0"/>
-  <xacro:property name="y" value="2.0"/>
-  <xacro:property name="z" value="3.0"/>
+  <xacro:property name="x" value="1"/>
+  <xacro:property name="y" value="2"/>
+  <xacro:property name="z" value="3"/>
   <link name="test">
     <origin xyz="${x} ${y} ${z}"/>
   </link>
@@ -1115,7 +1115,7 @@ fn test_property_multi_substitution() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"xyz="1.0 2.0 3.0""#),
+        output.contains(r#"xyz="1 2 3""#),
         "All three properties should be substituted"
     );
 }
@@ -1259,7 +1259,7 @@ fn test_property_nested() {
     let output = result.unwrap();
     // Properties should be substituted recursively
     assert!(
-        output.contains(r#"coord="1.0""#),
+        output.contains(r#"coord="1""#),
         "Nested property should resolve to 1"
     );
     assert!(
@@ -1403,11 +1403,11 @@ fn test_property_arithmetic() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="8.0""#),
+        output.contains(r#"value="8""#),
         "Addition should work: 5 + 3 = 8"
     );
     assert!(
-        output.contains(r#"value="15.0""#),
+        output.contains(r#"value="15""#),
         "Multiplication should work: 5 * 3 = 15"
     );
 }
@@ -1432,7 +1432,7 @@ fn test_property_value_expressions() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="20.0""#),
+        output.contains(r#"value="20""#),
         "Computed property should be 20"
     );
 }
@@ -1459,7 +1459,7 @@ fn test_property_redefinition_lazy() {
     let output = result.unwrap();
     // With lazy evaluation, y should see the latest value of x (20)
     assert!(
-        output.contains(r#"value="20.0""#),
+        output.contains(r#"value="20""#),
         "Lazy evaluation should use latest x value"
     );
 }
@@ -1507,7 +1507,7 @@ fn test_property_namespace_handling() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"value="42.0""#),
+        output.contains(r#"value="42""#),
         "Property substitution should work across namespaces"
     );
 }
@@ -1547,7 +1547,7 @@ fn test_macro_call_evaluates_parameters() {
 
     let output = result.unwrap();
     assert!(
-        output.contains(r#"mass="20.0""#),
+        output.contains(r#"mass="20""#),
         "Macro parameter expression should be evaluated"
     );
 }
@@ -1585,12 +1585,12 @@ fn test_macro_late_binding_defaults() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="default_mass" value="1.0"/>
+  <xacro:property name="default_mass" value="1"/>
   <xacro:macro name="link_macro" params="name mass:=${default_mass}">
     <link name="${name}" mass="${mass}"/>
   </xacro:macro>
   <xacro:link_macro name="link1"/>
-  <xacro:property name="default_mass" value="2.0"/>
+  <xacro:property name="default_mass" value="2"/>
   <xacro:link_macro name="link2"/>
 </robot>"#;
 
@@ -1646,7 +1646,7 @@ fn test_macro_with_global_property() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="global_x" value="1.0"/>
+  <xacro:property name="global_x" value="1"/>
   <xacro:macro name="test_macro" params="local_y">
     <link x="${global_x}" y="${local_y}"/>
   </xacro:macro>
@@ -1661,10 +1661,7 @@ fn test_macro_with_global_property() {
     );
 
     let output = result.unwrap();
-    assert!(
-        output.contains(r#"x="1.0""#),
-        "Should access global property"
-    );
+    assert!(output.contains(r#"x="1""#), "Should access global property");
     assert!(output.contains(r#"y="2.0""#), "Should use local parameter");
 }
 
@@ -1695,7 +1692,7 @@ fn test_nested_macro_calls() {
     let output = result.unwrap();
     assert!(output.contains("<container>"), "Should have container");
     assert!(
-        output.contains("<item>42.0</item>"),
+        output.contains("<item>42</item>"),
         "Nested macro should evaluate expression"
     );
 }
@@ -2246,8 +2243,8 @@ fn test_insert_block_parameter_collision_regression() {
     let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:property name="global_x" value="1.0"/>
-  <xacro:property name="local_y" value="2.0"/>
+  <xacro:property name="global_x" value="1"/>
+  <xacro:property name="local_y" value="2"/>
 
   <!-- Macro foo has a parameter named local_y (intentional collision) -->
   <xacro:macro name="foo" params="local_y *content">
@@ -2276,17 +2273,17 @@ fn test_insert_block_parameter_collision_regression() {
         .run_from_string(input)
         .expect("Processing should succeed");
 
-    // Verify block content uses caller's local_y (2.0), not macro parameters (3.0 or 4.0)
+    // Verify block content uses caller's local_y (2), not macro parameters (3 or 4)
     // Check for attribute presence regardless of order
     assert!(
-        result.contains(r#"name="direct""#) && result.contains(r#"xyz="1.0 2.0 0""#),
-        "Direct call: block should use caller's local_y (2.0), not macro's (3.0). Got: {}",
+        result.contains(r#"name="direct""#) && result.contains(r#"xyz="1 2 0""#),
+        "Direct call: block should use caller's local_y (2), not macro's (3). Got: {}",
         result
     );
 
     assert!(
-        result.contains(r#"name="nested""#) && result.contains(r#"xyz="1.0 2.0 1""#),
-        "Nested call: block should use original caller's local_y (2.0), not macro's (4.0). Got: {}",
+        result.contains(r#"name="nested""#) && result.contains(r#"xyz="1 2 1""#),
+        "Nested call: block should use original caller's local_y (2), not macro's (4). Got: {}",
         result
     );
 }
