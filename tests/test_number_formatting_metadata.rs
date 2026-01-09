@@ -190,10 +190,10 @@ fn test_complex_expression_with_division() {
     let result = processor.run_from_string(input).unwrap();
 
     // Python xacro outputs with .0 because expression contains division
-    // Result should be 0.16666... but let's just check it has decimal
+    // (1/12) * 1 * (1*1 + 1*1) = 2/12 = 0.166666...
     assert!(
-        result.contains(r#"value="0."#) || result.contains(r#"value="1."#),
-        "Expression with division should output with decimal. Got: {}",
+        result.contains(r#"value="0.166"#) || result.contains(r#"value="0.16666"#),
+        "Expression with division should output 0.166... Got: {}",
         result
     );
 }
@@ -225,13 +225,21 @@ fn test_mixed_int_and_float_properties() {
         result
     );
     assert!(
-        result.contains(r#"value="5.0""#),
+        result.contains(r#"<test2 value="5.0"/>"#)
+            || result.contains(r#"<test2 value="5.0"></test2>"#),
         "Float property should output with .0. Got: {}",
         result
     );
     assert!(
-        result.contains(r#"value="10""#) && result.contains(r#"value="10.0""#),
-        "Should have both 10 and 10.0. Got: {}",
+        result.contains(r#"<test3 value="10"/>"#)
+            || result.contains(r#"<test3 value="10"></test3>"#),
+        "Int * 2 should output without .0. Got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"<test4 value="10.0"/>"#)
+            || result.contains(r#"<test4 value="10.0"></test4>"#),
+        "Float * 2 should output with .0. Got: {}",
         result
     );
 }

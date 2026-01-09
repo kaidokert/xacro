@@ -282,7 +282,10 @@ pub fn eval_text_with_interpreter(
                 // ${expr} - evaluate using pyisheval
                 match interp.eval_with_context(&token_value, &context) {
                     Ok(value) => {
+                        #[cfg(feature = "compat")]
                         let value_str = format_value_python_style(&value, false);
+                        #[cfg(not(feature = "compat"))]
+                        let value_str = format_value_python_style(&value, true);
                         result.push(remove_quotes(&value_str).to_string());
                     }
                     Err(e) => {

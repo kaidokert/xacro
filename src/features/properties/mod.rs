@@ -1,7 +1,5 @@
 use crate::error::XacroError;
-#[cfg(feature = "compat")]
-use crate::utils::eval::format_value_python_style;
-use crate::utils::eval::{build_pyisheval_context, eval_boolean, eval_text_with_interpreter};
+use crate::utils::eval::{eval_boolean, eval_text_with_interpreter, format_value_python_style};
 use crate::utils::lexer::{Lexer, TokenType};
 use core::cell::RefCell;
 use pyisheval::Interpreter;
@@ -201,6 +199,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
     /// Should be called when a macro expansion completes to restore the previous scope.
     /// Panics if the scope stack is empty (indicates a programming error).
     pub fn pop_scope(&self) {
+        #[cfg(feature = "compat")]
+        {
+            // Clean up metadata for the scope being popped
+            let scope_depth = self.scope_stack.borrow().len();
+            let prefix = format!("{}:", scope_depth);
+            self.property_metadata
+                .borrow_mut()
+                .retain(|key, _| !key.starts_with(&prefix));
+        }
+
         self.scope_stack
             .borrow_mut()
             .pop()
@@ -242,7 +250,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             refs.iter().any(|r| {
                 // Try scoped metadata first, then fall back to global
                 let scope_depth = self.scope_stack.borrow().len();
-                for depth in (0..=scope_depth).rev() {
+                for depth in (1..=scope_depth).rev() {
                     let scoped_key = format!("{}:{}", depth, r);
                     if let Some(meta) = metadata.get(&scoped_key) {
                         if meta.is_float {
@@ -388,7 +396,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         // Helper to check metadata across all scopes
         let check_var_metadata = |var: &str| -> bool {
             // Try scoped metadata first (current scope down to global)
-            for depth in (0..=scope_depth).rev() {
+            for depth in (1..=scope_depth).rev() {
                 let scoped_key = format!("{}:{}", depth, var);
                 if let Some(meta) = metadata.get(&scoped_key) {
                     return meta.is_float;
@@ -449,12 +457,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     let force_float = self.should_format_as_float(expr, value);
                     format_value_python_style(value, force_float)
                 } else {
-                    value.to_string()
+                    // Preserve old behavior: always format with .0 for whole numbers
+                    format_value_python_style(value, true)
                 }
             }
             #[cfg(not(feature = "compat"))]
             {
-                value.to_string()
+                // Preserve old behavior: always format with .0 for whole numbers
+                format_value_python_style(value, true)
             }
         };
 
@@ -783,36 +793,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                             self.substitute_extensions_only(&content)?;
 
                         // Then evaluate the expression (which may still contain properties)
-                        // CRITICAL: wrap in ${...} so build_eval_context can extract variable names
+                        // Wrap in ${...} and use substitute_text for evaluation + formatting
                         let wrapped_expr = format!("${{{}}}", expr_with_extensions_resolved);
-                        let properties = self.build_eval_context(&wrapped_expr)?;
-
-                        // Build context for evaluation
-                        let context = build_pyisheval_context(
-                            &properties,
-                            &mut self.interpreter.borrow_mut(),
-                        )
-                        .map_err(|e| XacroError::EvalError {
-                            expr: expr_with_extensions_resolved.clone(),
-                            source: e,
-                        })?;
-
-                        // Evaluate the expression
-                        let value = self
-                            .interpreter
-                            .borrow_mut()
-                            .eval_with_context(&expr_with_extensions_resolved, &context)
-                            .map_err(|e| XacroError::EvalError {
-                                expr: expr_with_extensions_resolved.clone(),
-                                source: crate::utils::eval::EvalError::PyishEval {
-                                    expr: expr_with_extensions_resolved.clone(),
-                                    source: e,
-                                },
-                            })?;
-
-                        // Format result with compat-aware number formatting
-                        let eval_result =
-                            self.format_evaluation_result(&value, &expr_with_extensions_resolved);
+                        let eval_result = self.substitute_text(&wrapped_expr)?;
 
                         // Only mark changed if evaluation actually modified the expression
                         if eval_result != expr_with_extensions_resolved {
