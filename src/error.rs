@@ -67,6 +67,9 @@ pub enum XacroError {
     #[error("Block parameter '{param}' cannot be specified as an attribute (it must be provided as a child element)")]
     BlockParameterAttributeCollision { param: String },
 
+    #[error("Invalid macro parameter '{param}': {reason}")]
+    InvalidMacroParameter { param: String, reason: String },
+
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 

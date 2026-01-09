@@ -87,48 +87,9 @@ mod macro_tests {
     }
 
     #[test]
-    fn test_block_param_attribute_collision_namespaced() {
-        // Test that namespaced attributes are checked by local_name for block param collision
-        let params = HashMap::new();
-        let param_order = Vec::new();
-        let mut block_params = HashSet::new();
-        block_params.insert("content".to_string());
-
-        let macro_def = MacroDefinition {
-            name: "test".to_string(),
-            params,
-            param_order,
-            block_params,
-            content: Element::new("dummy"),
-        };
-
-        // Create call with namespaced attribute foo:content
-        let mut call_elem = Element::new("test");
-        call_elem.attributes.insert(
-            xmltree::AttributeName {
-                local_name: "content".to_string(),
-                namespace: Some("http://example.com/foo".to_string()),
-                prefix: Some("foo".to_string()),
-            },
-            "bar".to_string(),
-        );
-
-        // Should error - block param collision detected by local_name
-        let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
-        let err = result.expect_err("Should error for namespaced block param as attribute");
-        assert!(
-            matches!(
-                err,
-                XacroError::BlockParameterAttributeCollision { ref param } if param == "content"
-            ),
-            "Expected BlockParameterAttributeCollision for local_name, got: {:?}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_namespaced_macro_parameters_preserved() {
-        // Test that namespaced attributes are preserved as distinct parameters
+    fn test_namespaced_macro_parameters_rejected() {
+        // Test that namespaced attributes are REJECTED on macro calls
+        // (Python xacro behavior: "Invalid parameter 'foo:x'")
         let mut params = HashMap::new();
         params.insert("x".to_string(), None);
 
@@ -143,7 +104,7 @@ mod macro_tests {
             content: Element::new("dummy"),
         };
 
-        // Create call with both foo:x and bar:x attributes
+        // Create call with namespaced foo:x attribute
         let mut call_elem = Element::new("test");
         call_elem.attributes.insert(
             xmltree::AttributeName {
@@ -153,41 +114,17 @@ mod macro_tests {
             },
             "1".to_string(),
         );
-        call_elem.attributes.insert(
-            xmltree::AttributeName {
-                local_name: "x".to_string(),
-                namespace: Some("http://example.com/bar".to_string()),
-                prefix: Some("bar".to_string()),
-            },
-            "2".to_string(),
-        );
-        call_elem
-            .attributes
-            .insert(xmltree::AttributeName::local("x"), "3".to_string());
 
+        // Should error - macro parameters cannot have namespace prefixes
         let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
-        let (param_values, _block_values) = result.expect("Should collect all namespaced params");
-
-        // All three should be distinct keys in param_values
-        assert_eq!(
-            param_values.get("foo:x").map(String::as_str),
-            Some("1"),
-            "foo:x should be preserved as distinct key"
-        );
-        assert_eq!(
-            param_values.get("bar:x").map(String::as_str),
-            Some("2"),
-            "bar:x should be preserved as distinct key"
-        );
-        assert_eq!(
-            param_values.get("x").map(String::as_str),
-            Some("3"),
-            "x should be preserved as distinct key"
-        );
-        assert_eq!(
-            param_values.len(),
-            3,
-            "Should have 3 distinct parameter keys"
+        let err = result.expect_err("Should reject namespaced macro parameter");
+        assert!(
+            matches!(
+                err,
+                XacroError::InvalidMacroParameter { ref param, .. } if param == "foo:x"
+            ),
+            "Expected InvalidMacroParameter for 'foo:x', got: {:?}",
+            err
         );
     }
 
