@@ -252,7 +252,7 @@ fn expand_element(
         // Extract property name (required) and substitute expressions
         let name = ctx
             .properties
-            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+            .substitute_text(elem.get_attribute("name").ok_or_else(|| {
                 XacroError::MissingAttribute {
                     element: "xacro:property".to_string(),
                     attribute: "name".to_string(),
@@ -260,8 +260,8 @@ fn expand_element(
             })?)?;
 
         // Get value and default attributes
-        let value_attr = elem.attributes.get("value");
-        let default_attr = elem.attributes.get("default");
+        let value_attr = elem.get_attribute("value");
+        let default_attr = elem.get_attribute("default");
 
         // Determine what to do based on attributes
         match (value_attr, default_attr) {
@@ -296,8 +296,7 @@ fn expand_element(
     if is_xacro_element(&elem, "arg", &xacro_ns) {
         // Extract raw name attribute (required)
         let raw_name = elem
-            .attributes
-            .get("name")
+            .get_attribute("name")
             .ok_or_else(|| XacroError::MissingAttribute {
                 element: "xacro:arg".to_string(),
                 attribute: "name".to_string(),
@@ -310,7 +309,7 @@ fn expand_element(
         // CLI arguments take precedence over defaults (The "Precedence Rake")
         if !ctx.args.borrow().contains_key(&name) {
             // Only set default if CLI didn't provide a value
-            if let Some(default_value) = elem.attributes.get("default") {
+            if let Some(default_value) = elem.get_attribute("default") {
                 // CRITICAL: Evaluate default with FULL substitution (may contain $(arg ...))
                 // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
                 let default = ctx.properties.substitute_all(default_value)?;
@@ -330,7 +329,7 @@ fn expand_element(
         // Extract macro name and substitute expressions
         let name = ctx
             .properties
-            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+            .substitute_text(elem.get_attribute("name").ok_or_else(|| {
                 XacroError::MissingAttribute {
                     element: "xacro:macro".to_string(),
                     attribute: "name".to_string(),
@@ -338,7 +337,7 @@ fn expand_element(
             })?)?;
 
         // Parse params attribute (optional - treat missing as empty string)
-        let params_str = elem.attributes.get("params").map_or("", |s| s.as_str());
+        let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
         let (params_map, param_order, block_params_set) =
             crate::features::macros::MacroProcessor::parse_params(params_str)?;
 
@@ -368,8 +367,7 @@ fn expand_element(
         let tag_name = if is_if { "xacro:if" } else { "xacro:unless" };
 
         let value = elem
-            .attributes
-            .get("value")
+            .get_attribute("value")
             .ok_or_else(|| XacroError::MissingAttribute {
                 element: tag_name.to_string(),
                 attribute: "value".to_string(),
@@ -393,7 +391,7 @@ fn expand_element(
         // Extract filename and substitute expressions
         let filename =
             ctx.properties
-                .substitute_text(elem.attributes.get("filename").ok_or_else(|| {
+                .substitute_text(elem.get_attribute("filename").ok_or_else(|| {
                     XacroError::MissingAttribute {
                         element: "xacro:include".to_string(),
                         attribute: "filename".to_string(),
@@ -461,7 +459,7 @@ fn expand_element(
         // Extract block name and substitute expressions
         let name = ctx
             .properties
-            .substitute_text(elem.attributes.get("name").ok_or_else(|| {
+            .substitute_text(elem.get_attribute("name").ok_or_else(|| {
                 XacroError::MissingAttribute {
                     element: "xacro:insert_block".to_string(),
                     attribute: "name".to_string(),

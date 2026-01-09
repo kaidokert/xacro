@@ -70,7 +70,7 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("content".to_string(), "bar".to_string());
+            .insert(xmltree::AttributeName::local("content"), "bar".to_string());
 
         // Should error - block param specified as attribute
         let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
@@ -248,10 +248,10 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("x".to_string(), "1".to_string());
+            .insert(xmltree::AttributeName::local("x"), "1".to_string());
         call_elem
             .attributes
-            .insert("y".to_string(), "2".to_string());
+            .insert(xmltree::AttributeName::local("y"), "2".to_string());
 
         // Should successfully collect attributes
         let result = MacroProcessor::collect_macro_args(&call_elem, &macro_def);
@@ -284,12 +284,12 @@ mod macro_tests {
         let mut origin_elem = Element::new("origin");
         origin_elem
             .attributes
-            .insert("xyz".to_string(), "0 0 0".to_string());
+            .insert(xmltree::AttributeName::local("xyz"), "0 0 0".to_string());
 
         let mut geometry_elem = Element::new("cylinder");
         geometry_elem
             .attributes
-            .insert("radius".to_string(), "0.1".to_string());
+            .insert(xmltree::AttributeName::local("radius"), "0.1".to_string());
 
         call_elem
             .children
@@ -310,7 +310,7 @@ mod macro_tests {
         let origin_block = blocks.get("origin").expect("origin block");
         assert_eq!(origin_block.name, "origin");
         assert_eq!(
-            origin_block.attributes.get("xyz"),
+            origin_block.get_attribute("xyz"),
             Some(&"0 0 0".to_string())
         );
 
@@ -409,15 +409,15 @@ mod macro_tests {
         let mut call_elem = Element::new("test");
         call_elem
             .attributes
-            .insert("prefix".to_string(), "pre_".to_string());
+            .insert(xmltree::AttributeName::local("prefix"), "pre_".to_string());
         call_elem
             .attributes
-            .insert("suffix".to_string(), "_post".to_string());
+            .insert(xmltree::AttributeName::local("suffix"), "_post".to_string());
 
         let mut content_elem = Element::new("link");
         content_elem
             .attributes
-            .insert("name".to_string(), "base".to_string());
+            .insert(xmltree::AttributeName::local("name"), "base".to_string());
         call_elem.children.push(XMLNode::Element(content_elem));
 
         // Should successfully collect both
@@ -436,7 +436,7 @@ mod macro_tests {
         let content_block = blocks.get("content").expect("content block");
         assert_eq!(content_block.name, "link");
         assert_eq!(
-            content_block.attributes.get("name"),
+            content_block.get_attribute("name"),
             Some(&"base".to_string())
         );
     }

@@ -79,9 +79,10 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
 
 /// Check if an element is a xacro element with the given tag name
 ///
-/// Uses dynamic namespace detection: the xacro_ns parameter should be extracted
-/// from the document root's xmlns:xacro declaration. This makes us compatible with
-/// all namespace URI variants in the wild without hardcoding a list.
+/// Recognizes elements in ANY known xacro namespace URI (not just the context's specific URI),
+/// but ONLY if a xacro namespace was declared on the document root. This allows mixing different
+/// valid xacro URIs within the same document tree (e.g., when included files use different
+/// namespace variants), while still enforcing that the root declares a xacro namespace.
 ///
 /// This checks the element's resolved namespace URI (not the prefix), which is
 /// the correct way to identify xacro elements since the prefix can be aliased
@@ -90,10 +91,11 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
 /// # Arguments
 /// * `element` - The XML element to check
 /// * `tag_name` - The local tag name (e.g., "if", "unless", "property", "macro")
-/// * `xacro_ns` - The xacro namespace URI for this document (from xmlns:xacro="...")
+/// * `xacro_ns` - The xacro namespace URI from the document root (empty if not declared)
 ///
 /// # Returns
-/// `true` if the element is in the xacro namespace with the given tag name
+/// `true` if the element is in any known xacro namespace with the given tag name,
+/// and the root declared a xacro namespace
 ///
 /// # Examples
 /// ```
@@ -116,5 +118,22 @@ pub fn is_xacro_element(
     tag_name: &str,
     xacro_ns: &str,
 ) -> bool {
-    element.name == tag_name && element.namespace.as_deref() == Some(xacro_ns)
+    // Check if element name matches
+    if element.name != tag_name {
+        return false;
+    }
+
+    // Require that a xacro namespace was declared on the root
+    // (empty xacro_ns means no declaration, which is an error if xacro elements are used)
+    if xacro_ns.is_empty() {
+        return false;
+    }
+
+    // Check if namespace is ANY valid known xacro URI
+    // This allows mixing different xacro namespace variants in the same document tree
+    element
+        .namespace
+        .as_deref()
+        .map(is_known_xacro_uri)
+        .unwrap_or(false)
 }

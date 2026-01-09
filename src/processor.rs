@@ -186,15 +186,16 @@ impl XacroProcessor {
             }
         }
 
-        // Remove xacro namespace declaration (if namespace was declared)
-        // Find and remove whichever prefix is bound to the xacro namespace URI
+        // Remove ALL known xacro namespace declarations (if namespace was declared)
+        // This handles cases where included files use different xacro URI variants
+        // Find and remove whichever prefixes are bound to ANY known xacro namespace URI
         // This handles both standard (xmlns:xacro="...") and non-standard (xmlns:foo="...") prefixes
         if !xacro_ns.is_empty() {
             if let Some(ref mut ns) = element.namespaces {
-                // Find all prefixes bound to the xacro namespace URI
+                // Find all prefixes bound to ANY known xacro namespace URI
                 let prefixes_to_remove: Vec<String> =
                     ns.0.iter()
-                        .filter(|(_, uri)| uri.as_str() == xacro_ns)
+                        .filter(|(_, uri)| is_known_xacro_uri(uri.as_str()))
                         .map(|(prefix, _)| prefix.clone())
                         .collect();
 

@@ -32,3 +32,4 @@ path = "src/bin/xacro.rs"
 
 [patch.crates-io]
 pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.9.0_patch1_emptystring" }
+xmltree = { git = "https://github.com/kaidokert/xmltree-rs", tag = "v0.12.0_preserve_ns_patch" }
