@@ -61,7 +61,7 @@ pub enum XacroError {
     #[error("Undefined block '{name}'")]
     UndefinedBlock { name: String },
 
-    #[error("Duplicate parameter declaration: '{param}' (parameter declared multiple times or with conflicting block/non-block forms)")]
+    #[error("Duplicate parameter declaration: '{param}'\n\nParameter '{param}' declared multiple times. Duplicate parameters can cause\nunexpected behavior where passed values are ignored.\n\nTo process this file anyway (matching Python xacro's behavior), use:\n  xacro --compat <file>")]
     DuplicateParamDeclaration { param: String },
 
     #[error("Block parameter '{param}' cannot be specified as an attribute (it must be provided as a child element)")]

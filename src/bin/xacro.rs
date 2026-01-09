@@ -41,6 +41,10 @@ struct Args {
     )]
     verbosity_level: Option<u8>,
 
+    /// Python xacro compatibility mode (accept buggy inputs like duplicate parameters)
+    #[arg(long = "compat")]
+    compat: bool,
+
     /// Additional arguments in key:=value format
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     extra_args: Vec<String>,
@@ -125,8 +129,8 @@ fn main() -> anyhow::Result<()> {
     // Parse mappings (key:=value arguments for xacro:arg)
     let mappings = args.parse_mappings();
 
-    // Process file with mappings
-    let processor = xacro::XacroProcessor::new_with_args(mappings);
+    // Process file with mappings and compat mode
+    let processor = xacro::XacroProcessor::new_with_compat(mappings, args.compat);
     let result = processor
         .run(&args.input)
         .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
