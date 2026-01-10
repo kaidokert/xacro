@@ -519,7 +519,13 @@ fn expand_element(
                 .map_err(|e| {
                     XacroError::Include(format!("Invalid glob pattern '{}': {}", filename, e))
                 })?
-                .filter_map(Result::ok)
+                .filter_map(|result| match result {
+                    Ok(path) => Some(path),
+                    Err(e) => {
+                        log::warn!("Error reading glob match: {}", e);
+                        None
+                    }
+                })
                 .collect();
 
             // No matches - warn (unless optional) and continue (Python behavior)
