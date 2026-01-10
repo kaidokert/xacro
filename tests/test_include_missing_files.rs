@@ -224,7 +224,8 @@ fn test_include_glob_with_actual_matches() {
     let temp_path = temp_file.path();
     let temp_dir = temp_path.parent().unwrap();
     let file_name = temp_path.file_name().unwrap().to_str().unwrap();
-    let glob_pattern = temp_dir.join(format!("{}*", &file_name[..8]));
+    let prefix_len = file_name.len().min(8);
+    let glob_pattern = temp_dir.join(format!("{}*", &file_name[..prefix_len]));
 
     let input = format!(
         r#"<?xml version="1.0"?>
