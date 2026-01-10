@@ -161,7 +161,7 @@ impl XacroProcessor {
     /// use std::collections::HashMap;
     ///
     /// let args = HashMap::new();
-    /// let compat = CompatMode::from_str("namespace,duplicate_params");
+    /// let compat = "namespace,duplicate_params".parse().unwrap();
     /// let processor = XacroProcessor::new_with_compat_mode(args, compat);
     /// ```
     pub fn new_with_compat_mode(
