@@ -143,9 +143,8 @@ fn test_sqrt_function() {
 }
 
 #[test]
-fn test_abs_floor_ceil_functions() {
-    // Test abs()
-    let input_abs = r#"<?xml version="1.0"?>
+fn test_abs_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${abs(-3.7)}"/>
   <link name="test">
@@ -154,10 +153,12 @@ fn test_abs_floor_ceil_functions() {
 </robot>"#;
 
     // abs(-3.7) = 3.7
-    run_angle_test(input_abs, 3.7, 1e-9, "Should process abs() function");
+    run_angle_test(input, 3.7, 1e-9, "Should process abs() function");
+}
 
-    // Test floor()
-    let input_floor = r#"<?xml version="1.0"?>
+#[test]
+fn test_floor_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${floor(3.7)}"/>
   <link name="test">
@@ -166,10 +167,12 @@ fn test_abs_floor_ceil_functions() {
 </robot>"#;
 
     // floor(3.7) = 3.0
-    run_angle_test(input_floor, 3.0, 1e-9, "Should process floor() function");
+    run_angle_test(input, 3.0, 1e-9, "Should process floor() function");
+}
 
-    // Test ceil()
-    let input_ceil = r#"<?xml version="1.0"?>
+#[test]
+fn test_ceil_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${ceil(3.2)}"/>
   <link name="test">
@@ -178,12 +181,13 @@ fn test_abs_floor_ceil_functions() {
 </robot>"#;
 
     // ceil(3.2) = 4.0
-    run_angle_test(input_ceil, 4.0, 1e-9, "Should process ceil() function");
+    run_angle_test(input, 4.0, 1e-9, "Should process ceil() function");
 }
 
 #[test]
 fn test_trig_inverse_functions() {
-    let input = r#"<?xml version="1.0"?>
+    // Test acos()
+    let input_acos = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${acos(1)}"/>
   <link name="test">
@@ -192,7 +196,31 @@ fn test_trig_inverse_functions() {
 </robot>"#;
 
     // acos(1) = 0.0
-    run_angle_test(input, 0.0, 1e-9, "Should process acos() function");
+    run_angle_test(input_acos, 0.0, 1e-9, "Should process acos() function");
+
+    // Test asin()
+    let input_asin = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${asin(0)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // asin(0) = 0.0
+    run_angle_test(input_asin, 0.0, 1e-9, "Should process asin() function");
+
+    // Test atan()
+    let input_atan = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${atan(0)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // atan(0) = 0.0
+    run_angle_test(input_atan, 0.0, 1e-9, "Should process atan() function");
 }
 
 #[test]

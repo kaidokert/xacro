@@ -41,6 +41,15 @@ fn find_matching_paren(
     None
 }
 
+/// List of supported math functions for preprocessing
+///
+/// These functions are preprocessed before expression evaluation since pyisheval
+/// doesn't provide native math functions. Functions are ordered by length (longest first)
+/// for defensive regex alternation, though with word boundaries this isn't strictly necessary.
+pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
+    "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+];
+
 /// Regex pattern for matching math function calls with word boundaries
 static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 
@@ -49,12 +58,8 @@ static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 /// Matches function names at word boundaries followed by optional whitespace and '('.
 fn get_math_funcs_regex() -> &'static Regex {
     MATH_FUNCS_REGEX.get_or_init(|| {
-        // Order by length (longest first) for defensive regex alternation
-        let funcs = [
-            "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
-        ];
         // Use \b for word boundaries, capture function name, allow optional whitespace before '('
-        let pattern = format!(r"\b({})\s*\(", funcs.join("|"));
+        let pattern = format!(r"\b({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
         Regex::new(&pattern).expect("Math functions regex should be valid")
     })
 }
@@ -1289,29 +1294,20 @@ mod tests {
 
     /// Test to prevent divergence between regex pattern and match statement
     ///
-    /// This ensures all functions in the regex have corresponding implementations,
+    /// This ensures all functions in SUPPORTED_MATH_FUNCS have corresponding implementations,
     /// catching bugs at test time rather than runtime.
     #[test]
     fn test_math_functions_regex_match_consistency() {
         let props = HashMap::new();
 
-        // List of all functions that should be in both regex and match statement
-        let expected_functions = [
-            "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
-        ];
-
-        // Test each function to ensure it's implemented
-        for func in &expected_functions {
+        // Test each function in SUPPORTED_MATH_FUNCS to ensure it's implemented
+        for func in SUPPORTED_MATH_FUNCS {
             let expr = format!("${{{}(0)}}", func);
             let result = eval_text(&expr, &props);
 
-            // Should either succeed or fail with a valid error, but NOT panic with unreachable!()
-            // If we get here without panic, the function is properly implemented
-            assert!(
-                result.is_ok() || result.is_err(),
-                "Function '{}' should have an implementation (got panic instead)",
-                func
-            );
+            // Test passes if no panic occurs - the unreachable!() would panic if function is missing
+            // Just verify we get some result (reaching this point proves no panic occurred)
+            let _ = result;
         }
     }
 }
