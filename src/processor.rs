@@ -7,6 +7,12 @@ use xmltree::XMLNode;
 
 use core::str::FromStr;
 use std::collections::HashMap;
+use thiserror::Error;
+
+/// Error type for invalid compatibility mode strings
+#[derive(Debug, Error)]
+#[error("Unknown compatibility mode: '{0}' (valid: all, namespace, duplicate_params)")]
+pub struct CompatModeParseError(String);
 
 /// Python xacro compatibility modes
 #[derive(Debug, Clone, Copy, Default)]
@@ -36,7 +42,7 @@ impl CompatMode {
 }
 
 impl FromStr for CompatMode {
-    type Err = core::convert::Infallible;
+    type Err = CompatModeParseError;
 
     /// Parse compatibility mode from string
     ///
@@ -57,10 +63,7 @@ impl FromStr for CompatMode {
                 "all" => return Ok(Self::all()),
                 "namespace" => mode.namespace = true,
                 "duplicate_params" => mode.duplicate_params = true,
-                _ => log::warn!(
-                    "Unknown compatibility mode: '{}' (valid: all, namespace, duplicate_params)",
-                    part
-                ),
+                _ => return Err(CompatModeParseError(part.to_string())),
             }
         }
 

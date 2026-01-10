@@ -140,7 +140,8 @@ fn main() -> anyhow::Result<()> {
     let compat_mode = args
         .compat
         .as_deref()
-        .map(|s| s.parse().unwrap())
+        .map(|s| s.parse())
+        .transpose()?
         .unwrap_or_default();
 
     // Process file with mappings and compat mode
