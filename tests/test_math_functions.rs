@@ -185,9 +185,8 @@ fn test_ceil_function() {
 }
 
 #[test]
-fn test_trig_inverse_functions() {
-    // Test acos()
-    let input_acos = r#"<?xml version="1.0"?>
+fn test_acos_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${acos(1)}"/>
   <link name="test">
@@ -196,10 +195,12 @@ fn test_trig_inverse_functions() {
 </robot>"#;
 
     // acos(1) = 0.0
-    run_angle_test(input_acos, 0.0, 1e-9, "Should process acos() function");
+    run_angle_test(input, 0.0, 1e-9, "Should process acos() function");
+}
 
-    // Test asin()
-    let input_asin = r#"<?xml version="1.0"?>
+#[test]
+fn test_asin_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${asin(0)}"/>
   <link name="test">
@@ -208,10 +209,12 @@ fn test_trig_inverse_functions() {
 </robot>"#;
 
     // asin(0) = 0.0
-    run_angle_test(input_asin, 0.0, 1e-9, "Should process asin() function");
+    run_angle_test(input, 0.0, 1e-9, "Should process asin() function");
+}
 
-    // Test atan()
-    let input_atan = r#"<?xml version="1.0"?>
+#[test]
+fn test_atan_function() {
+    let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${atan(0)}"/>
   <link name="test">
@@ -220,7 +223,7 @@ fn test_trig_inverse_functions() {
 </robot>"#;
 
     // atan(0) = 0.0
-    run_angle_test(input_atan, 0.0, 1e-9, "Should process atan() function");
+    run_angle_test(input, 0.0, 1e-9, "Should process atan() function");
 }
 
 #[test]
@@ -355,4 +358,48 @@ fn test_asin_domain_validation() {
     // Should fail - domain validation prevents replacement, then pyisheval fails
     // This matches Python xacro's ValueError for out-of-domain inputs
     assert!(result.is_err(), "Should error for out-of-domain asin(-1.5)");
+}
+
+#[test]
+fn test_acos_nan_domain() {
+    use xacro::processor::XacroProcessor;
+
+    // Test that acos(NaN) fails
+    // NaN fails the domain check (!(-1.0..=1.0).contains(&NaN) == true)
+    // This leaves the function call unresolved, causing pyisheval to fail
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${acos(float('nan'))}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should fail - NaN fails domain check, function call remains unresolved
+    assert!(result.is_err(), "Should error for acos(NaN)");
+}
+
+#[test]
+fn test_asin_nan_domain() {
+    use xacro::processor::XacroProcessor;
+
+    // Test that asin(NaN) fails
+    // NaN fails the domain check (!(-1.0..=1.0).contains(&NaN) == true)
+    // This leaves the function call unresolved, causing pyisheval to fail
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${asin(float('nan'))}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should fail - NaN fails domain check, function call remains unresolved
+    assert!(result.is_err(), "Should error for asin(NaN)");
 }

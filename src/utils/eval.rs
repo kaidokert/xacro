@@ -76,9 +76,11 @@ fn get_math_funcs_regex() -> &'static Regex {
 /// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil
 ///
 /// # Limitations
-/// Does not distinguish function calls inside string literals (e.g., `"cos(0)"`).
-/// In practice, this is handled gracefully: if argument evaluation fails, the original
-/// text is preserved and passed to pyisheval.
+/// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
+/// This can cause incorrect evaluation: an expression like `'cos(0)'` will be
+/// preprocessed to `'1.0'` instead of remaining as the string `"cos(0)"`.
+/// A full fix would require a proper parser to track string literal context.
+/// For now, users should avoid math function names inside string literals.
 ///
 /// # Arguments
 /// * `expr` - Expression that may contain math function calls
@@ -1319,9 +1321,8 @@ mod tests {
             let expr = format!("${{{}(0)}}", func);
             let result = eval_text(&expr, &props);
 
-            // Test passes if no panic occurs - the unreachable!() would panic if function is missing
-            // Just verify we get some result (reaching this point proves no panic occurred)
-            let _ = result;
+            // Ensure evaluation succeeds - unreachable!() would panic if function is missing
+            result.expect("Evaluation should succeed for all supported math functions");
         }
     }
 }
