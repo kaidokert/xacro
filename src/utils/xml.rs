@@ -196,8 +196,9 @@ pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
                     ));
                 }
 
-                // Validate PI data per XML spec
-                if let Some(d) = data {
+                // Validate and write PI data per XML spec
+                // Treat empty string as no data to avoid trailing space
+                if let Some(d) = data.as_ref().filter(|s| !s.is_empty()) {
                     if d.contains("?>") {
                         return Err(XacroError::InvalidXml(
                             "Processing instruction data cannot contain '?>'".into(),
@@ -420,6 +421,19 @@ mod tests {
 
         let serialized = serialize_nodes(&nodes).unwrap();
 
+        assert_eq!(serialized, "<?target?>");
+    }
+
+    #[test]
+    fn test_serialize_pi_empty_data_treated_as_none() {
+        let nodes = vec![XMLNode::ProcessingInstruction(
+            "target".to_string(),
+            Some("".to_string()),
+        )];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        // Empty string should be treated as no data (no trailing space)
         assert_eq!(serialized, "<?target?>");
     }
 

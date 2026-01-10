@@ -281,8 +281,8 @@ fn expand_element(
             }
             // Neither value nor default - check for lazy property (body-based)
             (None, None) => {
-                // Rule: Text-only properties are NOT created
-                // Valid if: (empty) OR (has at least one Element or Comment child)
+                // Rule: Text-only properties are NOT created (matches Python xacro)
+                // Valid if: (empty) OR (has at least one Element, Comment, CDATA, or PI child)
                 let has_significant_content = elem.children.is_empty()
                     || elem.children.iter().any(|n| {
                         matches!(
@@ -295,7 +295,7 @@ fn expand_element(
                     });
 
                 if !has_significant_content {
-                    // Text-only or whitespace-only - skip definition
+                    // Text-only or whitespace-only - skip definition (matches Python xacro)
                     return Ok(vec![]);
                 }
 

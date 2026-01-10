@@ -194,8 +194,16 @@ fn test_lazy_property_empty_valid() {
 }
 
 // ============================================================================
-// Test 6c: Text-only properties are NOT created
+// Test 6c: Text-only properties are NOT created (matches Python xacro)
 // ============================================================================
+//
+// This behavior was verified against Python xacro:
+//   $ xacro test_text_only.xacro
+//   error: name 'greeting' is not defined when evaluating expression 'greeting'
+//
+// Python xacro only creates body-based properties when the body contains
+// structural nodes (elements, comments, CDATA, or PIs). Pure text content
+// is NOT treated as a property value.
 
 #[test]
 fn test_lazy_property_text_only_not_created() {
@@ -209,7 +217,7 @@ fn test_lazy_property_text_only_not_created() {
 
     assert!(
         result.is_err(),
-        "Text-only property should not be created, causing undefined property error"
+        "Text-only property should not be created, causing undefined property error (matches Python xacro)"
     );
 }
 
