@@ -279,12 +279,31 @@ fn expand_element(
                 }
                 // else: property already defined, keep existing value
             }
-            // Neither value nor default - error
+            // Neither value nor default - check for lazy property (body-based)
             (None, None) => {
-                return Err(XacroError::MissingAttribute {
-                    element: "xacro:property".to_string(),
-                    attribute: "value or default".to_string(),
-                });
+                // Rule: Text-only properties are NOT created (matches Python xacro)
+                // Valid if: (empty) OR (has at least one Element, Comment, CDATA, or PI child)
+                let has_significant_content = elem.children.is_empty()
+                    || elem.children.iter().any(|n| {
+                        matches!(
+                            n,
+                            xmltree::XMLNode::Element(_)
+                                | xmltree::XMLNode::Comment(_)
+                                | xmltree::XMLNode::CData(_)
+                                | xmltree::XMLNode::ProcessingInstruction(_, _)
+                        )
+                    });
+
+                if !has_significant_content {
+                    // Text-only or whitespace-only - skip definition (matches Python xacro)
+                    return Ok(vec![]);
+                }
+
+                // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
+                let content = crate::utils::xml::serialize_nodes(&elem.children)?;
+
+                // Store as lazy property
+                ctx.properties.add_raw_property(name.clone(), content);
             }
         }
 
@@ -466,7 +485,20 @@ fn expand_element(
                 }
             })?)?;
 
-        // Retrieve and return the pre-expanded block content
+        // PRECEDENCE ORDER (corrected based on empirical verification):
+        // 1. Check properties FIRST (lazy properties have precedence)
+        if let Some(raw_value) = ctx.properties.lookup_raw_value(&name) {
+            // Parse raw XML string to nodes
+            let nodes = crate::utils::xml::parse_xml_fragment(&raw_value)?;
+
+            // Expand recursively using INSERTION SCOPE
+            // This handles ${...} expressions and nested directives
+            let expanded = expand_children_list(nodes, ctx)?;
+            return Ok(expanded);
+        }
+
+        // 2. Fallback: Check block stack (macro block parameters)
+        // This will error with UndefinedBlock if not found
         let nodes = ctx.lookup_block(&name)?;
         return Ok(nodes);
     }
