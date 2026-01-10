@@ -145,7 +145,10 @@ impl MacroProcessor {
             // In compat mode, silently overwrite (last declaration wins)
 
             // Insert into appropriate data structures
-            param_order.push(param_name.clone());
+            // Only add to param_order if not already present (handles compat mode duplicates)
+            if !params.contains_key(&param_name) {
+                param_order.push(param_name.clone());
+            }
             if is_block {
                 block_params.insert(param_name.clone());
                 params.insert(param_name, None);

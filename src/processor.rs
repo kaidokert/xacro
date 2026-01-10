@@ -22,11 +22,7 @@ impl XacroProcessor {
     /// Create a new xacro processor with default settings
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            max_recursion_depth: 50,
-            args: HashMap::new(),
-            compat_mode: false,
-        }
+        Self::new_with_args(HashMap::new())
     }
 
     /// Create a new xacro processor with CLI arguments
@@ -46,11 +42,7 @@ impl XacroProcessor {
     /// let processor = XacroProcessor::new_with_args(args);
     /// ```
     pub fn new_with_args(args: HashMap<String, String>) -> Self {
-        Self {
-            max_recursion_depth: 50,
-            args,
-            compat_mode: false,
-        }
+        Self::new_with_compat(args, false)
     }
 
     /// Create a new xacro processor with custom max recursion depth

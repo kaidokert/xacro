@@ -3,6 +3,7 @@
 // Python xacro silently accepts duplicate parameters (buggy behavior).
 // Rust xacro errors by default but accepts with --compat flag.
 
+use std::collections::HashMap;
 use xacro::XacroProcessor;
 
 #[test]
@@ -174,7 +175,6 @@ fn test_duplicate_params_with_passed_values() {
 
 #[test]
 fn test_real_world_hk_camera_case() {
-    // Real case from testdata/bugs/566050e0/input.xacro
     // Has color_xyz_offset and color_rpy_offset duplicated
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -219,5 +219,129 @@ fn test_real_world_hk_camera_case() {
     assert!(
         output.contains(r#"rpy="0 0 0""#),
         "Should use last rpy declaration"
+    );
+}
+
+// ============================================================================
+// Block Parameter Duplicates
+// ============================================================================
+
+#[test]
+fn test_duplicate_block_params_error_by_default() {
+    // Duplicate *block parameter declarations should error in strict mode
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="block_dup" params="*body *body">
+    <xacro:insert_block name="body"/>
+  </xacro:macro>
+
+  <xacro:block_dup>
+    <link name="base"/>
+  </xacro:block_dup>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Expected duplicate *block parameter error in strict mode"
+    );
+
+    let err = result.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.to_lowercase().contains("duplicate"),
+        "Error should mention duplicate: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_duplicate_block_params_compat_last_wins() {
+    // Duplicate *block parameter declarations should be accepted in compat mode.
+    // Even with duplicate declarations, there's still only ONE parameter, so only
+    // ONE child element should be consumed.
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="block_dup" params="*body *body">
+    <xacro:insert_block name="body"/>
+  </xacro:macro>
+
+  <xacro:block_dup>
+    <link name="base"/>
+  </xacro:block_dup>
+</robot>"#;
+
+    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
+    let output = processor
+        .run_from_string(input)
+        .expect("Compat mode should accept duplicate *block params");
+
+    // Should successfully insert the single block parameter
+    assert!(
+        output.contains(r#"name="base""#),
+        "Compat mode should accept duplicate block param declarations: {}",
+        output
+    );
+}
+
+#[test]
+fn test_block_and_nonblock_param_conflict_error_by_default() {
+    // Conflicting block/non-block declarations of the same parameter
+    // should error in strict mode
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="block_nonblock_conflict" params="body:=default *body">
+    <xacro:insert_block name="body"/>
+  </xacro:macro>
+
+  <xacro:block_nonblock_conflict>
+    <link name="from_block"/>
+  </xacro:block_nonblock_conflict>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    assert!(
+        result.is_err(),
+        "Expected block/non-block param conflict error in strict mode"
+    );
+
+    let err = result.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.to_lowercase().contains("duplicate"),
+        "Error should mention duplicate: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_block_and_nonblock_param_conflict_compat_last_wins() {
+    // Conflicting block/non-block declarations of the same parameter
+    // should be accepted in compat mode with "last declaration wins" semantics
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="block_nonblock_conflict" params="body:=default *body">
+    <xacro:insert_block name="body"/>
+  </xacro:macro>
+
+  <xacro:block_nonblock_conflict>
+    <link name="from_block"/>
+  </xacro:block_nonblock_conflict>
+</robot>"#;
+
+    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
+    let output = processor
+        .run_from_string(input)
+        .expect("Compat mode should accept block/non-block param conflict");
+
+    // "last declaration wins": block declaration should be used
+    assert!(
+        output.contains(r#"name="from_block""#),
+        "Compat mode should use last (block) declaration: {}",
+        output
     );
 }
