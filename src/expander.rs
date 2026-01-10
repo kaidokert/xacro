@@ -134,7 +134,7 @@ pub struct XacroContext {
 impl XacroContext {
     /// Default maximum recursion depth
     /// Set conservatively to prevent stack overflow before the check triggers
-    const DEFAULT_MAX_DEPTH: usize = 50;
+    pub const DEFAULT_MAX_DEPTH: usize = 50;
 
     /// Create a new context with the given base path
     pub fn new(

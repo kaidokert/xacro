@@ -146,7 +146,7 @@ impl XacroProcessor {
         compat: bool,
     ) -> Self {
         Self {
-            max_recursion_depth: 50,
+            max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
             args,
             compat_mode: if compat {
                 CompatMode::all()
@@ -176,7 +176,7 @@ impl XacroProcessor {
         compat_mode: CompatMode,
     ) -> Self {
         Self {
-            max_recursion_depth: 50,
+            max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
             args,
             compat_mode,
         }
