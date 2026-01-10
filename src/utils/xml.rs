@@ -26,8 +26,9 @@ pub const KNOWN_XACRO_URIS: &[&str] = &[
 
 /// Search namespace map for any prefix bound to a known xacro URI
 ///
-/// Used as fallback when the standard "xacro" prefix is not found, allowing
-/// documents with non-standard prefixes (e.g., xmlns:x="...") to still be recognized.
+/// Namespace-aware: identifies xacro namespaces by URI, not prefix.
+/// Used when "xacro" prefix is not found, allowing documents with
+/// non-standard prefixes (e.g., xmlns:foo="http://www.ros.org/wiki/xacro") to be recognized.
 pub fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
     ns.0.values()
         .find(|uri| KNOWN_XACRO_URIS.contains(&uri.as_str()))
@@ -51,12 +52,18 @@ pub fn is_known_xacro_uri(uri: &str) -> bool {
 /// # Errors
 /// Returns an error if the "xacro" prefix is bound to an unknown/invalid URI (likely a typo).
 pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> {
-    // Extract xacro namespace - ONLY from "xacro" prefix binding
-    // Do not use fallback search - files without "xacro" prefix are not xacro files
-    // This is namespace-aware processing: we check the URI bound to "xacro" prefix
+    // Namespace-aware processing with priority:
+    // 1. If "xacro" prefix exists, use it exclusively (prevents false positives)
+    // 2. Otherwise, search for any known xacro URI (supports aliased prefixes)
+    //
+    // Per guideline: "check against the resolved namespace URI, not the prefix"
+    // But also handle corpus edge cases where multiple prefixes share a URI.
 
-    // First validate: if "xacro" prefix exists, it must be bound to a known URI (catch typos)
     if let Some(ns) = element.namespaces.as_ref() {
+        // Priority 1: If "xacro" prefix exists, use it exclusively
+        // This handles cases like testdata/bugs/0f45ad7a where both xacro: and interface:
+        // are bound to the same URI. Using xacro prefix exclusively prevents treating
+        // interface:audio as a xacro element.
         if let Some(xacro_uri) = ns.get("xacro") {
             let uri_str: &str = xacro_uri;
             if !KNOWN_XACRO_URIS.contains(&uri_str) {
@@ -67,17 +74,20 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
                     KNOWN_XACRO_URIS.join(", ")
                 )));
             }
+            // Valid xacro prefix found, return its URI
+            return Ok(xacro_uri.to_string());
+        }
+
+        // Priority 2: No "xacro" prefix - search for any known xacro URI
+        // This supports proper namespace-aware processing for documents with
+        // aliased prefixes like: xmlns:foo="http://www.ros.org/wiki/xacro"
+        if let Some(uri) = find_xacro_namespace_in_map(ns) {
+            return Ok(uri);
         }
     }
 
-    // Extract the URI bound to "xacro" prefix (or empty string if no xacro namespace)
-    let xacro_ns: String = element
-        .namespaces
-        .as_ref()
-        .and_then(|ns| ns.get("xacro").map(|s| s.to_string()))
-        .unwrap_or_default();
-
-    Ok(xacro_ns)
+    // No xacro namespace found
+    Ok(String::new())
 }
 
 /// Check if an element is a xacro element with the given tag name
