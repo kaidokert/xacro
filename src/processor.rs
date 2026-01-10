@@ -11,8 +11,12 @@ use thiserror::Error;
 
 /// Error type for invalid compatibility mode strings
 #[derive(Debug, Error)]
-#[error("Unknown compatibility mode: '{0}' (valid: all, namespace, duplicate_params)")]
-pub struct CompatModeParseError(String);
+pub enum CompatModeParseError {
+    #[error("Compatibility mode cannot be empty (valid: all, namespace, duplicate_params)")]
+    Empty,
+    #[error("Unknown compatibility mode: '{0}' (valid: all, namespace, duplicate_params)")]
+    Unknown(String),
+}
 
 /// Python xacro compatibility modes
 #[derive(Debug, Clone, Copy, Default)]
@@ -52,6 +56,12 @@ impl FromStr for CompatMode {
     /// - "duplicate_params" → only duplicate params mode
     /// - "namespace,duplicate_params" → multiple modes (comma-separated)
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Reject empty or whitespace-only strings to prevent silent misconfigurations
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(CompatModeParseError::Empty);
+        }
+
         let mut mode = Self::none();
 
         for part in s.split(',') {
@@ -63,7 +73,7 @@ impl FromStr for CompatMode {
                 "all" => return Ok(Self::all()),
                 "namespace" => mode.namespace = true,
                 "duplicate_params" => mode.duplicate_params = true,
-                _ => return Err(CompatModeParseError(part.to_string())),
+                _ => return Err(CompatModeParseError::Unknown(part.to_string())),
             }
         }
 

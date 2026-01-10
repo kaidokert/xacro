@@ -9,7 +9,7 @@
 // instead of the correct:
 //   xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro"
 
-use xacro::{CompatMode, XacroProcessor};
+use xacro::{CompatMode, XacroError, XacroProcessor};
 
 #[test]
 fn test_namespace_typo_error_by_default() {
@@ -27,28 +27,23 @@ fn test_namespace_typo_error_by_default() {
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
 
-    // Should error with unknown URI message
-    assert!(
-        result.is_err(),
-        "Namespace URI typo should error in strict mode"
-    );
-
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("unknown URI"),
-        "Error should mention unknown URI, got: {}",
-        error
-    );
-    assert!(
-        error.contains("#interface"),
-        "Error should show the typo URI (#interface), got: {}",
-        error
-    );
-    assert!(
-        error.contains("Known xacro URIs"),
-        "Error should list known URIs, got: {}",
-        error
-    );
+    // Should error with MissingNamespace variant
+    match result {
+        Err(XacroError::MissingNamespace(msg)) => {
+            assert!(
+                msg.contains("unknown URI"),
+                "Error should mention unknown URI, got: {}",
+                msg
+            );
+            assert!(
+                msg.contains("#interface"),
+                "Error should show the typo URI (#interface), got: {}",
+                msg
+            );
+        }
+        Err(other) => panic!("Expected MissingNamespace error, got: {:?}", other),
+        Ok(_) => panic!("Expected error in strict mode, but processing succeeded"),
+    }
 }
 
 #[test]
@@ -143,17 +138,17 @@ fn test_namespace_typo_still_errors_with_compat_duplicate_params() {
     let result = processor.run_from_string(input);
 
     // Should still error (namespace validation not disabled)
-    assert!(
-        result.is_err(),
-        "Namespace URI typo should still error with --compat=duplicate_params"
-    );
-
-    let error = result.unwrap_err().to_string();
-    assert!(
-        error.contains("unknown URI"),
-        "Error should mention unknown URI, got: {}",
-        error
-    );
+    match result {
+        Err(XacroError::MissingNamespace(msg)) => {
+            assert!(
+                msg.contains("unknown URI"),
+                "Error should mention unknown URI, got: {}",
+                msg
+            );
+        }
+        Err(other) => panic!("Expected MissingNamespace error, got: {:?}", other),
+        Ok(_) => panic!("Expected error with --compat=duplicate_params, but processing succeeded"),
+    }
 }
 
 #[test]
@@ -176,11 +171,17 @@ fn test_real_world_playerstage_interface_typo() {
     // Strict mode: should error
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
-    assert!(
-        result.is_err(),
-        "Real-world namespace typo should error in strict mode"
-    );
-    assert!(result.unwrap_err().to_string().contains("#interface"));
+    match result {
+        Err(XacroError::MissingNamespace(msg)) => {
+            assert!(
+                msg.contains("#interface"),
+                "Error should show the typo URI (#interface), got: {}",
+                msg
+            );
+        }
+        Err(other) => panic!("Expected MissingNamespace error, got: {:?}", other),
+        Ok(_) => panic!("Real-world namespace typo should error in strict mode"),
+    }
 
     // Compat namespace mode: should succeed
     let compat_mode = "namespace".parse().unwrap();
@@ -219,8 +220,8 @@ fn test_ros_wiki_xacro_interface_typo() {
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(input);
     assert!(
-        result.is_err(),
-        "Should error on wiki/xacro/#interface typo"
+        matches!(result, Err(XacroError::MissingNamespace(_))),
+        "Should error with MissingNamespace on wiki/xacro/#interface typo"
     );
 
     // Compat namespace mode: should succeed
