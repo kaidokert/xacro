@@ -769,12 +769,10 @@ fn expand_macro_call(
         }
 
         if let Some(value) = args.get(param_name) {
-            // Parameter explicitly provided at call site - evaluate it
-            // This ensures expressions like xyzm="${my_list}" are evaluated before
-            // being used, so ${xyzm[0]} works correctly inside the macro
-            let evaluated = ctx.properties.substitute_text(value)?;
+            // Parameter explicitly provided at call site
+            // Value is already fully evaluated by substitute_all() on macro call attributes
             ctx.properties
-                .add_to_current_scope(param_name.clone(), evaluated);
+                .add_to_current_scope(param_name.clone(), value.clone());
         } else if let Some(default_expr) = macro_def
             .params
             .get(param_name)

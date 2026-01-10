@@ -235,3 +235,104 @@ fn test_real_world_packed_array_parameter() {
         output
     );
 }
+
+/// Test array indexing with default parameter values
+///
+/// Default parameters follow a different code path than explicitly provided arguments.
+/// This test ensures array indexing works correctly for default parameters that reference
+/// array properties.
+///
+/// Note: Inline array literals in default params like `arr:=${[4,5,6]}` have a parsing
+/// issue where commas are treated as parameter separators. This is a separate bug.
+#[test]
+fn test_array_parameter_indexing_with_default() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Define array as property -->
+  <xacro:property name="default_arr" value="${[4, 5, 6]}"/>
+
+  <!-- Macro with default parameter that references the array property -->
+  <xacro:macro name="test_macro" params="arr:=${default_arr}">
+    <link name="test_default">
+      <value>${arr[0]}</value>
+      <value>${arr[1]}</value>
+      <value>${arr[2]}</value>
+    </link>
+  </xacro:macro>
+
+  <!-- Invoke macro without passing arr explicitly; uses default -->
+  <xacro:test_macro/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Default array parameter should work: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+    assert!(
+        output.contains(r#"<value>4</value>"#),
+        "Should extract first element from default array"
+    );
+    assert!(
+        output.contains(r#"<value>5</value>"#),
+        "Should extract second element from default array"
+    );
+    assert!(
+        output.contains(r#"<value>6</value>"#),
+        "Should extract third element from default array"
+    );
+}
+
+/// Test that non-evaluable strings remain as strings (fallback path)
+///
+/// Properties that look like they might be Python expressions but aren't valid
+/// should be treated as plain string literals. This tests the error handling
+/// fallback path in build_pyisheval_context.
+#[test]
+fn test_non_evaluable_strings_remain_strings() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- These look like they might be Python but are just strings -->
+  <xacro:property name="filename" value="[not-a-list]"/>
+  <xacro:property name="path" value="foo[0]"/>
+  <xacro:property name="text" value="hello world"/>
+
+  <xacro:macro name="test" params="name">
+    <link name="${name}">
+      <file>${filename}</file>
+      <path>${path}</path>
+      <text>${text}</text>
+    </link>
+  </xacro:macro>
+
+  <xacro:test name="test"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Non-evaluable strings should work: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify strings are preserved as-is, not mis-evaluated
+    assert!(
+        output.contains(r#"<file>[not-a-list]</file>"#),
+        "Bracket-containing string should remain as string"
+    );
+    assert!(
+        output.contains(r#"<path>foo[0]</path>"#),
+        "Indexing-like string should remain as string"
+    );
+    assert!(
+        output.contains(r#"<text>hello world</text>"#),
+        "Plain string should remain as string"
+    );
+}

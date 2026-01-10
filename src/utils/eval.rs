@@ -422,12 +422,43 @@ pub fn build_pyisheval_context(
             // Try to evaluate as Python expression (lists, dicts, etc.)
             // This allows properties like "[1, 2, 3]" to be stored as actual lists,
             // so that indexing like arr[0] works correctly
-            match interp.eval(value) {
-                Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
-                Err(_) => {
-                    // Evaluation failed, treat as string literal
-                    Ok((name.clone(), Value::StringLit(value.clone())))
+            //
+            // Optimization: Only attempt evaluation if value looks like a Python literal
+            // to avoid unnecessary parse errors on common string values
+            let trimmed = value.trim();
+            if trimmed.starts_with('[') || trimmed.starts_with('{') || trimmed.starts_with('(') {
+                match interp.eval(value) {
+                    Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
+                    Err(e) => {
+                        // Distinguish expected parse failures from unexpected runtime errors
+                        use pyisheval::EvalError as PyEvalError;
+                        match e {
+                            // Expected: property value is not valid Python syntax
+                            PyEvalError::ParseError(_) => {
+                                Ok((name.clone(), Value::StringLit(value.clone())))
+                            }
+                            // Expected: property value references undefined variable
+                            PyEvalError::UndefinedVar(_) => {
+                                Ok((name.clone(), Value::StringLit(value.clone())))
+                            }
+                            // Unexpected: runtime/type errors may indicate issues with property definitions
+                            PyEvalError::TypeError
+                            | PyEvalError::DivisionByZero
+                            | PyEvalError::LambdaCallError
+                            | PyEvalError::ArgError(_)
+                            | PyEvalError::DictKeyError => {
+                                log::warn!(
+                                    "Property '{}' with value '{}' failed evaluation: {}. Treating as string literal.",
+                                    name, value, e
+                                );
+                                Ok((name.clone(), Value::StringLit(value.clone())))
+                            }
+                        }
+                    }
                 }
+            } else {
+                // Value doesn't look like a Python literal, treat as string
+                Ok((name.clone(), Value::StringLit(value.clone())))
             }
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
