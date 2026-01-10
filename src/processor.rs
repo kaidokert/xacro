@@ -5,7 +5,64 @@ use crate::{
 };
 use xmltree::XMLNode;
 
+use core::str::FromStr;
 use std::collections::HashMap;
+
+/// Python xacro compatibility modes
+#[derive(Debug, Clone, Copy)]
+pub struct CompatMode {
+    /// Accept duplicate macro parameters (last declaration wins)
+    pub duplicate_params: bool,
+    /// Accept namespace URIs that don't match known xacro URIs
+    pub namespace: bool,
+}
+
+impl CompatMode {
+    /// No compatibility mode (strict validation)
+    pub fn none() -> Self {
+        Self {
+            duplicate_params: false,
+            namespace: false,
+        }
+    }
+
+    /// All compatibility modes enabled
+    pub fn all() -> Self {
+        Self {
+            duplicate_params: true,
+            namespace: true,
+        }
+    }
+}
+
+impl FromStr for CompatMode {
+    type Err = core::convert::Infallible;
+
+    /// Parse compatibility mode from string
+    ///
+    /// Supported formats:
+    /// - "all" → all modes enabled
+    /// - "namespace" → only namespace mode
+    /// - "duplicate_params" → only duplicate params mode
+    /// - "namespace,duplicate_params" → multiple modes (comma-separated)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut mode = Self::none();
+
+        for part in s.split(',') {
+            match part.trim() {
+                "all" => return Ok(Self::all()),
+                "namespace" => mode.namespace = true,
+                "duplicate_params" => mode.duplicate_params = true,
+                _ => log::warn!(
+                    "Unknown compatibility mode: '{}' (valid: all, namespace, duplicate_params)",
+                    part
+                ),
+            }
+        }
+
+        Ok(mode)
+    }
+}
 
 pub struct XacroProcessor {
     /// Maximum recursion depth for macro expansion and insert_block
@@ -14,8 +71,8 @@ pub struct XacroProcessor {
     /// CLI arguments passed to the processor (for xacro:arg support)
     /// These take precedence over XML defaults
     args: HashMap<String, String>,
-    /// Python xacro compatibility mode (accept buggy inputs)
-    compat_mode: bool,
+    /// Python xacro compatibility modes
+    compat_mode: CompatMode,
 }
 
 impl XacroProcessor {
@@ -59,7 +116,7 @@ impl XacroProcessor {
         Self {
             max_recursion_depth: max_depth,
             args: HashMap::new(),
-            compat_mode: false,
+            compat_mode: CompatMode::none(),
         }
     }
 
@@ -84,7 +141,37 @@ impl XacroProcessor {
         Self {
             max_recursion_depth: 50,
             args,
-            compat_mode: compat,
+            compat_mode: if compat {
+                CompatMode::all()
+            } else {
+                CompatMode::none()
+            },
+        }
+    }
+
+    /// Create a new xacro processor with specific compatibility modes
+    ///
+    /// # Arguments
+    /// * `args` - Map of argument names to values (from CLI key:=value format)
+    /// * `compat_mode` - Compatibility mode configuration
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::{XacroProcessor, CompatMode};
+    /// use std::collections::HashMap;
+    ///
+    /// let args = HashMap::new();
+    /// let compat = CompatMode::from_str("namespace,duplicate_params");
+    /// let processor = XacroProcessor::new_with_compat_mode(args, compat);
+    /// ```
+    pub fn new_with_compat_mode(
+        args: HashMap<String, String>,
+        compat_mode: CompatMode,
+    ) -> Self {
+        Self {
+            max_recursion_depth: 50,
+            args,
+            compat_mode,
         }
     }
 
@@ -130,7 +217,10 @@ impl XacroProcessor {
         //
         // Documents with NO xacro elements don't need xacro namespace declaration.
         // Only error during finalize_tree if xacro elements are found.
-        let xacro_ns = extract_xacro_namespace(&root)?;
+        //
+        // When in namespace compat mode, skip URI validation to accept files with
+        // "typo" URIs like xmlns:xacro="...#interface" that Python xacro accepts
+        let xacro_ns = extract_xacro_namespace(&root, self.compat_mode.namespace)?;
 
         // Create expansion context with CLI arguments and compat mode
         // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()

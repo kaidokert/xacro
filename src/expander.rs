@@ -13,6 +13,7 @@
 use crate::{
     error::XacroError,
     features::{macros::MacroDefinition, properties::PropertyProcessor},
+    processor::CompatMode,
     utils::xml::extract_xacro_namespace,
     utils::xml::is_xacro_element,
 };
@@ -126,8 +127,8 @@ pub struct XacroContext {
     /// Set conservatively to prevent stack overflow before the check triggers
     pub max_recursion_depth: usize,
 
-    /// Python xacro compatibility mode (accept buggy inputs)
-    pub compat_mode: bool,
+    /// Python xacro compatibility modes
+    pub compat_mode: CompatMode,
 }
 
 impl XacroContext {
@@ -140,7 +141,7 @@ impl XacroContext {
         base_path: PathBuf,
         xacro_ns: String,
     ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, HashMap::new(), false)
+        Self::new_with_compat(base_path, xacro_ns, HashMap::new(), CompatMode::none())
     }
 
     /// Create a new context with CLI arguments
@@ -154,7 +155,7 @@ impl XacroContext {
         xacro_ns: String,
         cli_args: HashMap<String, String>,
     ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, cli_args, false)
+        Self::new_with_compat(base_path, xacro_ns, cli_args, CompatMode::none())
     }
 
     /// Create a new context with CLI arguments and compat mode
@@ -163,12 +164,12 @@ impl XacroContext {
     /// * `base_path` - Base directory for resolving relative includes
     /// * `xacro_ns` - Xacro namespace prefix (e.g., "xacro")
     /// * `cli_args` - Arguments from CLI (take precedence over XML defaults)
-    /// * `compat` - Enable Python xacro compatibility mode (accept buggy inputs)
+    /// * `compat_mode` - Python xacro compatibility modes
     pub fn new_with_compat(
         base_path: PathBuf,
         xacro_ns: String,
         cli_args: HashMap<String, String>,
-        compat: bool,
+        compat_mode: CompatMode,
     ) -> Self {
         // Create shared args map for both PropertyProcessor and expander
         // Initialize with CLI args (these take precedence over XML defaults)
@@ -184,7 +185,7 @@ impl XacroContext {
             base_path: RefCell::new(base_path),
             recursion_depth: RefCell::new(0),
             max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
-            compat_mode: compat,
+            compat_mode,
         }
     }
 
@@ -299,7 +300,8 @@ fn process_single_include(
     })?;
 
     // Extract xacro namespace from included file
-    let included_ns = extract_xacro_namespace(&included_root)?;
+    // Use the same namespace validation mode as the parent document
+    let included_ns = extract_xacro_namespace(&included_root, ctx.compat_mode.namespace)?;
 
     // Push to include stack with RAII guard for automatic cleanup
     let old_base_path = ctx.base_path.borrow().clone();
@@ -443,7 +445,7 @@ fn expand_element(
 
         // Parse params attribute (optional - treat missing as empty string)
         let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
-        let (params_map, param_order, block_params_set) = if ctx.compat_mode {
+        let (params_map, param_order, block_params_set) = if ctx.compat_mode.duplicate_params {
             crate::features::macros::MacroProcessor::parse_params_compat(params_str)?
         } else {
             crate::features::macros::MacroProcessor::parse_params(params_str)?
