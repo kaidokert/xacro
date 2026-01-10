@@ -425,18 +425,14 @@ pub fn build_pyisheval_context(
             //
             // Optimization: Only attempt evaluation if value looks like a Python literal
             // to avoid unnecessary parse errors on common string values
-            let trimmed = value.trim();
+            // (reuse trimmed from lambda check above)
             if trimmed.starts_with('[') || trimmed.starts_with('{') || trimmed.starts_with('(') {
                 match interp.eval(trimmed) {
                     Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
                     Err(e) => {
                         // Distinguish expected parse failures from unexpected runtime errors
                         use pyisheval::EvalError as PyEvalError;
-                        match e {
-                            // Expected: property value is not valid Python syntax or references undefined variable
-                            PyEvalError::ParseError(_) | PyEvalError::UndefinedVar(_) => {
-                                Ok((name.clone(), Value::StringLit(value.clone())))
-                            }
+                        match &e {
                             // Unexpected: runtime/type errors may indicate issues with property definitions
                             PyEvalError::TypeError
                             | PyEvalError::DivisionByZero
@@ -447,9 +443,12 @@ pub fn build_pyisheval_context(
                                     "Property '{}' with value '{}' failed evaluation: {}. Treating as string literal.",
                                     name, value, e
                                 );
-                                Ok((name.clone(), Value::StringLit(value.clone())))
                             }
+                            // Expected: parse errors or undefined variables
+                            PyEvalError::ParseError(_) | PyEvalError::UndefinedVar(_) => {}
                         }
+                        // In all error cases, fall back to treating value as string literal
+                        Ok((name.clone(), Value::StringLit(value.clone())))
                     }
                 }
             } else {
