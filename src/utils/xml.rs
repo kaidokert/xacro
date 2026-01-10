@@ -66,7 +66,7 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
         // interface:audio as a xacro element.
         if let Some(xacro_uri) = ns.get("xacro") {
             let uri_str: &str = xacro_uri;
-            if !KNOWN_XACRO_URIS.contains(&uri_str) {
+            if !is_known_xacro_uri(uri_str) {
                 return Err(XacroError::MissingNamespace(format!(
                     "The 'xacro' prefix is bound to an unknown URI: '{}'. \
                      This might be a typo. Known xacro URIs are: {}",
