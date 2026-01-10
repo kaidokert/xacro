@@ -3,6 +3,181 @@ use crate::utils::lexer::{Lexer, TokenType};
 use pyisheval::{Interpreter, Value};
 use std::collections::HashMap;
 
+/// Find matching closing parenthesis, handling nested parentheses
+///
+/// # Arguments
+/// * `text` - String starting with '('
+/// * `start` - Index of opening '('
+///
+/// # Returns
+/// Index of matching ')', or None if not found
+fn find_matching_paren(
+    text: &str,
+    start: usize,
+) -> Option<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    if start >= chars.len() || chars[start] != '(' {
+        return None;
+    }
+
+    let mut depth = 0;
+    for (i, &ch) in chars.iter().enumerate().skip(start) {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Preprocess an expression to evaluate native math functions
+///
+/// pyisheval doesn't support native math functions like cos(), sin(), tan().
+/// This function finds math function calls, evaluates them using Rust's f64 methods,
+/// and substitutes the results back into the expression.
+///
+/// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil, radians (override)
+///
+/// # Arguments
+/// * `expr` - Expression that may contain math function calls
+/// * `interp` - Interpreter for evaluating function arguments
+///
+/// # Returns
+/// Expression with math function calls replaced by their computed values
+fn preprocess_math_functions(
+    expr: &str,
+    interp: &mut Interpreter,
+) -> Result<String, EvalError> {
+    // Math functions that take one argument
+    // IMPORTANT: Sort by length (longest first) to match acos before cos, asin before sin, etc.
+    let single_arg_funcs = [
+        "acos", "asin", "atan", "floor", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+    ];
+
+    let mut result = expr.to_string();
+
+    // Keep replacing until no more matches (handle nested calls from inside out)
+    let mut iteration = 0;
+    const MAX_ITERATIONS: usize = 100;
+
+    loop {
+        iteration += 1;
+        if iteration > MAX_ITERATIONS {
+            return Err(EvalError::PyishEval {
+                expr: expr.to_string(),
+                source: pyisheval::EvalError::ParseError(
+                    "Too many nested math function calls (possible infinite loop)".to_string(),
+                ),
+            });
+        }
+
+        let mut found_match = false;
+        let mut new_result = result.clone();
+
+        // Try each function type
+        for func_name in &single_arg_funcs {
+            // Find function_name( patterns
+            let mut search_pos = 0;
+            while let Some(pos) = result[search_pos..].find(func_name) {
+                let abs_pos = search_pos + pos;
+                let after_name = abs_pos + func_name.len();
+
+                // Check word boundary before function name (not alphanumeric or underscore)
+                let is_word_start = abs_pos == 0 || {
+                    let prev_char = result.as_bytes()[abs_pos - 1];
+                    !prev_char.is_ascii_alphanumeric() && prev_char != b'_'
+                };
+
+                // Check if followed by '(' and is at word boundary
+                if is_word_start
+                    && after_name < result.len()
+                    && result.as_bytes()[after_name] == b'('
+                {
+                    // Find matching closing parenthesis
+                    if let Some(close_pos) = find_matching_paren(&result, after_name) {
+                        found_match = true;
+
+                        // Extract argument (without parentheses)
+                        let arg = &result[after_name + 1..close_pos];
+
+                        // Evaluate argument
+                        let replacement = match interp.eval(arg) {
+                            Ok(Value::Number(n)) => {
+                                // Call the appropriate Rust math function
+                                let computed = match *func_name {
+                                    "cos" => n.cos(),
+                                    "sin" => n.sin(),
+                                    "tan" => n.tan(),
+                                    "acos" => n.acos(),
+                                    "asin" => n.asin(),
+                                    "atan" => n.atan(),
+                                    "sqrt" => n.sqrt(),
+                                    "abs" => n.abs(),
+                                    "floor" => n.floor(),
+                                    "ceil" => n.ceil(),
+                                    _ => n, // Shouldn't happen
+                                };
+
+                                // Format result
+                                format!("{}", computed)
+                            }
+                            Ok(other) => {
+                                log::warn!(
+                                    "Math function '{}' expected number, got: {:?}",
+                                    func_name,
+                                    other
+                                );
+                                // Keep original
+                                result[abs_pos..=close_pos].to_string()
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to evaluate argument for '{}({})'': {}",
+                                    func_name,
+                                    arg,
+                                    e
+                                );
+                                // Keep original
+                                result[abs_pos..=close_pos].to_string()
+                            }
+                        };
+
+                        // Build new result with replacement
+                        new_result = format!(
+                            "{}{}{}",
+                            &result[..abs_pos],
+                            replacement,
+                            &result[close_pos + 1..]
+                        );
+
+                        // Start over from the beginning with the new result
+                        break;
+                    }
+                }
+
+                search_pos = after_name;
+            }
+
+            if found_match {
+                result = new_result;
+                break;
+            }
+        }
+
+        if !found_match {
+            break;
+        }
+    }
+
+    Ok(result)
+}
+
 /// Initialize an Interpreter with builtin constants and math functions
 ///
 /// This ensures all interpreters have access to:
@@ -11,6 +186,10 @@ use std::collections::HashMap;
 ///
 /// Note: inf and nan are NOT initialized here - they are injected directly into
 /// the context HashMap in build_pyisheval_context() to bypass parsing issues.
+///
+/// Note: Native math functions (cos, sin, tan, etc.) are handled via preprocessing
+/// in evaluate_expression() rather than as lambda functions, because pyisheval
+/// cannot call native Rust functions.
 ///
 /// # Returns
 /// A fully initialized Interpreter ready for expression evaluation
@@ -283,7 +462,15 @@ pub fn evaluate_expression(
         return Ok(None);
     }
 
-    interp.eval_with_context(expr, context).map(Some)
+    // Preprocess math functions (cos, sin, tan, etc.) before evaluation
+    // This converts native math calls into computed values since pyisheval
+    // doesn't support calling native Rust functions
+    let preprocessed = preprocess_math_functions(expr, interp).map_err(|e| match e {
+        EvalError::PyishEval { source, .. } => source,
+        _ => pyisheval::EvalError::ParseError(e.to_string()),
+    })?;
+
+    interp.eval_with_context(&preprocessed, context).map(Some)
 }
 
 /// Evaluate text containing ${...} expressions using a provided interpreter
@@ -1016,5 +1203,104 @@ mod tests {
         props.insert("is_inf".to_string(), "lambda x: x == my_inf".to_string());
         // inf == inf should be true (1)
         assert_eq!(eval_text("${is_inf(inf)}", &props).unwrap(), "1");
+    }
+
+    // ===== Math Function Tests =====
+
+    #[test]
+    fn test_math_functions_cos_sin() {
+        let mut props = HashMap::new();
+        props.insert("pi".to_string(), "3.141592653589793".to_string());
+
+        let result = eval_text("${cos(0)}", &props).unwrap();
+        assert_eq!(result, "1");
+
+        let result = eval_text("${sin(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        let result = eval_text("${cos(pi)}", &props).unwrap();
+        assert_eq!(result, "-1");
+    }
+
+    #[test]
+    fn test_math_functions_nested() {
+        let mut props = HashMap::new();
+        props.insert("radius".to_string(), "0.5".to_string());
+
+        // radians() is a lambda defined in init_interpreter
+        let result = eval_text("${radius*cos(radians(0))}", &props).unwrap();
+        assert_eq!(result, "0.5");
+
+        let result = eval_text("${radius*cos(radians(60))}", &props).unwrap();
+        // cos(60°) = 0.5, so 0.5 * 0.5 = 0.25 (with floating point rounding)
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - 0.25).abs() < 1e-10,
+            "Expected ~0.25, got {}",
+            value
+        );
+    }
+
+    #[test]
+    fn test_math_functions_sqrt_abs() {
+        let props = HashMap::new();
+
+        let result = eval_text("${sqrt(16)}", &props).unwrap();
+        assert_eq!(result, "4");
+
+        let result = eval_text("${abs(-5)}", &props).unwrap();
+        assert_eq!(result, "5");
+
+        let result = eval_text("${abs(5)}", &props).unwrap();
+        assert_eq!(result, "5");
+    }
+
+    #[test]
+    fn test_math_functions_floor_ceil() {
+        let props = HashMap::new();
+
+        let result = eval_text("${floor(3.7)}", &props).unwrap();
+        assert_eq!(result, "3");
+
+        let result = eval_text("${ceil(3.2)}", &props).unwrap();
+        assert_eq!(result, "4");
+
+        let result = eval_text("${floor(-2.3)}", &props).unwrap();
+        assert_eq!(result, "-3");
+
+        let result = eval_text("${ceil(-2.3)}", &props).unwrap();
+        assert_eq!(result, "-2");
+    }
+
+    #[test]
+    fn test_math_functions_trig() {
+        let props = HashMap::new();
+
+        // tan(0) = 0
+        let result = eval_text("${tan(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // asin(0) = 0
+        let result = eval_text("${asin(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // acos(1) = 0
+        let result = eval_text("${acos(1)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // atan(0) = 0
+        let result = eval_text("${atan(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_math_functions_multiple_in_expression() {
+        let mut props = HashMap::new();
+        props.insert("x".to_string(), "3".to_string());
+        props.insert("y".to_string(), "4".to_string());
+
+        // sqrt(x^2 + y^2) = sqrt(9 + 16) = sqrt(25) = 5
+        let result = eval_text("${sqrt(x**2 + y**2)}", &props).unwrap();
+        assert_eq!(result, "5");
     }
 }

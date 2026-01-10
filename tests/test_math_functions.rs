@@ -94,3 +94,97 @@ fn test_degrees_with_negative() {
         "Should process degrees() with negative value",
     );
 }
+
+#[test]
+fn test_cos_sin_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${cos(0)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // cos(0) = 1.0
+    run_angle_test(input, 1.0, 1e-9, "Should process cos() function");
+}
+
+#[test]
+fn test_nested_math_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${cos(radians(0))}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // cos(radians(0)) = cos(0) = 1.0
+    run_angle_test(
+        input,
+        1.0,
+        1e-9,
+        "Should process nested math functions cos(radians(0))",
+    );
+}
+
+#[test]
+fn test_sqrt_function() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${sqrt(4)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // sqrt(4) = 2.0
+    run_angle_test(input, 2.0, 1e-9, "Should process sqrt() function");
+}
+
+#[test]
+fn test_abs_floor_ceil_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${abs(-3.7)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // abs(-3.7) = 3.7
+    run_angle_test(input, 3.7, 1e-9, "Should process abs() function");
+}
+
+#[test]
+fn test_trig_inverse_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${acos(1)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // acos(1) = 0.0
+    run_angle_test(input, 0.0, 1e-9, "Should process acos() function");
+}
+
+#[test]
+fn test_multiple_math_functions_in_expression() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${sqrt(4) + cos(0) + abs(-1)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // sqrt(4) + cos(0) + abs(-1) = 2.0 + 1.0 + 1.0 = 4.0
+    run_angle_test(
+        input,
+        4.0,
+        1e-9,
+        "Should process multiple math functions in expression",
+    );
+}
