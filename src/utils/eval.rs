@@ -94,15 +94,20 @@ fn preprocess_math_functions(
         }
 
         // Find first math function match using regex
-        let match_result = get_math_funcs_regex().find(&result).and_then(|m| {
-            let func_name = &result[m.start()..m.end()]
-                .trim_end_matches(|c: char| c.is_whitespace() || c == '(');
-            let paren_pos = m.end() - 1; // Position of '(' after optional whitespace
+        let match_result = get_math_funcs_regex().captures(&result).and_then(|caps| {
+            let whole_match = caps.get(0)?;
+            let func_name = caps.get(1)?.as_str();
+            let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
 
             // Find matching closing parenthesis
             find_matching_paren(&result, paren_pos).map(|close_pos| {
                 let arg = &result[paren_pos + 1..close_pos];
-                (m.start(), close_pos, func_name.to_string(), arg.to_string())
+                (
+                    whole_match.start(),
+                    close_pos,
+                    func_name.to_string(),
+                    arg.to_string(),
+                )
             })
         });
 
@@ -152,13 +157,8 @@ fn preprocess_math_functions(
                 }
             };
 
-            // Build new result with replacement
-            result = format!(
-                "{}{}{}",
-                &result[..start_pos],
-                replacement,
-                &result[close_pos + 1..]
-            );
+            // Replace in-place for better performance
+            result.replace_range(start_pos..=close_pos, &replacement);
         } else {
             // No more matches found
             break;
