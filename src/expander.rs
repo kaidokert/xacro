@@ -287,7 +287,10 @@ fn expand_element(
                     || elem.children.iter().any(|n| {
                         matches!(
                             n,
-                            xmltree::XMLNode::Element(_) | xmltree::XMLNode::Comment(_)
+                            xmltree::XMLNode::Element(_)
+                                | xmltree::XMLNode::Comment(_)
+                                | xmltree::XMLNode::CData(_)
+                                | xmltree::XMLNode::ProcessingInstruction(_, _)
                         )
                     });
 

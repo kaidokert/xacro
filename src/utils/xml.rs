@@ -189,7 +189,14 @@ pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
                 write!(&mut buffer, "<![CDATA[{}]]>", data)?;
             }
             XMLNode::ProcessingInstruction(target, data) => {
-                // Validate PI content per XML spec
+                // Validate PI target per XML spec
+                if target.eq_ignore_ascii_case("xml") {
+                    return Err(XacroError::InvalidXml(
+                        "Processing instruction target cannot be 'xml' (reserved)".into(),
+                    ));
+                }
+
+                // Validate PI data per XML spec
                 if let Some(d) = data {
                     if d.contains("?>") {
                         return Err(XacroError::InvalidXml(
@@ -293,5 +300,273 @@ mod tests {
         let serialized = serialize_nodes(&nodes).unwrap();
 
         assert_eq!(serialized, "Normal text 123");
+    }
+
+    #[test]
+    fn test_serialize_comment_invalid_double_dash() {
+        let nodes = vec![XMLNode::Comment("This -- is invalid".to_string())];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(result.is_err(), "Should reject comment containing '--'");
+        assert!(
+            result.unwrap_err().to_string().contains("--"),
+            "Error should mention '--'"
+        );
+    }
+
+    #[test]
+    fn test_serialize_comment_invalid_trailing_dash() {
+        let nodes = vec![XMLNode::Comment("Trailing dash-".to_string())];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(result.is_err(), "Should reject comment ending with '-'");
+    }
+
+    #[test]
+    fn test_serialize_comment_valid() {
+        let nodes = vec![XMLNode::Comment("Valid comment".to_string())];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        assert_eq!(serialized, "<!--Valid comment-->");
+    }
+
+    #[test]
+    fn test_serialize_cdata_invalid() {
+        let nodes = vec![XMLNode::CData("Invalid ]]> sequence".to_string())];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(result.is_err(), "Should reject CDATA containing ']]>'");
+        assert!(
+            result.unwrap_err().to_string().contains("]]>"),
+            "Error should mention ']]>'"
+        );
+    }
+
+    #[test]
+    fn test_serialize_cdata_valid() {
+        let nodes = vec![XMLNode::CData("Valid <raw> content".to_string())];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        assert_eq!(serialized, "<![CDATA[Valid <raw> content]]>");
+    }
+
+    #[test]
+    fn test_serialize_pi_invalid_target_xml() {
+        let nodes = vec![XMLNode::ProcessingInstruction(
+            "xml".to_string(),
+            Some("encoding=\"UTF-8\"".to_string()),
+        )];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(result.is_err(), "Should reject PI target 'xml' (reserved)");
+        assert!(
+            result.unwrap_err().to_string().contains("xml"),
+            "Error should mention 'xml'"
+        );
+    }
+
+    #[test]
+    fn test_serialize_pi_invalid_target_xml_case_insensitive() {
+        let nodes = vec![XMLNode::ProcessingInstruction(
+            "XmL".to_string(),
+            Some("data".to_string()),
+        )];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(
+            result.is_err(),
+            "Should reject PI target 'XmL' (case-insensitive)"
+        );
+    }
+
+    #[test]
+    fn test_serialize_pi_invalid_data() {
+        let nodes = vec![XMLNode::ProcessingInstruction(
+            "target".to_string(),
+            Some("Invalid ?> sequence".to_string()),
+        )];
+
+        let result = serialize_nodes(&nodes);
+
+        assert!(result.is_err(), "Should reject PI data containing '?>'");
+        assert!(
+            result.unwrap_err().to_string().contains("?>"),
+            "Error should mention '?>'"
+        );
+    }
+
+    #[test]
+    fn test_serialize_pi_valid_with_data() {
+        let nodes = vec![XMLNode::ProcessingInstruction(
+            "target".to_string(),
+            Some("instruction data".to_string()),
+        )];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        assert_eq!(serialized, "<?target instruction data?>");
+    }
+
+    #[test]
+    fn test_serialize_pi_valid_no_data() {
+        let nodes = vec![XMLNode::ProcessingInstruction("target".to_string(), None)];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        assert_eq!(serialized, "<?target?>");
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_empty() {
+        let result = parse_xml_fragment("").unwrap();
+        assert!(result.is_empty(), "Empty string should return empty vec");
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_whitespace_only() {
+        let result = parse_xml_fragment("   \n\t  ").unwrap();
+        assert!(
+            result.is_empty(),
+            "Whitespace-only string should return empty vec"
+        );
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_single_element() {
+        let result = parse_xml_fragment("<link name=\"test\"/>").unwrap();
+        assert_eq!(result.len(), 1, "Should parse single element");
+
+        let elem = match &result[0] {
+            XMLNode::Element(e) => e,
+            _ => panic!("Expected element node"),
+        };
+        assert_eq!(elem.name, "link");
+        assert_eq!(
+            elem.attributes.get(&xmltree::AttributeName::local("name")),
+            Some(&"test".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_multiple_elements() {
+        let result = parse_xml_fragment("<link name=\"a\"/><link name=\"b\"/>").unwrap();
+        assert_eq!(result.len(), 2, "Should parse multiple elements");
+
+        let elem1 = match &result[0] {
+            XMLNode::Element(e) => e,
+            _ => panic!("Expected element node"),
+        };
+        let elem2 = match &result[1] {
+            XMLNode::Element(e) => e,
+            _ => panic!("Expected element node"),
+        };
+
+        assert_eq!(
+            elem1.attributes.get(&xmltree::AttributeName::local("name")),
+            Some(&"a".to_string())
+        );
+        assert_eq!(
+            elem2.attributes.get(&xmltree::AttributeName::local("name")),
+            Some(&"b".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_mixed_content() {
+        let result = parse_xml_fragment("Text before<elem/>Text after").unwrap();
+        assert_eq!(result.len(), 3, "Should parse mixed content");
+
+        match &result[0] {
+            XMLNode::Text(t) => assert_eq!(t, "Text before"),
+            _ => panic!("Expected text node"),
+        }
+
+        match &result[1] {
+            XMLNode::Element(e) => assert_eq!(e.name, "elem"),
+            _ => panic!("Expected element node"),
+        }
+
+        match &result[2] {
+            XMLNode::Text(t) => assert_eq!(t, "Text after"),
+            _ => panic!("Expected text node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_with_comment() {
+        let result = parse_xml_fragment("<!-- comment --><elem/>").unwrap();
+        assert_eq!(result.len(), 2, "Should parse comment and element");
+
+        match &result[0] {
+            XMLNode::Comment(c) => assert_eq!(c, " comment "),
+            _ => panic!("Expected comment node"),
+        }
+
+        match &result[1] {
+            XMLNode::Element(e) => assert_eq!(e.name, "elem"),
+            _ => panic!("Expected element node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_with_cdata() {
+        let result = parse_xml_fragment("<![CDATA[raw content]]><elem/>").unwrap();
+        assert_eq!(result.len(), 2, "Should parse CDATA and element");
+
+        match &result[0] {
+            XMLNode::CData(d) => assert_eq!(d, "raw content"),
+            _ => panic!("Expected CDATA node"),
+        }
+
+        match &result[1] {
+            XMLNode::Element(e) => assert_eq!(e.name, "elem"),
+            _ => panic!("Expected element node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_with_pi() {
+        let result = parse_xml_fragment("<?target data?><elem/>").unwrap();
+        assert_eq!(result.len(), 2, "Should parse PI and element");
+
+        match &result[0] {
+            XMLNode::ProcessingInstruction(t, d) => {
+                assert_eq!(t, "target");
+                assert_eq!(d.as_deref(), Some("data"));
+            }
+            _ => panic!("Expected PI node"),
+        }
+
+        match &result[1] {
+            XMLNode::Element(e) => assert_eq!(e.name, "elem"),
+            _ => panic!("Expected element node"),
+        }
+    }
+
+    #[test]
+    fn test_parse_xml_fragment_preserves_xacro_directives() {
+        let result =
+            parse_xml_fragment("<xacro:if value=\"true\"><link name=\"test\"/></xacro:if>")
+                .unwrap();
+        assert_eq!(result.len(), 1, "Should parse xacro directive");
+
+        let elem = match &result[0] {
+            XMLNode::Element(e) => e,
+            _ => panic!("Expected element node"),
+        };
+
+        assert_eq!(elem.name, "if");
+        assert_eq!(
+            elem.namespace.as_deref(),
+            Some(XACRO_NAMESPACE),
+            "Should preserve xacro namespace"
+        );
     }
 }
