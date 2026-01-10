@@ -427,18 +427,14 @@ pub fn build_pyisheval_context(
             // to avoid unnecessary parse errors on common string values
             let trimmed = value.trim();
             if trimmed.starts_with('[') || trimmed.starts_with('{') || trimmed.starts_with('(') {
-                match interp.eval(value) {
+                match interp.eval(trimmed) {
                     Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
                     Err(e) => {
                         // Distinguish expected parse failures from unexpected runtime errors
                         use pyisheval::EvalError as PyEvalError;
                         match e {
-                            // Expected: property value is not valid Python syntax
-                            PyEvalError::ParseError(_) => {
-                                Ok((name.clone(), Value::StringLit(value.clone())))
-                            }
-                            // Expected: property value references undefined variable
-                            PyEvalError::UndefinedVar(_) => {
+                            // Expected: property value is not valid Python syntax or references undefined variable
+                            PyEvalError::ParseError(_) | PyEvalError::UndefinedVar(_) => {
                                 Ok((name.clone(), Value::StringLit(value.clone())))
                             }
                             // Unexpected: runtime/type errors may indicate issues with property definitions
