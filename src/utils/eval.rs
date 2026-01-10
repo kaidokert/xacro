@@ -419,8 +419,16 @@ pub fn build_pyisheval_context(
                 return Ok((name.clone(), lambda_value));
             }
 
-            // Default: store as string literal
-            Ok((name.clone(), Value::StringLit(value.clone())))
+            // Try to evaluate as Python expression (lists, dicts, etc.)
+            // This allows properties like "[1, 2, 3]" to be stored as actual lists,
+            // so that indexing like arr[0] works correctly
+            match interp.eval(value) {
+                Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
+                Err(_) => {
+                    // Evaluation failed, treat as string literal
+                    Ok((name.clone(), Value::StringLit(value.clone())))
+                }
+            }
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
 
