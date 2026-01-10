@@ -1,7 +1,9 @@
 use crate::features::properties::BUILTIN_CONSTANTS;
 use crate::utils::lexer::{Lexer, TokenType};
 use pyisheval::{Interpreter, Value};
+use regex::Regex;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Find matching closing parenthesis, handling nested parentheses
 ///
@@ -39,13 +41,30 @@ fn find_matching_paren(
     None
 }
 
+/// Regex pattern for matching math function calls with word boundaries
+static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Get the math functions regex, initializing it on first access
+///
+/// Matches function names at word boundaries followed by optional whitespace and '('.
+fn get_math_funcs_regex() -> &'static Regex {
+    MATH_FUNCS_REGEX.get_or_init(|| {
+        let funcs = [
+            "acos", "asin", "atan", "floor", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+        ];
+        // Use \b for word boundaries, capture function name, allow optional whitespace before '('
+        let pattern = format!(r"\b({})\s*\(", funcs.join("|"));
+        Regex::new(&pattern).expect("Math functions regex should be valid")
+    })
+}
+
 /// Preprocess an expression to evaluate native math functions
 ///
 /// pyisheval doesn't support native math functions like cos(), sin(), tan().
 /// This function finds math function calls, evaluates them using Rust's f64 methods,
 /// and substitutes the results back into the expression.
 ///
-/// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil, radians (override)
+/// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil
 ///
 /// # Arguments
 /// * `expr` - Expression that may contain math function calls
@@ -57,13 +76,6 @@ fn preprocess_math_functions(
     expr: &str,
     interp: &mut Interpreter,
 ) -> Result<String, EvalError> {
-    // Math functions that take one argument
-    // Order doesn't matter since we check word boundaries to avoid matching
-    // cos in acos, sin in asin, etc.
-    let single_arg_funcs = [
-        "acos", "asin", "atan", "floor", "ceil", "sqrt", "cos", "sin", "tan", "abs",
-    ];
-
     let mut result = expr.to_string();
 
     // Keep replacing until no more matches (handle nested calls from inside out)
@@ -81,107 +93,74 @@ fn preprocess_math_functions(
             });
         }
 
-        let mut found_match = false;
-        let mut new_result = String::new();
+        // Find first math function match using regex
+        let match_result = get_math_funcs_regex().find(&result).and_then(|m| {
+            let func_name = &result[m.start()..m.end()]
+                .trim_end_matches(|c: char| c.is_whitespace() || c == '(');
+            let paren_pos = m.end() - 1; // Position of '(' after optional whitespace
 
-        // Try each function type
-        for func_name in &single_arg_funcs {
-            // Find function_name( patterns
-            let mut search_pos = 0;
-            while let Some(pos) = result[search_pos..].find(func_name) {
-                let abs_pos = search_pos + pos;
-                let after_name = abs_pos + func_name.len();
+            // Find matching closing parenthesis
+            find_matching_paren(&result, paren_pos).map(|close_pos| {
+                let arg = &result[paren_pos + 1..close_pos];
+                (m.start(), close_pos, func_name.to_string(), arg.to_string())
+            })
+        });
 
-                // Check word boundary before function name (not alphanumeric or underscore)
-                // Use char-based checks for UTF-8 safety
-                let is_word_start = abs_pos == 0 || {
-                    result[..abs_pos]
-                        .chars()
-                        .next_back()
-                        .map(|c| !c.is_alphanumeric() && c != '_')
-                        .unwrap_or(true)
-                };
+        if let Some((start_pos, close_pos, func_name, arg)) = match_result {
+            // Evaluate argument
+            let replacement = match interp.eval(&arg) {
+                Ok(Value::Number(n)) => {
+                    // Call the appropriate Rust math function
+                    let computed = match func_name.as_str() {
+                        "cos" => n.cos(),
+                        "sin" => n.sin(),
+                        "tan" => n.tan(),
+                        "acos" => n.acos(),
+                        "asin" => n.asin(),
+                        "atan" => n.atan(),
+                        "sqrt" => n.sqrt(),
+                        "abs" => n.abs(),
+                        "floor" => n.floor(),
+                        "ceil" => n.ceil(),
+                        _ => unreachable!(
+                            "Function '{}' matched regex but not in match statement",
+                            func_name
+                        ),
+                    };
 
-                // Check if followed by '(' and is at word boundary
-                if is_word_start
-                    && after_name < result.len()
-                    && result[after_name..].starts_with('(')
-                {
-                    // Find matching closing parenthesis
-                    if let Some(close_pos) = find_matching_paren(&result, after_name) {
-                        found_match = true;
-
-                        // Extract argument (without parentheses)
-                        let arg = &result[after_name + 1..close_pos];
-
-                        // Evaluate argument
-                        let replacement = match interp.eval(arg) {
-                            Ok(Value::Number(n)) => {
-                                // Call the appropriate Rust math function
-                                let computed = match *func_name {
-                                    "cos" => n.cos(),
-                                    "sin" => n.sin(),
-                                    "tan" => n.tan(),
-                                    "acos" => n.acos(),
-                                    "asin" => n.asin(),
-                                    "atan" => n.atan(),
-                                    "sqrt" => n.sqrt(),
-                                    "abs" => n.abs(),
-                                    "floor" => n.floor(),
-                                    "ceil" => n.ceil(),
-                                    _ => unreachable!(
-                                        "Function '{}' is in single_arg_funcs but not in match statement",
-                                        func_name
-                                    ),
-                                };
-
-                                // Format result
-                                format!("{}", computed)
-                            }
-                            Ok(other) => {
-                                log::warn!(
-                                    "Math function '{}' expected number, got: {:?}",
-                                    func_name,
-                                    other
-                                );
-                                // Keep original
-                                result[abs_pos..=close_pos].to_string()
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "Failed to evaluate argument for '{}({})': {}",
-                                    func_name,
-                                    arg,
-                                    e
-                                );
-                                // Keep original
-                                result[abs_pos..=close_pos].to_string()
-                            }
-                        };
-
-                        // Build new result with replacement
-                        new_result = format!(
-                            "{}{}{}",
-                            &result[..abs_pos],
-                            replacement,
-                            &result[close_pos + 1..]
-                        );
-
-                        // Start over from the beginning with the new result
-                        break;
-                    }
+                    // Format result
+                    format!("{}", computed)
                 }
+                Ok(other) => {
+                    log::warn!(
+                        "Math function '{}' expected number, got: {:?}",
+                        func_name,
+                        other
+                    );
+                    // Keep original
+                    result[start_pos..=close_pos].to_string()
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to evaluate argument for '{}({})': {}",
+                        func_name,
+                        arg,
+                        e
+                    );
+                    // Keep original
+                    result[start_pos..=close_pos].to_string()
+                }
+            };
 
-                search_pos = after_name;
-            }
-
-            if found_match {
-                result = new_result;
-                break;
-            }
-        }
-
-        if !found_match {
+            // Build new result with replacement
+            result = format!(
+                "{}{}{}",
+                &result[..start_pos],
+                replacement,
+                &result[close_pos + 1..]
+            );
+        } else {
+            // No more matches found
             break;
         }
     }
