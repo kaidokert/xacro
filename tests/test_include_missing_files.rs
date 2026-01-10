@@ -206,17 +206,13 @@ fn test_include_optional_glob_both_attributes() {
 
 #[test]
 fn test_include_glob_with_actual_matches() {
-    // Create a temporary test file
-    use std::fs;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
-    let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join("test_include_match.xacro");
-
-    // Write a simple xacro file
-    let mut file = fs::File::create(&test_file).unwrap();
+    // Create a temporary test file with automatic cleanup
+    let mut temp_file = NamedTempFile::new().unwrap();
     writeln!(
-        file,
+        temp_file,
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <link name="included_link"/>
@@ -224,8 +220,12 @@ fn test_include_glob_with_actual_matches() {
     )
     .unwrap();
 
-    // Test glob pattern that matches the file
-    let glob_pattern = temp_dir.join("test_include_*.xacro");
+    // Construct glob pattern that matches our temp file
+    let temp_path = temp_file.path();
+    let temp_dir = temp_path.parent().unwrap();
+    let file_name = temp_path.file_name().unwrap().to_str().unwrap();
+    let glob_pattern = temp_dir.join(format!("{}*", &file_name[..8]));
+
     let input = format!(
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -237,9 +237,6 @@ fn test_include_glob_with_actual_matches() {
 
     let processor = XacroProcessor::new();
     let result = processor.run_from_string(&input);
-
-    // Clean up
-    let _ = fs::remove_file(&test_file);
 
     // Should succeed and include the matched file
     assert!(
@@ -257,6 +254,7 @@ fn test_include_glob_with_actual_matches() {
         output.contains(r#"<link name="base""#),
         "Should also include base content"
     );
+    // temp_file automatically cleaned up when dropped
 }
 
 // ============================================================================

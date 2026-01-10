@@ -248,6 +248,64 @@ pub fn expand_node(
     }
 }
 
+/// Process a single include file (common logic for glob and non-glob includes)
+fn process_single_include(
+    file_path: PathBuf,
+    ctx: &XacroContext,
+) -> Result<Vec<XMLNode>, XacroError> {
+    // Check for circular includes
+    if ctx.include_stack.borrow().contains(&file_path) {
+        return Err(XacroError::Include(format!(
+            "Circular include detected: {}",
+            file_path.display()
+        )));
+    }
+
+    // Read and parse included file
+    let content = std::fs::read_to_string(&file_path).map_err(|e| {
+        XacroError::Include(format!(
+            "Failed to read file '{}': {}",
+            file_path.display(),
+            e
+        ))
+    })?;
+
+    let included_root = Element::parse(content.as_bytes()).map_err(|e| {
+        XacroError::Include(format!(
+            "Failed to parse XML in file '{}': {}",
+            file_path.display(),
+            e
+        ))
+    })?;
+
+    // Extract xacro namespace from included file
+    let included_ns = extract_xacro_namespace(&included_root)?;
+
+    // Push to include stack with RAII guard for automatic cleanup
+    let old_base_path = ctx.base_path.borrow().clone();
+    let mut new_base_path = file_path.clone();
+    new_base_path.pop();
+
+    // Update state in separate scope to release borrows
+    {
+        *ctx.base_path.borrow_mut() = new_base_path;
+        ctx.include_stack.borrow_mut().push(file_path.clone());
+        ctx.namespace_stack
+            .borrow_mut()
+            .push((file_path.clone(), included_ns));
+    }
+
+    let _include_guard = IncludeGuard {
+        base_path: &ctx.base_path,
+        include_stack: &ctx.include_stack,
+        namespace_stack: &ctx.namespace_stack,
+        old_base_path,
+    };
+
+    // Expand children and return
+    expand_children_list(included_root.children, ctx)
+}
+
 /// Expand an element node
 fn expand_element(
     mut elem: Element,
@@ -457,80 +515,29 @@ fn expand_element(
             };
 
             // Find matches
-            let matches: Vec<PathBuf> = glob::glob(&glob_pattern)
+            let mut matches: Vec<PathBuf> = glob::glob(&glob_pattern)
                 .map_err(|e| {
                     XacroError::Include(format!("Invalid glob pattern '{}': {}", filename, e))
                 })?
                 .filter_map(Result::ok)
                 .collect();
 
-            // No matches - warn and continue (Python behavior)
+            // No matches - warn (unless optional) and continue (Python behavior)
             if matches.is_empty() {
-                eprintln!(
-                    "warning: Include tag's filename spec \"{}\" matched no files.",
-                    filename
-                );
+                if !optional {
+                    log::warn!(
+                        "Include tag's filename spec \"{}\" matched no files.",
+                        filename
+                    );
+                }
                 return Ok(vec![]);
             }
 
             // Process all matches in sorted order (Python sorts matches)
+            matches.sort();
             let mut result = Vec::new();
             for file_path in matches {
-                // Process each matched file in its own scope for proper cleanup
-                let expanded = {
-                    // Check for circular includes
-                    if ctx.include_stack.borrow().contains(&file_path) {
-                        return Err(XacroError::Include(format!(
-                            "Circular include detected: {}",
-                            file_path.display()
-                        )));
-                    }
-
-                    // Read and parse included file
-                    let content = std::fs::read_to_string(&file_path).map_err(|e| {
-                        XacroError::Include(format!(
-                            "Failed to read file '{}': {}",
-                            file_path.display(),
-                            e
-                        ))
-                    })?;
-
-                    let included_root = Element::parse(content.as_bytes()).map_err(|e| {
-                        XacroError::Include(format!(
-                            "Failed to parse XML in file '{}': {}",
-                            file_path.display(),
-                            e
-                        ))
-                    })?;
-
-                    // Extract xacro namespace from included file
-                    let included_ns = extract_xacro_namespace(&included_root)?;
-
-                    // Push to include stack with RAII guard
-                    let old_base_path = ctx.base_path.borrow().clone();
-                    let mut new_base_path = file_path.clone();
-                    new_base_path.pop();
-
-                    // Update state in separate scope to release borrows
-                    {
-                        *ctx.base_path.borrow_mut() = new_base_path;
-                        ctx.include_stack.borrow_mut().push(file_path.clone());
-                        ctx.namespace_stack
-                            .borrow_mut()
-                            .push((file_path.clone(), included_ns));
-                    }
-
-                    let _include_guard = IncludeGuard {
-                        base_path: &ctx.base_path,
-                        include_stack: &ctx.include_stack,
-                        namespace_stack: &ctx.namespace_stack,
-                        old_base_path,
-                    };
-
-                    // Expand children and return
-                    expand_children_list(included_root.children, ctx)?
-                };
-
+                let expanded = process_single_include(file_path, ctx)?;
                 result.extend(expanded);
             }
 
@@ -541,64 +548,13 @@ fn expand_element(
         // Resolve path relative to base_path
         let file_path = ctx.base_path.borrow().join(&filename);
 
-        // Check for circular includes
-        if ctx.include_stack.borrow().contains(&file_path) {
-            return Err(XacroError::Include(format!(
-                "Circular include detected: {}",
-                file_path.display()
-            )));
+        // Case 2: optional="true" - check if file exists before processing
+        if optional && !file_path.exists() {
+            return Ok(vec![]);
         }
 
-        // Try to read the file
-        let content = match std::fs::read_to_string(&file_path) {
-            Ok(content) => content,
-            Err(e) => {
-                // Case 2: optional="true" - silent skip
-                if e.kind() == std::io::ErrorKind::NotFound && optional {
-                    return Ok(vec![]);
-                }
-                // Case 3: Regular missing file - error
-                return Err(XacroError::Include(format!(
-                    "Failed to read file '{}': {}",
-                    file_path.display(),
-                    e
-                )));
-            }
-        };
-
-        let included_root = Element::parse(content.as_bytes()).map_err(|e| {
-            XacroError::Include(format!(
-                "Failed to parse XML in file '{}': {}",
-                file_path.display(),
-                e
-            ))
-        })?;
-
-        // Extract xacro namespace from included file (may differ from root file)
-        let included_ns = extract_xacro_namespace(&included_root)?;
-
-        // Push to include stack, namespace stack, and update base_path with RAII guard for automatic cleanup
-        let old_base_path = ctx.base_path.borrow().clone();
-        // Use PathBuf::pop() to get parent directory - handles root directories correctly
-        // (unlike parent().unwrap_or() which would incorrectly fall back to old_base_path at root)
-        let mut new_base_path = file_path.clone();
-        new_base_path.pop(); // Removes filename, leaving parent directory (or root if already at root)
-        *ctx.base_path.borrow_mut() = new_base_path;
-        ctx.include_stack.borrow_mut().push(file_path.clone());
-        ctx.namespace_stack
-            .borrow_mut()
-            .push((file_path.clone(), included_ns));
-
-        let _include_guard = IncludeGuard {
-            base_path: &ctx.base_path,
-            include_stack: &ctx.include_stack,
-            namespace_stack: &ctx.namespace_stack,
-            old_base_path,
-        };
-
-        // Recursively expand all children of the included file
-        // Guard will restore base_path and pop include_stack and namespace_stack on scope exit, even if panic occurs
-        return expand_children_list(included_root.children, ctx);
+        // Case 3: Process the include (will error if file not found)
+        return process_single_include(file_path, ctx);
     }
 
     // 5. Block insertion
