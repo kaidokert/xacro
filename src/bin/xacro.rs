@@ -41,7 +41,7 @@ struct Args {
     )]
     verbosity_level: Option<u8>,
 
-    /// Python xacro compatibility mode (default: all)
+    /// Python xacro compatibility mode (disabled by default)
     ///
     /// Accepts comma-separated list of modes or no value for all:
     ///   --compat              Enable all compatibility modes
@@ -137,13 +137,11 @@ fn main() -> anyhow::Result<()> {
     let mappings = args.parse_mappings();
 
     // Parse compat mode from optional string argument
-    let compat_mode = if let Some(compat_str) = &args.compat {
-        compat_str
-            .parse()
-            .expect("CompatMode::from_str is infallible")
-    } else {
-        xacro::CompatMode::none()
-    };
+    let compat_mode = args
+        .compat
+        .as_deref()
+        .map(|s| s.parse().unwrap())
+        .unwrap_or_default();
 
     // Process file with mappings and compat mode
     let processor = xacro::XacroProcessor::new_with_compat_mode(mappings, compat_mode);

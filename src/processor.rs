@@ -9,7 +9,7 @@ use core::str::FromStr;
 use std::collections::HashMap;
 
 /// Python xacro compatibility modes
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CompatMode {
     /// Accept duplicate macro parameters (last declaration wins)
     pub duplicate_params: bool,
@@ -49,7 +49,11 @@ impl FromStr for CompatMode {
         let mut mode = Self::none();
 
         for part in s.split(',') {
-            match part.trim() {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            match part {
                 "all" => return Ok(Self::all()),
                 "namespace" => mode.namespace = true,
                 "duplicate_params" => mode.duplicate_params = true,
