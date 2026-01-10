@@ -1,7 +1,186 @@
 use crate::features::properties::BUILTIN_CONSTANTS;
 use crate::utils::lexer::{Lexer, TokenType};
 use pyisheval::{Interpreter, Value};
+use regex::Regex;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// Find matching closing parenthesis, handling nested parentheses
+///
+/// # Arguments
+/// * `text` - String to search
+/// * `start` - Byte index of opening '('
+///
+/// # Returns
+/// Byte index of matching ')', or None if not found
+///
+/// Note: Uses byte-based iteration since parentheses are ASCII characters
+/// and will never appear as continuation bytes in UTF-8.
+fn find_matching_paren(
+    text: &str,
+    start: usize,
+) -> Option<usize> {
+    let bytes = text.as_bytes();
+    if start >= bytes.len() || bytes[start] != b'(' {
+        return None;
+    }
+
+    let mut depth = 0;
+    for (i, &ch) in bytes.iter().enumerate().skip(start) {
+        match ch {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// List of supported math functions for preprocessing
+///
+/// These functions are preprocessed before expression evaluation since pyisheval
+/// doesn't provide native math functions. Functions are ordered by length (longest first)
+/// for defensive regex alternation, though with word boundaries this isn't strictly necessary.
+///
+/// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
+/// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
+pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
+    "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+];
+
+/// Regex pattern for matching math function calls with word boundaries
+static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Get the math functions regex, initializing it on first access
+///
+/// Matches function names at word boundaries followed by optional whitespace and '('.
+fn get_math_funcs_regex() -> &'static Regex {
+    MATH_FUNCS_REGEX.get_or_init(|| {
+        // Use \b for word boundaries, capture function name, allow optional whitespace before '('
+        let pattern = format!(r"\b({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
+        Regex::new(&pattern).expect("Math functions regex should be valid")
+    })
+}
+
+/// Preprocess an expression to evaluate native math functions
+///
+/// pyisheval doesn't support native math functions like cos(), sin(), tan().
+/// This function finds math function calls, evaluates them using Rust's f64 methods,
+/// and substitutes the results back into the expression.
+///
+/// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil
+///
+/// # Limitations
+/// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
+/// This can cause incorrect evaluation: an expression like `'cos(0)'` will be
+/// preprocessed to `'1.0'` instead of remaining as the string `"cos(0)"`.
+/// A full fix would require a proper parser to track string literal context.
+/// For now, users should avoid math function names inside string literals.
+///
+/// # Arguments
+/// * `expr` - Expression that may contain math function calls
+/// * `interp` - Interpreter for evaluating function arguments
+///
+/// # Returns
+/// Expression with math function calls replaced by their computed values
+fn preprocess_math_functions(
+    expr: &str,
+    interp: &mut Interpreter,
+) -> Result<String, EvalError> {
+    let mut result = expr.to_string();
+
+    // Keep replacing until no more matches (handle nested calls from inside out)
+    let mut iteration = 0;
+    const MAX_ITERATIONS: usize = 100;
+
+    loop {
+        iteration += 1;
+        if iteration > MAX_ITERATIONS {
+            return Err(EvalError::PyishEval {
+                expr: expr.to_string(),
+                source: pyisheval::EvalError::ParseError(
+                    "Too many nested math function calls (possible infinite loop)".to_string(),
+                ),
+            });
+        }
+
+        // Collect all function matches to iterate right-to-left (innermost first)
+        let captures: Vec<_> = get_math_funcs_regex().captures_iter(&result).collect();
+        if captures.is_empty() {
+            break;
+        }
+
+        let mut made_replacement = false;
+        // Iterate from right to left to find the innermost, evaluatable function call
+        for caps in captures.iter().rev() {
+            // Safe extraction of capture groups (should always succeed due to regex structure)
+            let (whole_match, func_name) = match (caps.get(0), caps.get(1)) {
+                (Some(m), Some(f)) => (m, f.as_str()),
+                _ => continue, // Skip malformed captures
+            };
+            let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
+
+            // Find matching closing parenthesis
+            let close_pos = match find_matching_paren(&result, paren_pos) {
+                Some(pos) => pos,
+                None => continue, // Skip if no matching paren
+            };
+
+            let arg = &result[paren_pos + 1..close_pos];
+
+            // Try to evaluate the argument - only replace if successful
+            if let Ok(Value::Number(n)) = interp.eval(arg) {
+                // Validate domain for inverse trig functions (matches Python xacro behavior)
+                if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
+                    log::warn!(
+                        "{}({}) domain error: argument must be in [-1, 1], got {}",
+                        func_name,
+                        arg,
+                        n
+                    );
+                    continue; // Skip this match, try next one
+                }
+
+                // Call the appropriate Rust math function
+                let computed = match func_name {
+                    "cos" => n.cos(),
+                    "sin" => n.sin(),
+                    "tan" => n.tan(),
+                    "acos" => n.acos(),
+                    "asin" => n.asin(),
+                    "atan" => n.atan(),
+                    "sqrt" => n.sqrt(),
+                    "abs" => n.abs(),
+                    "floor" => n.floor(),
+                    "ceil" => n.ceil(),
+                    _ => unreachable!(
+                        "Function '{}' matched regex but not in match statement",
+                        func_name
+                    ),
+                };
+
+                let replacement = format!("{}", computed);
+                result.replace_range(whole_match.start()..=close_pos, &replacement);
+                made_replacement = true;
+                // A replacement was made, restart loop to rescan the string
+                break;
+            }
+            // If eval fails or returns non-number, continue to next match
+        }
+
+        if !made_replacement {
+            // No successful replacements possible, done processing
+            break;
+        }
+    }
+
+    Ok(result)
+}
 
 /// Initialize an Interpreter with builtin constants and math functions
 ///
@@ -11,6 +190,10 @@ use std::collections::HashMap;
 ///
 /// Note: inf and nan are NOT initialized here - they are injected directly into
 /// the context HashMap in build_pyisheval_context() to bypass parsing issues.
+///
+/// Note: Native math functions (cos, sin, tan, etc.) are handled via preprocessing
+/// in evaluate_expression() rather than as lambda functions, because pyisheval
+/// cannot call native Rust functions.
 ///
 /// # Returns
 /// A fully initialized Interpreter ready for expression evaluation
@@ -283,7 +466,15 @@ pub fn evaluate_expression(
         return Ok(None);
     }
 
-    interp.eval_with_context(expr, context).map(Some)
+    // Preprocess math functions (cos, sin, tan, etc.) before evaluation
+    // This converts native math calls into computed values since pyisheval
+    // doesn't support calling native Rust functions
+    let preprocessed = preprocess_math_functions(expr, interp).map_err(|e| match e {
+        EvalError::PyishEval { source, .. } => source,
+        _ => pyisheval::EvalError::ParseError(e.to_string()),
+    })?;
+
+    interp.eval_with_context(&preprocessed, context).map(Some)
 }
 
 /// Evaluate text containing ${...} expressions using a provided interpreter
@@ -1016,5 +1207,122 @@ mod tests {
         props.insert("is_inf".to_string(), "lambda x: x == my_inf".to_string());
         // inf == inf should be true (1)
         assert_eq!(eval_text("${is_inf(inf)}", &props).unwrap(), "1");
+    }
+
+    // ===== Math Function Tests =====
+
+    #[test]
+    fn test_math_functions_cos_sin() {
+        let mut props = HashMap::new();
+        props.insert("pi".to_string(), "3.141592653589793".to_string());
+
+        let result = eval_text("${cos(0)}", &props).unwrap();
+        assert_eq!(result, "1");
+
+        let result = eval_text("${sin(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        let result = eval_text("${cos(pi)}", &props).unwrap();
+        assert_eq!(result, "-1");
+    }
+
+    #[test]
+    fn test_math_functions_nested() {
+        let mut props = HashMap::new();
+        props.insert("radius".to_string(), "0.5".to_string());
+
+        // radians() is a lambda defined in init_interpreter
+        let result = eval_text("${radius*cos(radians(0))}", &props).unwrap();
+        assert_eq!(result, "0.5");
+
+        let result = eval_text("${radius*cos(radians(60))}", &props).unwrap();
+        // cos(60°) = 0.5, so 0.5 * 0.5 = 0.25 (with floating point rounding)
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - 0.25).abs() < 1e-10,
+            "Expected ~0.25, got {}",
+            value
+        );
+    }
+
+    #[test]
+    fn test_math_functions_sqrt_abs() {
+        let props = HashMap::new();
+
+        let result = eval_text("${sqrt(16)}", &props).unwrap();
+        assert_eq!(result, "4");
+
+        let result = eval_text("${abs(-5)}", &props).unwrap();
+        assert_eq!(result, "5");
+
+        let result = eval_text("${abs(5)}", &props).unwrap();
+        assert_eq!(result, "5");
+    }
+
+    #[test]
+    fn test_math_functions_floor_ceil() {
+        let props = HashMap::new();
+
+        let result = eval_text("${floor(3.7)}", &props).unwrap();
+        assert_eq!(result, "3");
+
+        let result = eval_text("${ceil(3.2)}", &props).unwrap();
+        assert_eq!(result, "4");
+
+        let result = eval_text("${floor(-2.3)}", &props).unwrap();
+        assert_eq!(result, "-3");
+
+        let result = eval_text("${ceil(-2.3)}", &props).unwrap();
+        assert_eq!(result, "-2");
+    }
+
+    #[test]
+    fn test_math_functions_trig() {
+        let props = HashMap::new();
+
+        // tan(0) = 0
+        let result = eval_text("${tan(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // asin(0) = 0
+        let result = eval_text("${asin(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // acos(1) = 0
+        let result = eval_text("${acos(1)}", &props).unwrap();
+        assert_eq!(result, "0");
+
+        // atan(0) = 0
+        let result = eval_text("${atan(0)}", &props).unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_math_functions_multiple_in_expression() {
+        let mut props = HashMap::new();
+        props.insert("x".to_string(), "3".to_string());
+        props.insert("y".to_string(), "4".to_string());
+
+        // sqrt(x^2 + y^2) = sqrt(9 + 16) = sqrt(25) = 5
+        let result = eval_text("${sqrt(x**2 + y**2)}", &props).unwrap();
+        assert_eq!(result, "5");
+    }
+
+    /// Test to prevent divergence between regex pattern and match statement
+    ///
+    /// This ensures all functions in SUPPORTED_MATH_FUNCS have corresponding implementations,
+    /// catching bugs at test time rather than runtime.
+    #[test]
+    fn test_math_functions_regex_match_consistency() {
+        let props = HashMap::new();
+
+        // Test each function in SUPPORTED_MATH_FUNCS to ensure it's implemented
+        for func in SUPPORTED_MATH_FUNCS {
+            let expr = format!("${{{}(0)}}", func);
+            let result = eval_text(&expr, &props);
+
+            // Ensure evaluation succeeds - unreachable!() would panic if function is missing
+            result.expect("Evaluation should succeed for all supported math functions");
+        }
     }
 }
