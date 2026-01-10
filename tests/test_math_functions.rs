@@ -213,3 +213,74 @@ fn test_multiple_math_functions_in_expression() {
         "Should process multiple math functions in expression",
     );
 }
+
+#[test]
+fn test_deeply_nested_math_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${floor(abs(sqrt(cos(0))))}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // cos(0) = 1.0, sqrt(1.0) = 1.0, abs(1.0) = 1.0, floor(1.0) = 1.0
+    run_angle_test(
+        input,
+        1.0,
+        1e-9,
+        "Should process deeply nested math functions",
+    );
+}
+
+#[test]
+fn test_math_functions_with_whitespace() {
+    // Test with spaces inside parentheses
+    let input_spaces = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${cos( 0 )}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+    run_angle_test(
+        input_spaces,
+        1.0,
+        1e-9,
+        "Should handle spaces inside parentheses",
+    );
+
+    // Test with spaces before parentheses
+    let input_before = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${cos  (0)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+    run_angle_test(
+        input_before,
+        1.0,
+        1e-9,
+        "Should handle spaces before parentheses",
+    );
+}
+
+#[test]
+fn test_multiple_adjacent_math_functions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${cos(0) + sin(0)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // cos(0) + sin(0) = 1.0 + 0.0 = 1.0
+    run_angle_test(
+        input,
+        1.0,
+        1e-9,
+        "Should process multiple adjacent math functions",
+    );
+}

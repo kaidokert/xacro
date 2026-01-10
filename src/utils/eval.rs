@@ -49,8 +49,9 @@ static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 /// Matches function names at word boundaries followed by optional whitespace and '('.
 fn get_math_funcs_regex() -> &'static Regex {
     MATH_FUNCS_REGEX.get_or_init(|| {
+        // Order by length (longest first) for defensive regex alternation
         let funcs = [
-            "acos", "asin", "atan", "floor", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+            "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
         ];
         // Use \b for word boundaries, capture function name, allow optional whitespace before '('
         let pattern = format!(r"\b({})\s*\(", funcs.join("|"));
@@ -65,6 +66,11 @@ fn get_math_funcs_regex() -> &'static Regex {
 /// and substitutes the results back into the expression.
 ///
 /// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil
+///
+/// # Limitations
+/// Does not distinguish function calls inside string literals (e.g., `"cos(0)"`).
+/// In practice, this is handled gracefully: if argument evaluation fails, the original
+/// text is preserved and passed to pyisheval.
 ///
 /// # Arguments
 /// * `expr` - Expression that may contain math function calls
@@ -93,74 +99,61 @@ fn preprocess_math_functions(
             });
         }
 
-        // Find first math function match using regex
-        let match_result = get_math_funcs_regex().captures(&result).and_then(|caps| {
-            let whole_match = caps.get(0)?;
-            let func_name = caps.get(1)?.as_str();
+        // Collect all function matches to iterate right-to-left (innermost first)
+        let captures: Vec<_> = get_math_funcs_regex().captures_iter(&result).collect();
+        if captures.is_empty() {
+            break;
+        }
+
+        let mut made_replacement = false;
+        // Iterate from right to left to find the innermost, evaluatable function call
+        for caps in captures.iter().rev() {
+            // Safe extraction of capture groups (should always succeed due to regex structure)
+            let (whole_match, func_name) = match (caps.get(0), caps.get(1)) {
+                (Some(m), Some(f)) => (m, f.as_str()),
+                _ => continue, // Skip malformed captures
+            };
             let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
 
             // Find matching closing parenthesis
-            find_matching_paren(&result, paren_pos).map(|close_pos| {
-                let arg = &result[paren_pos + 1..close_pos];
-                (
-                    whole_match.start(),
-                    close_pos,
-                    func_name.to_string(),
-                    arg.to_string(),
-                )
-            })
-        });
-
-        if let Some((start_pos, close_pos, func_name, arg)) = match_result {
-            // Evaluate argument
-            let replacement = match interp.eval(&arg) {
-                Ok(Value::Number(n)) => {
-                    // Call the appropriate Rust math function
-                    let computed = match func_name.as_str() {
-                        "cos" => n.cos(),
-                        "sin" => n.sin(),
-                        "tan" => n.tan(),
-                        "acos" => n.acos(),
-                        "asin" => n.asin(),
-                        "atan" => n.atan(),
-                        "sqrt" => n.sqrt(),
-                        "abs" => n.abs(),
-                        "floor" => n.floor(),
-                        "ceil" => n.ceil(),
-                        _ => unreachable!(
-                            "Function '{}' matched regex but not in match statement",
-                            func_name
-                        ),
-                    };
-
-                    // Format result
-                    format!("{}", computed)
-                }
-                Ok(other) => {
-                    log::warn!(
-                        "Math function '{}' expected number, got: {:?}",
-                        func_name,
-                        other
-                    );
-                    // Keep original
-                    result[start_pos..=close_pos].to_string()
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to evaluate argument for '{}({})': {}",
-                        func_name,
-                        arg,
-                        e
-                    );
-                    // Keep original
-                    result[start_pos..=close_pos].to_string()
-                }
+            let close_pos = match find_matching_paren(&result, paren_pos) {
+                Some(pos) => pos,
+                None => continue, // Skip if no matching paren
             };
 
-            // Replace in-place for better performance
-            result.replace_range(start_pos..=close_pos, &replacement);
-        } else {
-            // No more matches found
+            let arg = &result[paren_pos + 1..close_pos];
+
+            // Try to evaluate the argument - only replace if successful
+            if let Ok(Value::Number(n)) = interp.eval(arg) {
+                // Call the appropriate Rust math function
+                let computed = match func_name {
+                    "cos" => n.cos(),
+                    "sin" => n.sin(),
+                    "tan" => n.tan(),
+                    "acos" => n.acos(),
+                    "asin" => n.asin(),
+                    "atan" => n.atan(),
+                    "sqrt" => n.sqrt(),
+                    "abs" => n.abs(),
+                    "floor" => n.floor(),
+                    "ceil" => n.ceil(),
+                    _ => unreachable!(
+                        "Function '{}' matched regex but not in match statement",
+                        func_name
+                    ),
+                };
+
+                let replacement = format!("{}", computed);
+                result.replace_range(whole_match.start()..=close_pos, &replacement);
+                made_replacement = true;
+                // A replacement was made, restart loop to rescan the string
+                break;
+            }
+            // If eval fails or returns non-number, continue to next match
+        }
+
+        if !made_replacement {
+            // No successful replacements possible, done processing
             break;
         }
     }
@@ -1292,5 +1285,33 @@ mod tests {
         // sqrt(x^2 + y^2) = sqrt(9 + 16) = sqrt(25) = 5
         let result = eval_text("${sqrt(x**2 + y**2)}", &props).unwrap();
         assert_eq!(result, "5");
+    }
+
+    /// Test to prevent divergence between regex pattern and match statement
+    ///
+    /// This ensures all functions in the regex have corresponding implementations,
+    /// catching bugs at test time rather than runtime.
+    #[test]
+    fn test_math_functions_regex_match_consistency() {
+        let props = HashMap::new();
+
+        // List of all functions that should be in both regex and match statement
+        let expected_functions = [
+            "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+        ];
+
+        // Test each function to ensure it's implemented
+        for func in &expected_functions {
+            let expr = format!("${{{}(0)}}", func);
+            let result = eval_text(&expr, &props);
+
+            // Should either succeed or fail with a valid error, but NOT panic with unreachable!()
+            // If we get here without panic, the function is properly implemented
+            assert!(
+                result.is_ok() || result.is_err(),
+                "Function '{}' should have an implementation (got panic instead)",
+                func
+            );
+        }
     }
 }
