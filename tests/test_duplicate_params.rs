@@ -345,3 +345,30 @@ fn test_block_and_nonblock_param_conflict_compat_last_wins() {
         output
     );
 }
+
+#[test]
+fn test_block_and_nonblock_param_conflict_compat_reverse_order() {
+    // Reverse order: block declaration first, then non-block
+    // "last declaration wins" should mean it's treated as non-block with default value
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="reverse_conflict" params="*body body:=default_value">
+    <link name="${body}"/>
+  </xacro:macro>
+
+  <xacro:reverse_conflict/>
+</robot>"#;
+
+    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
+    let output = processor
+        .run_from_string(input)
+        .expect("Compat mode should accept block-then-nonblock param conflict");
+
+    // "last declaration wins": non-block declaration should be used (with default)
+    // Should NOT try to consume a child element
+    assert!(
+        output.contains(r#"name="default_value""#),
+        "Compat mode should use last (non-block) declaration with default: {}",
+        output
+    );
+}

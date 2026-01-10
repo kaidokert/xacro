@@ -763,4 +763,44 @@ mod macro_tests {
             result
         );
     }
+
+    #[test]
+    fn test_parse_params_compat_mode_duplicate() {
+        // Test that compat mode accepts duplicates with last-declaration-wins
+        let result = MacroProcessor::parse_params_compat("x:=1 y:=2 x:=3");
+        assert!(result.is_ok(), "Compat mode should accept duplicates");
+
+        let (params, param_order, block_params) = result.unwrap();
+
+        // Last declaration wins for value
+        assert_eq!(params.get("x"), Some(&Some("3".to_string())));
+        assert_eq!(params.get("y"), Some(&Some("2".to_string())));
+
+        // Order should only contain unique params, in first-seen order
+        assert_eq!(param_order, vec!["x", "y"]);
+
+        assert!(block_params.is_empty());
+    }
+
+    #[test]
+    fn test_parse_params_compat_mode_block_duplicate() {
+        // Test that compat mode accepts duplicate block params
+        let result = MacroProcessor::parse_params_compat("*body *body");
+        assert!(
+            result.is_ok(),
+            "Compat mode should accept duplicate block params"
+        );
+
+        let (params, param_order, block_params) = result.unwrap();
+
+        // Should have one entry
+        assert_eq!(params.len(), 1);
+        assert_eq!(params.get("body"), Some(&None));
+
+        // Order should only contain unique params
+        assert_eq!(param_order, vec!["body"]);
+
+        // Should be marked as block param
+        assert!(block_params.contains("body"));
+    }
 }

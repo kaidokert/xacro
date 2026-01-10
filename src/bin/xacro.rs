@@ -41,7 +41,7 @@ struct Args {
     )]
     verbosity_level: Option<u8>,
 
-    /// Python xacro compatibility mode (accept buggy inputs like duplicate parameters)
+    /// Python xacro compatibility mode for macro params (accept duplicates; last declaration wins)
     #[arg(long = "compat")]
     compat: bool,
 

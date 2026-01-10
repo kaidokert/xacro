@@ -85,7 +85,6 @@ impl MacroProcessor {
     }
 
     /// Parse macro parameters (compatibility mode - accept duplicates)
-    #[allow(dead_code)]
     pub fn parse_params_compat(params_str: &str) -> Result<ParsedParams, XacroError> {
         Self::parse_params_impl(params_str, true)
     }
@@ -153,6 +152,10 @@ impl MacroProcessor {
                 block_params.insert(param_name.clone());
                 params.insert(param_name, None);
             } else {
+                // In compat mode, if changing from block to non-block, remove from block_params
+                if compat_mode {
+                    block_params.remove(&param_name);
+                }
                 params.insert(param_name, default_value_str);
             }
         }
