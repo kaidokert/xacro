@@ -42,7 +42,6 @@ fn test_include_glob_pattern_no_matches_asterisk() {
 #[test]
 fn test_include_glob_pattern_no_matches_bracket() {
     // Glob pattern with [ character (like template placeholders)
-    // This is the case from testdata/bugs/eb954ca7/
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:include filename="[URDF_LOCATION]" />
@@ -264,7 +263,6 @@ fn test_include_glob_with_actual_matches() {
 
 #[test]
 fn test_python_xacro_compatibility_template_placeholder() {
-    // This is the exact case from testdata/bugs/eb954ca7/
     // Python xacro succeeds with warning, we must too
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="[ROBOT_NAME]">

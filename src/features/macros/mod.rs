@@ -79,7 +79,21 @@ impl MacroProcessor {
         Ok(tokens)
     }
 
+    /// Parse macro parameters (strict mode - default)
     pub fn parse_params(params_str: &str) -> Result<ParsedParams, XacroError> {
+        Self::parse_params_impl(params_str, false)
+    }
+
+    /// Parse macro parameters (compatibility mode - accept duplicates)
+    pub fn parse_params_compat(params_str: &str) -> Result<ParsedParams, XacroError> {
+        Self::parse_params_impl(params_str, true)
+    }
+
+    /// Internal implementation for parameter parsing
+    fn parse_params_impl(
+        params_str: &str,
+        compat_mode: bool,
+    ) -> Result<ParsedParams, XacroError> {
         let mut params = HashMap::new();
         let mut param_order = Vec::new();
         let mut block_params = HashSet::new();
@@ -123,17 +137,25 @@ impl MacroProcessor {
 
             let param_name = param_name_str;
 
-            // Detect duplicate declarations
-            if params.contains_key(&param_name) {
+            // Detect duplicate declarations (strict mode only)
+            if params.contains_key(&param_name) && !compat_mode {
                 return Err(XacroError::DuplicateParamDeclaration { param: param_name });
             }
+            // In compat mode, silently overwrite (last declaration wins)
 
             // Insert into appropriate data structures
-            param_order.push(param_name.clone());
+            // Only add to param_order if not already present (handles compat mode duplicates)
+            if !params.contains_key(&param_name) {
+                param_order.push(param_name.clone());
+            }
             if is_block {
                 block_params.insert(param_name.clone());
                 params.insert(param_name, None);
             } else {
+                // In compat mode, if changing from block to non-block, remove from block_params
+                if compat_mode {
+                    block_params.remove(&param_name);
+                }
                 params.insert(param_name, default_value_str);
             }
         }

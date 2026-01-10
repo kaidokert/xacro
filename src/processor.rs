@@ -14,16 +14,15 @@ pub struct XacroProcessor {
     /// CLI arguments passed to the processor (for xacro:arg support)
     /// These take precedence over XML defaults
     args: HashMap<String, String>,
+    /// Python xacro compatibility mode (accept buggy inputs)
+    compat_mode: bool,
 }
 
 impl XacroProcessor {
     /// Create a new xacro processor with default settings
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            max_recursion_depth: 50,
-            args: HashMap::new(),
-        }
+        Self::new_with_args(HashMap::new())
     }
 
     /// Create a new xacro processor with CLI arguments
@@ -43,10 +42,7 @@ impl XacroProcessor {
     /// let processor = XacroProcessor::new_with_args(args);
     /// ```
     pub fn new_with_args(args: HashMap<String, String>) -> Self {
-        Self {
-            max_recursion_depth: 50,
-            args,
-        }
+        Self::new_with_compat(args, false)
     }
 
     /// Create a new xacro processor with custom max recursion depth
@@ -63,6 +59,32 @@ impl XacroProcessor {
         Self {
             max_recursion_depth: max_depth,
             args: HashMap::new(),
+            compat_mode: false,
+        }
+    }
+
+    /// Create a new xacro processor with CLI arguments and compat mode
+    ///
+    /// # Arguments
+    /// * `args` - Map of argument names to values (from CLI key:=value format)
+    /// * `compat` - Enable Python xacro compatibility mode (accept buggy inputs)
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    /// use std::collections::HashMap;
+    ///
+    /// let args = HashMap::new();
+    /// let processor = XacroProcessor::new_with_compat(args, true);
+    /// ```
+    pub fn new_with_compat(
+        args: HashMap<String, String>,
+        compat: bool,
+    ) -> Self {
+        Self {
+            max_recursion_depth: 50,
+            args,
+            compat_mode: compat,
         }
     }
 
@@ -110,13 +132,14 @@ impl XacroProcessor {
         // Only error during finalize_tree if xacro elements are found.
         let xacro_ns = extract_xacro_namespace(&root)?;
 
-        // Create expansion context with CLI arguments
+        // Create expansion context with CLI arguments and compat mode
         // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
         // CLI args are passed to the context and take precedence over XML defaults
-        let mut ctx = XacroContext::new_with_args(
+        let mut ctx = XacroContext::new_with_compat(
             base_path.to_path_buf(),
             xacro_ns.clone(),
             self.args.clone(),
+            self.compat_mode,
         );
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 

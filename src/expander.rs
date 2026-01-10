@@ -125,6 +125,9 @@ pub struct XacroContext {
     /// Maximum recursion depth before triggering error
     /// Set conservatively to prevent stack overflow before the check triggers
     pub max_recursion_depth: usize,
+
+    /// Python xacro compatibility mode (accept buggy inputs)
+    pub compat_mode: bool,
 }
 
 impl XacroContext {
@@ -137,7 +140,7 @@ impl XacroContext {
         base_path: PathBuf,
         xacro_ns: String,
     ) -> Self {
-        Self::new_with_args(base_path, xacro_ns, HashMap::new())
+        Self::new_with_compat(base_path, xacro_ns, HashMap::new(), false)
     }
 
     /// Create a new context with CLI arguments
@@ -150,6 +153,22 @@ impl XacroContext {
         base_path: PathBuf,
         xacro_ns: String,
         cli_args: HashMap<String, String>,
+    ) -> Self {
+        Self::new_with_compat(base_path, xacro_ns, cli_args, false)
+    }
+
+    /// Create a new context with CLI arguments and compat mode
+    ///
+    /// # Arguments
+    /// * `base_path` - Base directory for resolving relative includes
+    /// * `xacro_ns` - Xacro namespace prefix (e.g., "xacro")
+    /// * `cli_args` - Arguments from CLI (take precedence over XML defaults)
+    /// * `compat` - Enable Python xacro compatibility mode (accept buggy inputs)
+    pub fn new_with_compat(
+        base_path: PathBuf,
+        xacro_ns: String,
+        cli_args: HashMap<String, String>,
+        compat: bool,
     ) -> Self {
         // Create shared args map for both PropertyProcessor and expander
         // Initialize with CLI args (these take precedence over XML defaults)
@@ -165,6 +184,7 @@ impl XacroContext {
             base_path: RefCell::new(base_path),
             recursion_depth: RefCell::new(0),
             max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
+            compat_mode: compat,
         }
     }
 
@@ -423,8 +443,11 @@ fn expand_element(
 
         // Parse params attribute (optional - treat missing as empty string)
         let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
-        let (params_map, param_order, block_params_set) =
-            crate::features::macros::MacroProcessor::parse_params(params_str)?;
+        let (params_map, param_order, block_params_set) = if ctx.compat_mode {
+            crate::features::macros::MacroProcessor::parse_params_compat(params_str)?
+        } else {
+            crate::features::macros::MacroProcessor::parse_params(params_str)?
+        };
 
         // Create macro definition
         let macro_def = MacroDefinition {
