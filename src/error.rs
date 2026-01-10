@@ -135,6 +135,13 @@ pub enum XacroError {
     /// that expansion resulted in multiple nodes, zero nodes, or a non-element node.
     #[error("Invalid root element: {0}")]
     InvalidRoot(String),
+
+    /// Invalid XML content
+    ///
+    /// The content violates XML specification rules (e.g., forbidden sequences in comments,
+    /// CDATA sections, or processing instructions).
+    #[error("Invalid XML: {0}")]
+    InvalidXml(String),
 }
 
 // Implement From trait for EvalError to avoid duplicated error mapping

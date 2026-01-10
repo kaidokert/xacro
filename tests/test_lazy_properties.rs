@@ -231,37 +231,16 @@ fn test_lazy_property_mixed_content() {
 
     let result = process_xacro(input).unwrap();
 
-    // Note: Text nodes might have different whitespace handling
+    // Verify all mixed content is preserved
     assert!(
-        result.contains("Start") || result.contains("middle"),
-        "Should preserve text and element content"
+        result.contains("Start"),
+        "Should preserve text before element"
     );
     assert!(
         result.contains("<middle"),
         "Should contain the middle element"
     );
-}
-
-// ============================================================================
-// Test 8: Empty property explicitly verified
-// ============================================================================
-
-#[test]
-fn test_lazy_property_empty_verify() {
-    let input = r#"<?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
-  <xacro:property name="truly_empty"></xacro:property>
-  <test>
-    <xacro:insert_block name="truly_empty"/>
-  </test>
-</robot>"#;
-
-    let result = process_xacro(input);
-
-    assert!(
-        result.is_ok(),
-        "Empty property should work with insert_block"
-    );
+    assert!(result.contains("End"), "Should preserve text after element");
 }
 
 // ============================================================================
@@ -317,7 +296,60 @@ fn test_lazy_property_comments_preserved() {
 }
 
 // ============================================================================
-// Test 11: Local properties also have precedence
+// Test 11: CDATA and Processing Instructions preserved
+// ============================================================================
+
+#[test]
+fn test_lazy_property_cdata_and_pi_preserved() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="block1">
+    <![CDATA[some <raw> content]]>
+    <?proc instruction?>
+    <link name="test_link"/>
+  </xacro:property>
+  <xacro:insert_block name="block1"/>
+</robot>"#;
+
+    let result = process_xacro(input).unwrap();
+
+    assert!(
+        result.contains("some <raw> content"),
+        "Should preserve CDATA content"
+    );
+    assert!(
+        result.contains("<?proc instruction?>"),
+        "Should preserve processing instruction"
+    );
+}
+
+// ============================================================================
+// Test 12: Comment-only properties are valid
+// ============================================================================
+
+#[test]
+fn test_lazy_property_comment_only_valid() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="comment_only">
+    <!-- this is a comment-only lazy property -->
+  </xacro:property>
+
+  <test>
+    <xacro:insert_block name="comment_only"/>
+  </test>
+</robot>"#;
+
+    let result = process_xacro(input).unwrap();
+
+    assert!(
+        result.contains("<!-- this is a comment-only lazy property -->"),
+        "Comment-only lazy property should be preserved"
+    );
+}
+
+// ============================================================================
+// Test 13: Local properties also have precedence
 // ============================================================================
 
 #[test]

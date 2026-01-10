@@ -1,5 +1,6 @@
 use crate::error::XacroError;
 use std::io::Write;
+use xml::escape::escape_str_pcdata;
 use xmltree::{Element, XMLNode};
 
 /// The standard ROS xacro namespace URI
@@ -165,20 +166,36 @@ pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
                 )?;
             }
             XMLNode::Text(text) => {
-                // Write text directly (xmltree handles XML escaping)
-                buffer.extend_from_slice(text.as_bytes());
+                // Escape XML special characters (<, >, &) for PCDATA
+                let escaped = escape_str_pcdata(text);
+                buffer.extend_from_slice(escaped.as_bytes());
             }
             XMLNode::Comment(comment) => {
-                // Preserve comments
+                // Validate comment content per XML spec
+                if comment.contains("--") || comment.ends_with('-') {
+                    return Err(XacroError::InvalidXml(
+                        "Comments cannot contain '--' or end with '-'".into(),
+                    ));
+                }
                 write!(&mut buffer, "<!--{}-->", comment)?;
             }
             XMLNode::CData(data) => {
-                // Preserve CDATA sections
+                // Validate CDATA content per XML spec
+                if data.contains("]]>") {
+                    return Err(XacroError::InvalidXml(
+                        "CDATA sections cannot contain ']]>'".into(),
+                    ));
+                }
                 write!(&mut buffer, "<![CDATA[{}]]>", data)?;
             }
             XMLNode::ProcessingInstruction(target, data) => {
-                // Preserve processing instructions (rare in xacro)
+                // Validate PI content per XML spec
                 if let Some(d) = data {
+                    if d.contains("?>") {
+                        return Err(XacroError::InvalidXml(
+                            "Processing instruction data cannot contain '?>'".into(),
+                        ));
+                    }
                     write!(&mut buffer, "<?{} {}?>", target, d)?;
                 } else {
                     write!(&mut buffer, "<?{}?>", target)?;
@@ -228,4 +245,53 @@ pub fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
     let root = Element::parse(wrapped.as_bytes())?;
 
     Ok(root.children)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_nodes_text_escaping() {
+        // Create text nodes with special XML characters
+        let nodes = vec![
+            XMLNode::Text("Text with <angle> brackets".to_string()),
+            XMLNode::Text(" & ampersands".to_string()),
+        ];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        // Verify special characters are escaped
+        assert!(
+            serialized.contains("&lt;"),
+            "Expected escaped '<', got: {}",
+            serialized
+        );
+        assert!(
+            serialized.contains("&gt;"),
+            "Expected escaped '>', got: {}",
+            serialized
+        );
+        assert!(
+            serialized.contains("&amp;"),
+            "Expected escaped '&', got: {}",
+            serialized
+        );
+
+        // Verify the full escaped content
+        assert_eq!(
+            serialized,
+            "Text with &lt;angle&gt; brackets &amp; ampersands"
+        );
+    }
+
+    #[test]
+    fn test_serialize_nodes_no_escaping_needed() {
+        // Text without special characters should not be modified
+        let nodes = vec![XMLNode::Text("Normal text 123".to_string())];
+
+        let serialized = serialize_nodes(&nodes).unwrap();
+
+        assert_eq!(serialized, "Normal text 123");
+    }
 }

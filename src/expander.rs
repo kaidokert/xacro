@@ -490,12 +490,7 @@ fn expand_element(
 
             // Expand recursively using INSERTION SCOPE
             // This handles ${...} expressions and nested directives
-            let mut expanded = Vec::new();
-            for node in nodes {
-                let expanded_node = expand_node(node, ctx)?;
-                expanded.extend(expanded_node);
-            }
-
+            let expanded = expand_children_list(nodes, ctx)?;
             return Ok(expanded);
         }
 
