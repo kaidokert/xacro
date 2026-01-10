@@ -6,25 +6,28 @@ use std::collections::HashMap;
 /// Find matching closing parenthesis, handling nested parentheses
 ///
 /// # Arguments
-/// * `text` - String starting with '('
-/// * `start` - Index of opening '('
+/// * `text` - String to search
+/// * `start` - Byte index of opening '('
 ///
 /// # Returns
-/// Index of matching ')', or None if not found
+/// Byte index of matching ')', or None if not found
+///
+/// Note: Uses byte-based iteration since parentheses are ASCII characters
+/// and will never appear as continuation bytes in UTF-8.
 fn find_matching_paren(
     text: &str,
     start: usize,
 ) -> Option<usize> {
-    let chars: Vec<char> = text.chars().collect();
-    if start >= chars.len() || chars[start] != '(' {
+    let bytes = text.as_bytes();
+    if start >= bytes.len() || bytes[start] != b'(' {
         return None;
     }
 
     let mut depth = 0;
-    for (i, &ch) in chars.iter().enumerate().skip(start) {
+    for (i, &ch) in bytes.iter().enumerate().skip(start) {
         match ch {
-            '(' => depth += 1,
-            ')' => {
+            b'(' => depth += 1,
+            b')' => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(i);
@@ -55,7 +58,8 @@ fn preprocess_math_functions(
     interp: &mut Interpreter,
 ) -> Result<String, EvalError> {
     // Math functions that take one argument
-    // IMPORTANT: Sort by length (longest first) to match acos before cos, asin before sin, etc.
+    // Order doesn't matter since we check word boundaries to avoid matching
+    // cos in acos, sin in asin, etc.
     let single_arg_funcs = [
         "acos", "asin", "atan", "floor", "ceil", "sqrt", "cos", "sin", "tan", "abs",
     ];
@@ -78,7 +82,7 @@ fn preprocess_math_functions(
         }
 
         let mut found_match = false;
-        let mut new_result = result.clone();
+        let mut new_result = String::new();
 
         // Try each function type
         for func_name in &single_arg_funcs {
@@ -89,15 +93,19 @@ fn preprocess_math_functions(
                 let after_name = abs_pos + func_name.len();
 
                 // Check word boundary before function name (not alphanumeric or underscore)
+                // Use char-based checks for UTF-8 safety
                 let is_word_start = abs_pos == 0 || {
-                    let prev_char = result.as_bytes()[abs_pos - 1];
-                    !prev_char.is_ascii_alphanumeric() && prev_char != b'_'
+                    result[..abs_pos]
+                        .chars()
+                        .next_back()
+                        .map(|c| !c.is_alphanumeric() && c != '_')
+                        .unwrap_or(true)
                 };
 
                 // Check if followed by '(' and is at word boundary
                 if is_word_start
                     && after_name < result.len()
-                    && result.as_bytes()[after_name] == b'('
+                    && result[after_name..].starts_with('(')
                 {
                     // Find matching closing parenthesis
                     if let Some(close_pos) = find_matching_paren(&result, after_name) {
@@ -121,7 +129,10 @@ fn preprocess_math_functions(
                                     "abs" => n.abs(),
                                     "floor" => n.floor(),
                                     "ceil" => n.ceil(),
-                                    _ => n, // Shouldn't happen
+                                    _ => unreachable!(
+                                        "Function '{}' is in single_arg_funcs but not in match statement",
+                                        func_name
+                                    ),
                                 };
 
                                 // Format result
@@ -138,7 +149,7 @@ fn preprocess_math_functions(
                             }
                             Err(e) => {
                                 log::warn!(
-                                    "Failed to evaluate argument for '{}({})'': {}",
+                                    "Failed to evaluate argument for '{}({})': {}",
                                     func_name,
                                     arg,
                                     e

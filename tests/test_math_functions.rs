@@ -144,7 +144,8 @@ fn test_sqrt_function() {
 
 #[test]
 fn test_abs_floor_ceil_functions() {
-    let input = r#"<?xml version="1.0"?>
+    // Test abs()
+    let input_abs = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${abs(-3.7)}"/>
   <link name="test">
@@ -153,7 +154,31 @@ fn test_abs_floor_ceil_functions() {
 </robot>"#;
 
     // abs(-3.7) = 3.7
-    run_angle_test(input, 3.7, 1e-9, "Should process abs() function");
+    run_angle_test(input_abs, 3.7, 1e-9, "Should process abs() function");
+
+    // Test floor()
+    let input_floor = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${floor(3.7)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // floor(3.7) = 3.0
+    run_angle_test(input_floor, 3.0, 1e-9, "Should process floor() function");
+
+    // Test ceil()
+    let input_ceil = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${ceil(3.2)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // ceil(3.2) = 4.0
+    run_angle_test(input_ceil, 4.0, 1e-9, "Should process ceil() function");
 }
 
 #[test]
