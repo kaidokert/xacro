@@ -10,7 +10,7 @@ pub mod processor;
 pub mod utils;
 
 pub use error::XacroError;
-pub use processor::XacroProcessor;
+pub use processor::{CompatMode, XacroProcessor};
 
 pub fn process_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroError> {
     let processor = XacroProcessor::new();

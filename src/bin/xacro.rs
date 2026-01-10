@@ -41,9 +41,16 @@ struct Args {
     )]
     verbosity_level: Option<u8>,
 
-    /// Python xacro compatibility mode for macro params (accept duplicates; last declaration wins)
-    #[arg(long = "compat")]
-    compat: bool,
+    /// Python xacro compatibility mode (disabled by default)
+    ///
+    /// Accepts comma-separated list of modes or no value for all:
+    ///   --compat              Enable all compatibility modes
+    ///   --compat=all          Explicit all modes
+    ///   --compat=namespace    Only lenient namespace validation
+    ///   --compat=duplicate_params  Only accept duplicate parameters
+    ///   --compat=namespace,duplicate_params  Multiple modes
+    #[arg(long = "compat", value_name = "MODES", num_args = 0..=1, default_missing_value = "all")]
+    compat: Option<String>,
 
     /// Additional arguments in key:=value format
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -129,8 +136,16 @@ fn main() -> anyhow::Result<()> {
     // Parse mappings (key:=value arguments for xacro:arg)
     let mappings = args.parse_mappings();
 
+    // Parse compat mode from optional string argument
+    let compat_mode = args
+        .compat
+        .as_deref()
+        .map(|s| s.parse())
+        .transpose()?
+        .unwrap_or_default();
+
     // Process file with mappings and compat mode
-    let processor = xacro::XacroProcessor::new_with_compat(mappings, args.compat);
+    let processor = xacro::XacroProcessor::new_with_compat_mode(mappings, compat_mode);
     let result = processor
         .run(&args.input)
         .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;

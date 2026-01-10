@@ -49,9 +49,17 @@ pub fn is_known_xacro_uri(uri: &str) -> bool {
 ///
 /// Returns the xacro namespace URI, or empty string if no xacro namespace is declared.
 ///
+/// # Arguments
+/// * `element` - The XML element to extract namespace from
+/// * `lenient_namespace` - If true, skip URI validation (for Python xacro compatibility)
+///
 /// # Errors
-/// Returns an error if the "xacro" prefix is bound to an unknown/invalid URI (likely a typo).
-pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> {
+/// Returns an error if the "xacro" prefix is bound to an unknown/invalid URI (likely a typo),
+/// unless `lenient_namespace` is true.
+pub fn extract_xacro_namespace(
+    element: &Element,
+    lenient_namespace: bool,
+) -> Result<String, XacroError> {
     // Namespace-aware processing with priority:
     // 1. If "xacro" prefix exists, use it exclusively (prevents false positives)
     // 2. Otherwise, search for any known xacro URI (supports aliased prefixes)
@@ -66,7 +74,8 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
         // interface:audio as a xacro element.
         if let Some(xacro_uri) = ns.get("xacro") {
             let uri_str: &str = xacro_uri;
-            if !is_known_xacro_uri(uri_str) {
+            // Validate URI unless in lenient mode (for Python xacro compatibility)
+            if !lenient_namespace && !is_known_xacro_uri(uri_str) {
                 return Err(XacroError::MissingNamespace(format!(
                     "The 'xacro' prefix is bound to an unknown URI: '{}'. \
                      This might be a typo. Known xacro URIs are: {}",
@@ -74,7 +83,7 @@ pub fn extract_xacro_namespace(element: &Element) -> Result<String, XacroError> 
                     KNOWN_XACRO_URIS.join(", ")
                 )));
             }
-            // Valid xacro prefix found, return its URI
+            // Valid xacro prefix found (or lenient mode), return its URI
             return Ok(xacro_uri.to_string());
         }
 
