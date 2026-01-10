@@ -96,7 +96,7 @@ fn test_degrees_with_negative() {
 }
 
 #[test]
-fn test_cos_sin_functions() {
+fn test_cos_function() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="angle" value="${cos(0)}"/>
@@ -311,4 +311,48 @@ fn test_multiple_adjacent_math_functions() {
         1e-9,
         "Should process multiple adjacent math functions",
     );
+}
+
+#[test]
+fn test_acos_domain_validation() {
+    use xacro::processor::XacroProcessor;
+
+    // Test that acos(2) fails (out of domain [-1, 1])
+    // This matches Python xacro behavior which raises ValueError
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${acos(2)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should fail - domain validation prevents replacement, then pyisheval fails
+    // This matches Python xacro's ValueError for out-of-domain inputs
+    assert!(result.is_err(), "Should error for out-of-domain acos(2)");
+}
+
+#[test]
+fn test_asin_domain_validation() {
+    use xacro::processor::XacroProcessor;
+
+    // Test that asin(-1.5) fails (out of domain [-1, 1])
+    // This matches Python xacro behavior which raises ValueError
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${asin(-1.5)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should fail - domain validation prevents replacement, then pyisheval fails
+    // This matches Python xacro's ValueError for out-of-domain inputs
+    assert!(result.is_err(), "Should error for out-of-domain asin(-1.5)");
 }

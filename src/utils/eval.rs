@@ -46,6 +46,9 @@ fn find_matching_paren(
 /// These functions are preprocessed before expression evaluation since pyisheval
 /// doesn't provide native math functions. Functions are ordered by length (longest first)
 /// for defensive regex alternation, though with word boundaries this isn't strictly necessary.
+///
+/// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
+/// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
 pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
     "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
 ];
@@ -130,6 +133,17 @@ fn preprocess_math_functions(
 
             // Try to evaluate the argument - only replace if successful
             if let Ok(Value::Number(n)) = interp.eval(arg) {
+                // Validate domain for inverse trig functions (matches Python xacro behavior)
+                if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
+                    log::warn!(
+                        "{}({}) domain error: argument must be in [-1, 1], got {}",
+                        func_name,
+                        arg,
+                        n
+                    );
+                    continue; // Skip this match, try next one
+                }
+
                 // Call the appropriate Rust math function
                 let computed = match func_name {
                     "cos" => n.cos(),
