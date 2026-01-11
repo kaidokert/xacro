@@ -85,12 +85,28 @@ impl XacroDocument {
                         ));
                     }
                 }
-                // All non-element nodes before root go in preamble
-                _ => {
+                XMLNode::CData(_) => {
+                    // CDATA sections are invalid at document level (xmltree rejects them before root).
+                    // If we somehow get one after root, warn and discard.
+                    log::warn!("CDATA section found at document level, discarding");
+                }
+                // All other non-element nodes before root go in preamble
+                node => {
                     if root.is_none() {
                         preamble.push(node);
+                    } else {
+                        // Nodes after root - warn if non-whitespace
+                        if let XMLNode::Text(text) = &node {
+                            if !text.trim().is_empty() {
+                                log::warn!(
+                                    "Non-whitespace text found after root element: {:?}",
+                                    text.trim()
+                                );
+                            }
+                        } else {
+                            log::warn!("Unexpected node after root element: {:?}", node);
+                        }
                     }
-                    // Note: Nodes AFTER root are discarded (invalid XML anyway)
                 }
             }
         }
@@ -149,8 +165,11 @@ impl XacroDocument {
                     write!(writer, "{}", text)?;
                 }
                 XMLNode::CData(_) | XMLNode::Element(_) => {
-                    // CDATA or Element in preamble is invalid XML, but don't crash
-                    // Element would have been captured as root, so shouldn't reach here
+                    // These are invalid in the preamble and should be caught by parse().
+                    // Element is always captured as root, CDATA is rejected with error.
+                    unreachable!(
+                        "Invalid node type in preamble: CData and Element are not allowed."
+                    );
                 }
             }
         }
@@ -288,6 +307,18 @@ mod tests {
             "Error should mention no root, got: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_parse_cdata_in_preamble_error() {
+        let xml = r#"<?xml version="1.0"?>
+<![CDATA[data before root]]>
+<robot name="test"/>"#;
+
+        let result = XacroDocument::parse(xml.as_bytes());
+
+        // Should error - CDATA not allowed outside root element (xmltree rejects at parse time)
+        assert!(result.is_err(), "CDATA before root should be rejected");
     }
 
     #[test]

@@ -223,7 +223,21 @@ fn test_xml_declaration_present() {
     );
 }
 
-/// Test 3.2: Preamble appears after declaration, before root
+/// Test 3.2: XML declaration is emitted even when missing from input
+#[test]
+fn test_xml_declaration_added_when_missing() {
+    let input = r#"<robot name="test"/>"#;
+
+    let processor = XacroProcessor::new();
+    let output = processor.run_from_string(input).unwrap();
+
+    assert!(
+        output.trim_start().starts_with(r#"<?xml version="1.0""#),
+        "Output should start with XML declaration even when input omits it"
+    );
+}
+
+/// Test 3.3: Preamble appears after declaration, before root
 #[test]
 fn test_preamble_position() {
     let input = r#"<?xml version="1.0"?>
