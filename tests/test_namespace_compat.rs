@@ -295,3 +295,142 @@ fn test_multiple_compat_modes() {
         output
     );
 }
+
+#[test]
+fn test_namespace_collision_strict_mode() {
+    // Namespace collision: two prefixes bound to same URI
+    // This should error in strict mode (poor XML practice)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       name="test">
+  <xacro:property name="value" value="42"/>
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 ${value}"/>
+    </visual>
+  </link>
+  <interface:position name="position_iface_0"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+
+    // Should error: namespace URI validation happens before finalize_tree
+    assert!(
+        matches!(result, Err(XacroError::MissingNamespace(_))),
+        "Should error on namespace collision in strict mode, got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_namespace_collision_compat_mode() {
+    // Namespace collision should be accepted in compat mode
+    // Python xacro checks prefix string, not namespace URI
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       name="test">
+  <xacro:property name="value" value="42"/>
+  <link name="base">
+    <visual>
+      <origin xyz="0 0 ${value}"/>
+    </visual>
+  </link>
+  <interface:position name="position_iface_0"/>
+</robot>"#;
+
+    let compat_mode: CompatMode = "namespace".parse().unwrap();
+    let processor =
+        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
+    let result = processor.run_from_string(input);
+
+    // Should succeed and pass through <interface:position>
+    assert!(
+        result.is_ok(),
+        "Namespace collision should be accepted in compat mode, got error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify expression was evaluated
+    assert!(
+        output.contains(r#"xyz="0 0 42""#),
+        "Should evaluate expression correctly, got: {}",
+        output
+    );
+
+    // Verify <interface:position> was preserved
+    assert!(
+        output.contains("<interface:position"),
+        "Should preserve <interface:position> element, got: {}",
+        output
+    );
+    assert!(
+        output.contains(r#"name="position_iface_0""#),
+        "Should preserve position_iface_0 attribute, got: {}",
+        output
+    );
+}
+
+#[test]
+fn test_namespace_collision_multiple_elements() {
+    // Real-world case: multiple interface elements in r2d2.xacro
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       name="test">
+  <xacro:property name="value" value="0.2"/>
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${value}"/>
+    </visual>
+  </link>
+  <gazebo>
+    <interface:position name="position_iface_0"/>
+    <interface:audio name="audio_iface"/>
+  </gazebo>
+</robot>"#;
+
+    // Strict mode: should error (namespace validation happens early)
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input);
+    assert!(
+        matches!(result, Err(XacroError::MissingNamespace(_))),
+        "Should error on namespace collision in strict mode"
+    );
+
+    // Compat namespace mode: should succeed
+    let compat_mode: CompatMode = "namespace".parse().unwrap();
+    let processor =
+        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Real-world namespace collision should work with --compat=namespace, got error: {:?}",
+        result.err()
+    );
+
+    let output = result.unwrap();
+
+    // Verify xacro processing worked
+    assert!(
+        output.contains(r#"xyz="0 0 0.2""#),
+        "Should evaluate expression, got: {}",
+        output
+    );
+
+    // Verify both interface elements were preserved
+    assert!(
+        output.contains(r#"<interface:position name="position_iface_0""#),
+        "Should preserve interface:position, got: {}",
+        output
+    );
+    assert!(
+        output.contains(r#"<interface:audio name="audio_iface""#),
+        "Should preserve interface:audio, got: {}",
+        output
+    );
+}

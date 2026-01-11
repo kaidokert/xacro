@@ -273,7 +273,7 @@ impl XacroProcessor {
         };
 
         // Final cleanup: check for unprocessed xacro elements and remove namespace
-        Self::finalize_tree(&mut doc.root, &xacro_ns)?;
+        Self::finalize_tree(&mut doc.root, &xacro_ns, &self.compat_mode)?;
 
         XacroProcessor::serialize(&doc)
     }
@@ -281,12 +281,34 @@ impl XacroProcessor {
     fn finalize_tree(
         element: &mut xmltree::Element,
         xacro_ns: &str,
+        compat_mode: &CompatMode,
     ) -> Result<(), XacroError> {
         // Check if this element is in the xacro namespace (indicates unprocessed feature)
         // Must check namespace URI, not prefix, to handle namespace aliasing (e.g., xmlns:x="...")
 
         // Case 1: Element has namespace and matches declared xacro namespace
         if !xacro_ns.is_empty() && element.namespace.as_deref() == Some(xacro_ns) {
+            // Compat mode: handle namespace collision (same URI bound to multiple prefixes)
+            // If the element uses a non-"xacro" prefix, Python xacro ignores it based on prefix string check.
+            // In strict mode, this is a hard error (poor XML practice).
+            if compat_mode.namespace {
+                let prefix = element.prefix.as_deref().unwrap_or("");
+                if prefix != "xacro" {
+                    log::warn!(
+                        "Namespace collision: <{}:{}> uses xacro namespace URI but different prefix (compat mode)",
+                        prefix,
+                        element.name
+                    );
+                    // Pass through - recursively finalize children but don't error
+                    for child in &mut element.children {
+                        if let Some(child_elem) = child.as_mut_element() {
+                            Self::finalize_tree(child_elem, xacro_ns, compat_mode)?;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+
             // Use centralized feature lists for consistent error messages
             use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
             return Err(XacroError::UnimplementedFeature(format!(
@@ -339,7 +361,7 @@ impl XacroProcessor {
         // Recursively process children
         for child in &mut element.children {
             if let Some(child_elem) = child.as_mut_element() {
-                Self::finalize_tree(child_elem, xacro_ns)?;
+                Self::finalize_tree(child_elem, xacro_ns, compat_mode)?;
             }
         }
 
