@@ -2306,22 +2306,34 @@ fn test_macro_simple_expression_evaluation() {
         .run_from_string(input)
         .expect("Processing should succeed");
 
-    // The expressions ${0} should be evaluated to 0
-    assert!(
-        result.contains(r#"ixy="0""#),
-        "ixy attribute should be '0', not '${{0}}'. Got: {}",
-        result
-    );
-    assert!(
-        result.contains(r#"ixz="0""#),
-        "ixz attribute should be '0', not '${{0}}'. Got: {}",
-        result
-    );
+    // Parse output to check attributes robustly
+    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse output XML");
+    let inertial = root
+        .get_child("inertial")
+        .expect("Should find inertial element");
+    let inertia = inertial
+        .get_child("inertia")
+        .expect("Should find inertia element");
 
-    // Should NOT contain unexpanded expressions
+    // The expressions ${0} should be evaluated to 0
+    let ixy: f64 = inertia
+        .get_attribute("ixy")
+        .expect("Should have ixy attribute")
+        .parse()
+        .expect("ixy should parse to f64");
+    let ixz: f64 = inertia
+        .get_attribute("ixz")
+        .expect("Should have ixz attribute")
+        .parse()
+        .expect("ixz should parse to f64");
+
+    assert_eq!(ixy, 0.0, "ixy should be 0.0");
+    assert_eq!(ixz, 0.0, "ixz should be 0.0");
+
+    // Should NOT contain any unexpanded expressions
     assert!(
-        !result.contains("${0}"),
-        "Should not contain unexpanded expression '${{0}}'. Got: {}",
+        !result.contains("${"),
+        "Should not contain unexpanded expression '${0}'. Got: {}",
         result
     );
 }

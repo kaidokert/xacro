@@ -250,6 +250,6 @@ mod property_tests {
         let processor: PropertyProcessor = PropertyProcessor::new();
 
         let result = processor.substitute_text("${0}").unwrap();
-        assert_eq!(result, "0", "Should evaluate ${{0}} to 0");
+        assert_eq!(result, "0", "Should evaluate literal 0 expression");
     }
 }
