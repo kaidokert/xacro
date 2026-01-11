@@ -805,7 +805,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                         let eval_result = self.substitute_text(&wrapped_expr)?;
 
                         // Only mark changed if evaluation actually modified the expression
-                        if eval_result != expr_with_extensions_resolved {
+                        // Compare with wrapped form (with ${...}), not the unwrapped content
+                        if eval_result != wrapped_expr {
                             changed = true;
                         }
                         new_result.push_str(&eval_result);

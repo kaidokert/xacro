@@ -2286,3 +2286,42 @@ fn test_insert_block_parameter_collision_regression() {
         result
     );
 }
+
+#[test]
+fn test_macro_simple_expression_evaluation() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="mass">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixy="${0}" ixz="${0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:test_macro mass="0.6"/>
+</robot>"#;
+
+    let result = processor
+        .run_from_string(input)
+        .expect("Processing should succeed");
+
+    // The expressions ${0} should be evaluated to 0
+    assert!(
+        result.contains(r#"ixy="0""#),
+        "ixy attribute should be '0', not '${{0}}'. Got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"ixz="0""#),
+        "ixz attribute should be '0', not '${{0}}'. Got: {}",
+        result
+    );
+
+    // Should NOT contain unexpanded expressions
+    assert!(
+        !result.contains("${0}"),
+        "Should not contain unexpanded expression '${{0}}'. Got: {}",
+        result
+    );
+}
