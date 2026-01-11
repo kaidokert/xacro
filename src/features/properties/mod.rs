@@ -833,8 +833,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                         let wrapped_expr = format!("${{{}}}", expr_with_extensions_resolved);
                         let eval_result = self.substitute_text(&wrapped_expr)?;
 
-                        // Only mark changed if evaluation actually modified the expression
-                        if eval_result != expr_with_extensions_resolved {
+                        // Mark changed if evaluation produced different output than input
+                        // IMPORTANT: Compare eval_result with wrapped_expr (e.g., "${0}" vs "0")
+                        // not with expr_with_extensions_resolved (e.g., "0" vs "0"), otherwise
+                        // simple literals like ${0} would incorrectly skip substitution
+                        if eval_result != wrapped_expr {
                             changed = true;
                         }
                         new_result.push_str(&eval_result);

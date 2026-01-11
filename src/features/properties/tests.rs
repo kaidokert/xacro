@@ -244,4 +244,12 @@ mod property_tests {
         assert_eq!(processor.has_property("global"), true);
         assert_eq!(processor.has_property("local"), false);
     }
+
+    #[test]
+    fn test_substitute_literal_zero() {
+        let processor: PropertyProcessor = PropertyProcessor::new();
+
+        let result = processor.substitute_text("${0}").unwrap();
+        assert_eq!(result, "0", "Should evaluate literal 0 expression");
+    }
 }

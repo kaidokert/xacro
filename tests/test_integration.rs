@@ -2286,3 +2286,54 @@ fn test_insert_block_parameter_collision_regression() {
         result
     );
 }
+
+#[test]
+fn test_macro_simple_expression_evaluation() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="mass">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixy="${0}" ixz="${0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:test_macro mass="0.6"/>
+</robot>"#;
+
+    let result = processor
+        .run_from_string(input)
+        .expect("Processing should succeed");
+
+    // Parse output to check attributes robustly
+    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse output XML");
+    let inertial = root
+        .get_child("inertial")
+        .expect("Should find inertial element");
+    let inertia = inertial
+        .get_child("inertia")
+        .expect("Should find inertia element");
+
+    // The expressions ${0} should be evaluated to 0
+    let ixy: f64 = inertia
+        .get_attribute("ixy")
+        .expect("Should have ixy attribute")
+        .parse()
+        .expect("ixy should parse to f64");
+    let ixz: f64 = inertia
+        .get_attribute("ixz")
+        .expect("Should have ixz attribute")
+        .parse()
+        .expect("ixz should parse to f64");
+
+    assert_eq!(ixy, 0.0, "ixy should be 0.0");
+    assert_eq!(ixz, 0.0, "ixz should be 0.0");
+
+    // Should NOT contain any unexpanded expressions
+    assert!(
+        !result.contains("${"),
+        "Should not contain unexpanded expression '${0}'. Got: {}",
+        result
+    );
+}
