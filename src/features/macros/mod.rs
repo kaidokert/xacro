@@ -119,7 +119,7 @@ impl MacroProcessor {
                     // Regular block parameter (*param - inserts element itself)
                     (s, false)
                 } else {
-                    unreachable!("starts_with('*') check guarantees this branch is reachable");
+                    unreachable!("starts_with('*') check guarantees this branch is unreachable");
                 };
 
                 // Validate no extra asterisks (reject ***param, ****param, etc.)
@@ -241,7 +241,7 @@ impl MacroProcessor {
             element
                 .children
                 .iter()
-                .filter(|n| n.as_element().is_some())
+                .filter_map(|n| n.as_element())
                 .count()
         );
 

@@ -772,7 +772,8 @@ fn expand_macro_call(
             // CRITICAL: Behavior depends on * vs ** prefix:
             // *param (regular block) → insert the element itself
             // **param (lazy block) → insert only the element's children
-            let expanded = if macro_def.lazy_block_params.contains(param_name) {
+            let is_lazy = macro_def.lazy_block_params.contains(param_name);
+            let expanded = if is_lazy {
                 // Lazy block (**param): expand children only
                 // Example: <wrapper><inner/></wrapper> → inserts <inner/> only
                 expand_children_list(raw_block.children, ctx)?
@@ -785,11 +786,7 @@ fn expand_macro_call(
             log::debug!(
                 "expand_macro_call: block param '{}' {} expanded to {} nodes",
                 param_name,
-                if macro_def.lazy_block_params.contains(param_name) {
-                    "(lazy)"
-                } else {
-                    "(regular)"
-                },
+                if is_lazy { "(lazy)" } else { "(regular)" },
                 expanded.len()
             );
             expanded_blocks.insert(param_name.clone(), expanded);
