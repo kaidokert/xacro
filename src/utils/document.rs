@@ -85,26 +85,28 @@ impl XacroDocument {
                         ));
                     }
                 }
-                XMLNode::CData(_) => {
-                    // CDATA sections are invalid at document level (xmltree rejects them before root).
-                    // If we somehow get one after root, warn and discard.
-                    log::warn!("CDATA section found at document level, discarding");
-                }
-                // All other non-element nodes before root go in preamble
+                // All other non-element nodes
                 node => {
                     if root.is_none() {
+                        // Nodes before root go in preamble (PIs, comments, text)
+                        // CDATA before root is invalid per XML spec, but xmltree rejects it at parse time
                         preamble.push(node);
                     } else {
-                        // Nodes after root - warn if non-whitespace
-                        if let XMLNode::Text(text) = &node {
-                            if !text.trim().is_empty() {
+                        // Nodes after root - warn if significant
+                        match &node {
+                            XMLNode::Text(text) if !text.trim().is_empty() => {
                                 log::warn!(
                                     "Non-whitespace text found after root element: {:?}",
                                     text.trim()
                                 );
                             }
-                        } else {
-                            log::warn!("Unexpected node after root element: {:?}", node);
+                            XMLNode::Text(_) => { /* ignore whitespace */ }
+                            XMLNode::CData(_) => {
+                                log::warn!("CDATA section found after root element, discarding");
+                            }
+                            _ => {
+                                log::warn!("Unexpected node after root element: {:?}", node);
+                            }
                         }
                     }
                 }
@@ -165,8 +167,8 @@ impl XacroDocument {
                     write!(writer, "{}", text)?;
                 }
                 XMLNode::CData(_) | XMLNode::Element(_) => {
-                    // These are invalid in the preamble and should be caught by parse().
-                    // Element is always captured as root, CDATA is rejected with error.
+                    // These are invalid in the preamble and cannot occur here.
+                    // Element is always captured as root, CDATA is never added to preamble.
                     unreachable!(
                         "Invalid node type in preamble: CData and Element are not allowed."
                     );
@@ -393,6 +395,25 @@ mod tests {
         assert!(
             output_str.contains(r#"<?target?>"#),
             "Empty PI should not have trailing space"
+        );
+    }
+
+    #[test]
+    fn test_doctype_not_preserved() {
+        let xml = r#"<?xml version="1.0"?>
+<!DOCTYPE robot SYSTEM "robot.dtd">
+<robot name="test"/>"#;
+
+        // DOCTYPE is silently discarded by xmltree (known limitation)
+        let doc = XacroDocument::parse(xml.as_bytes()).unwrap();
+        let mut output = Vec::new();
+        doc.write(&mut output).unwrap();
+        let output_str = String::from_utf8(output).unwrap();
+
+        // DOCTYPE should NOT be preserved (known xmltree limitation)
+        assert!(
+            !output_str.contains("<!DOCTYPE"),
+            "DOCTYPE is a known limitation and should not be preserved"
         );
     }
 }
