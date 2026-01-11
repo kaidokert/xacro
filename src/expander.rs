@@ -698,11 +698,9 @@ fn is_macro_call(
     // Accept exact match with the document's declared namespace, OR any known xacro URI variant
     // to support cross-namespace macro expansion when includes use different xacro URI variants.
     let in_xacro_ns = !xacro_ns.is_empty()
-        && (elem.namespace.as_deref() == Some(xacro_ns)
-            || elem
-                .namespace
-                .as_deref()
-                .is_some_and(crate::utils::xml::is_known_xacro_uri));
+        && elem.namespace.as_deref().is_some_and(|elem_ns| {
+            elem_ns == xacro_ns || crate::utils::xml::is_known_xacro_uri(elem_ns)
+        });
 
     if !in_xacro_ns {
         return false;

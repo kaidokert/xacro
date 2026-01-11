@@ -24,33 +24,33 @@ fn test_nested_include_cross_namespace() {
     let input_path = test_data_dir.join("nested_include_main.xacro");
     let expected_path = test_data_dir.join("nested_include_main_expected.urdf");
 
-    let expected = fs::read_to_string(expected_path).unwrap();
+    let expected =
+        fs::read_to_string(&expected_path).expect("failed to read expected URDF fixture");
 
     let processor = XacroProcessor::new();
-    let result = processor.run(&input_path).unwrap();
+    let result = processor
+        .run(&input_path)
+        .expect("xacro processor failed on nested-include fixture");
 
     // Check for unexpanded macro calls (the bug symptom)
     assert!(
-        !result.contains("<xacro:my_macro"),
-        "Output contains unexpanded <xacro:my_macro> tag - cross-namespace macro expansion failed"
-    );
-    assert!(
-        !result.contains("<xacro:outer_macro"),
-        "Output contains unexpanded <xacro:outer_macro> tag"
+        !result.contains("<xacro:"),
+        "Output contains unexpanded xacro tags - cross-namespace macro expansion failed"
     );
 
     // Verify output matches expected
-    let normalize = |s: &str| {
-        s.lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
-            .collect::<Vec<_>>()
-            .join("")
-    };
-
     assert_eq!(
         normalize(&result),
         normalize(&expected),
         "Output should match expected URDF"
     );
+}
+
+/// Helper to normalize XML for comparison (remove extra whitespace)
+fn normalize(xml: &str) -> String {
+    xml.lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("")
 }
