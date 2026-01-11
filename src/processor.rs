@@ -197,9 +197,9 @@ impl XacroProcessor {
         &self,
         path: P,
     ) -> Result<String, XacroError> {
-        let xml = XacroProcessor::parse_file(&path)?;
+        let doc = XacroProcessor::parse_file(&path)?;
         self.run_impl(
-            xml,
+            doc,
             path.as_ref()
                 .parent()
                 .unwrap_or_else(|| std::path::Path::new(".")),
@@ -215,15 +215,15 @@ impl XacroProcessor {
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        let xml = xmltree::Element::parse(content.as_bytes())?;
+        let doc = crate::utils::document::XacroDocument::parse(content.as_bytes())?;
         // Use current directory as base path for any includes in test content
-        self.run_impl(xml, std::path::Path::new("."))
+        self.run_impl(doc, std::path::Path::new("."))
     }
 
     /// Internal implementation
     fn run_impl(
         &self,
-        mut root: xmltree::Element,
+        mut doc: crate::utils::document::XacroDocument,
         base_path: &std::path::Path,
     ) -> Result<String, XacroError> {
         // Extract xacro namespace from document root (if present)
@@ -237,7 +237,7 @@ impl XacroProcessor {
         //
         // When in namespace compat mode, skip URI validation to accept files with
         // "typo" URIs like xmlns:xacro="...#interface" that Python xacro accepts
-        let xacro_ns = extract_xacro_namespace(&root, self.compat_mode.namespace)?;
+        let xacro_ns = extract_xacro_namespace(&doc.root, self.compat_mode.namespace)?;
 
         // Create expansion context with CLI arguments and compat mode
         // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
@@ -252,7 +252,7 @@ impl XacroProcessor {
 
         // Expand the root element itself. This will handle attributes on the root
         // and any xacro directives at the root level (though unlikely).
-        let expanded_nodes = expand_node(XMLNode::Element(root), &ctx)?;
+        let expanded_nodes = expand_node(XMLNode::Element(doc.root), &ctx)?;
 
         // The expansion of the root must result in a single root element.
         if expanded_nodes.len() != 1 {
@@ -262,7 +262,7 @@ impl XacroProcessor {
             )));
         }
 
-        root = match expanded_nodes.into_iter().next().unwrap() {
+        doc.root = match expanded_nodes.into_iter().next().unwrap() {
             XMLNode::Element(elem) => elem,
             _ => {
                 return Err(XacroError::InvalidRoot(
@@ -273,9 +273,9 @@ impl XacroProcessor {
         };
 
         // Final cleanup: check for unprocessed xacro elements and remove namespace
-        Self::finalize_tree(&mut root, &xacro_ns)?;
+        Self::finalize_tree(&mut doc.root, &xacro_ns)?;
 
-        XacroProcessor::serialize(&root)
+        XacroProcessor::serialize(&doc)
     }
 
     fn finalize_tree(
