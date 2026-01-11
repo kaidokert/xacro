@@ -45,7 +45,7 @@ fn test_nested_include_cross_namespace() {
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("")
     };
 
     assert_eq!(
