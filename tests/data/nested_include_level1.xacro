@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:include filename="nested_include_level2.xacro"/>
+  <xacro:macro name="outer_macro">
+    <xacro:my_macro/>
+  </xacro:macro>
+</robot>

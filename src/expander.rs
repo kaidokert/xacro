@@ -695,7 +695,15 @@ fn is_macro_call(
     xacro_ns: &str,
 ) -> bool {
     // Must be in xacro namespace (check resolved URI, not prefix)
-    if elem.namespace.as_deref() != Some(xacro_ns) {
+    // Accept exact match OR any known xacro URI variant for cross-namespace compatibility
+    let in_xacro_ns = elem.namespace.as_deref() == Some(xacro_ns)
+        || elem
+            .namespace
+            .as_deref()
+            .map(crate::utils::xml::is_known_xacro_uri)
+            .unwrap_or(false);
+
+    if !in_xacro_ns {
         return false;
     }
 
