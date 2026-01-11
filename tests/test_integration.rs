@@ -2337,3 +2337,38 @@ fn test_macro_simple_expression_evaluation() {
         result
     );
 }
+
+#[test]
+fn test_lazy_block_empty_element_inserts_nothing() {
+    // Block parameters match POSITIONALLY (element name doesn't matter).
+    // **param (lazy block) inserts only children, not the wrapper element.
+    // Empty element = no children = nothing inserted.
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="**content">
+    <result>
+      <xacro:insert_block name="content"/>
+    </result>
+  </xacro:macro>
+
+  <!-- <other> captured positionally as "content" (name irrelevant) -->
+  <xacro:test_macro>
+    <other></other>
+  </xacro:test_macro>
+</robot>"#;
+
+    let result = processor.run_from_string(input).unwrap();
+
+    // Python xacro: <other></other> positionally captured as "content" block.
+    // Since it's empty, insert_block inserts nothing (no children).
+    assert!(result.contains("<result"), "Should have result element");
+
+    // Should be empty (no content inserted from empty element)
+    let trimmed = result.replace(char::is_whitespace, "");
+    assert!(
+        trimmed.contains("<result></result>") || trimmed.contains("<result/>"),
+        "result should be empty, got: {}",
+        result
+    );
+}
