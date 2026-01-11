@@ -694,14 +694,15 @@ fn is_macro_call(
     macros: &HashMap<String, Rc<MacroDefinition>>,
     xacro_ns: &str,
 ) -> bool {
-    // Must be in xacro namespace (check resolved URI, not prefix)
-    // Accept exact match OR any known xacro URI variant for cross-namespace compatibility
-    let in_xacro_ns = elem.namespace.as_deref() == Some(xacro_ns)
-        || elem
-            .namespace
-            .as_deref()
-            .map(crate::utils::xml::is_known_xacro_uri)
-            .unwrap_or(false);
+    // Must be in xacro namespace (check resolved URI, not prefix).
+    // Accept exact match with the document's declared namespace, OR any known xacro URI variant
+    // to support cross-namespace macro expansion when includes use different xacro URI variants.
+    let in_xacro_ns = !xacro_ns.is_empty()
+        && (elem.namespace.as_deref() == Some(xacro_ns)
+            || elem
+                .namespace
+                .as_deref()
+                .is_some_and(crate::utils::xml::is_known_xacro_uri));
 
     if !in_xacro_ns {
         return false;

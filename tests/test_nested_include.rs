@@ -1,5 +1,5 @@
-use std::env;
 use std::fs;
+use std::path::PathBuf;
 use xacro::XacroProcessor;
 
 /// Test cross-namespace macro expansion
@@ -19,19 +19,15 @@ use xacro::XacroProcessor;
 /// namespace URI matches.
 #[test]
 fn test_nested_include_cross_namespace() {
-    // Change to tests/data directory so relative includes work
-    let original_dir = env::current_dir().unwrap();
-    let test_data_dir = original_dir.join("tests/data");
-    env::set_current_dir(&test_data_dir).expect("Failed to change to test data directory");
+    // Use absolute paths to avoid mutating global process state
+    let test_data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let input_path = test_data_dir.join("nested_include_main.xacro");
+    let expected_path = test_data_dir.join("nested_include_main_expected.urdf");
 
-    let input = fs::read_to_string("nested_include_main.xacro").unwrap();
-    let expected = fs::read_to_string("nested_include_main_expected.urdf").unwrap();
+    let expected = fs::read_to_string(expected_path).unwrap();
 
     let processor = XacroProcessor::new();
-    let result = processor.run_from_string(&input).unwrap();
-
-    // Restore original directory
-    env::set_current_dir(&original_dir).unwrap();
+    let result = processor.run(&input_path).unwrap();
 
     // Check for unexpanded macro calls (the bug symptom)
     assert!(
