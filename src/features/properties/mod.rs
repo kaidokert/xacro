@@ -594,6 +594,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         text: &str,
     ) -> Result<String, XacroError> {
         // Iterative substitution: keep evaluating as long as ${...} expressions or $(...) extensions remain
+        // Note: contains() checks are conservative (may have false positives like "$( not-an-extension)"),
+        // but the loop short-circuits when result doesn't change, avoiding unnecessary iterations.
         let mut result = text.to_string();
         let mut iteration = 0;
 
@@ -606,7 +608,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // Use metadata-aware substitution
             let next = self.substitute_one_pass(&result, &properties)?;
 
-            // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
+            // Short-circuit: if result didn't change, we're done (no valid expressions/extensions found)
             if next == result {
                 break;
             }
@@ -672,12 +674,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                 }
                 return std::env::current_dir()
                     .map(|p| p.display().to_string())
-                    .map_err(|e| {
-                        XacroError::Include(format!(
-                            "Failed to get current directory for $(cwd): {}",
-                            e
-                        ))
-                    });
+                    .map_err(XacroError::from);
             }
             _ => {
                 // All other extensions require an argument

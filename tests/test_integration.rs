@@ -2401,11 +2401,20 @@ fn test_cwd_extension() {
     let path_elem = root.get_child("path").expect("Should have <path> element");
     let path_text = path_elem.get_text().expect("Should have path text");
 
-    // $(cwd) should expand to an absolute path
+    // $(cwd) should expand to the actual current working directory
+    let current_dir = std::env::current_dir().expect("Should be able to get current_dir");
+    let expected_path = current_dir.display().to_string();
+
     assert!(
         std::path::Path::new(path_text.as_ref()).is_absolute(),
         "$(cwd) should expand to absolute path, got: {}",
         path_text
+    );
+
+    assert_eq!(
+        path_text.as_ref(),
+        expected_path,
+        "$(cwd) should expand to actual current working directory"
     );
 
     // Should not contain literal $(cwd)
@@ -2479,5 +2488,38 @@ fn test_cwd_extension_no_args() {
         err_str.contains("cwd") && err_str.contains("does not take arguments"),
         "Error should mention cwd doesn't take arguments, got: {}",
         err_str
+    );
+}
+
+#[test]
+fn test_cwd_iterative_substitution() {
+    // Test that $(cwd) works through multi-pass substitution (escaped with $$, then expanded)
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="escaped_cwd" value="$$(cwd)"/>
+  <path>${escaped_cwd}</path>
+</robot>"#;
+
+    let result = processor.run_from_string(input).unwrap();
+    let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
+
+    let path_elem = root.get_child("path").expect("Should have <path> element");
+    let path_text = path_elem.get_text().expect("Should have path text");
+
+    // $$(cwd) first becomes $(cwd) (unescape), then expands to actual cwd (second pass)
+    let current_dir = std::env::current_dir().expect("Should be able to get current_dir");
+    let expected_path = current_dir.display().to_string();
+
+    assert_eq!(
+        path_text.as_ref(),
+        expected_path,
+        "Iterative substitution should resolve $$(cwd) -> $(cwd) -> actual_path"
+    );
+
+    // Should not contain any literal placeholders
+    assert!(
+        !result.contains("$(cwd)") && !result.contains("${"),
+        "All placeholders should be fully expanded"
     );
 }
