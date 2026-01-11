@@ -2359,16 +2359,29 @@ fn test_lazy_block_empty_element_inserts_nothing() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
+    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse valid XML");
 
     // Python xacro: <other></other> positionally captured as "content" block.
     // Since it's empty, insert_block inserts nothing (no children).
-    assert!(result.contains("<result"), "Should have result element");
+    let result_elem = root
+        .get_child("result")
+        .expect("Should have <result> element");
 
-    // Should be empty (no content inserted from empty element)
-    let trimmed = result.replace(char::is_whitespace, "");
+    // Should have no significant children (empty element has no children to insert)
+    let significant_children: Vec<_> = result_elem
+        .children
+        .iter()
+        .filter(|n| {
+            if let Some(text) = n.as_text() {
+                !text.trim().is_empty()
+            } else {
+                true // Elements, comments, etc.
+            }
+        })
+        .collect();
     assert!(
-        trimmed.contains("<result></result>") || trimmed.contains("<result/>"),
-        "result should be empty, got: {}",
-        result
+        significant_children.is_empty(),
+        "result element should be empty, but has significant children: {:?}",
+        significant_children
     );
 }

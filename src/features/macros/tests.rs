@@ -136,10 +136,179 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("");
         assert!(result.is_ok(), "Empty params should be valid");
 
-        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
         assert!(params.is_empty(), "Should have no params");
         assert!(param_order.is_empty(), "Should have no param order");
         assert!(block_params.is_empty(), "Should have no block params");
+        assert!(
+            lazy_block_params.is_empty(),
+            "Should have no lazy block params"
+        );
+    }
+
+    #[test]
+    fn test_lazy_block_param_single() {
+        // Single lazy block param using ** syntax
+        let result = MacroProcessor::parse_params("**blk");
+        assert!(
+            result.is_ok(),
+            "Single lazy block param using ** syntax should parse"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(params.len(), 1, "Exactly one param should be parsed");
+        assert!(params.contains_key("blk"), "Param map should contain `blk`");
+        assert_eq!(
+            param_order,
+            vec!["blk"],
+            "Param order should contain only `blk`"
+        );
+        assert!(
+            block_params.contains("blk"),
+            "`blk` should be treated as a block param"
+        );
+        assert_eq!(
+            block_params.len(),
+            1,
+            "Only `blk` should be in block_params for **blk"
+        );
+        assert!(
+            lazy_block_params.contains("blk"),
+            "`blk` should be tracked as a lazy block param"
+        );
+        assert_eq!(
+            lazy_block_params.len(),
+            1,
+            "Only `blk` should be in lazy_block_params for **blk"
+        );
+    }
+
+    #[test]
+    fn test_regular_block_param_single() {
+        // Single regular block param using * syntax
+        let result = MacroProcessor::parse_params("*blk");
+        assert!(
+            result.is_ok(),
+            "Single regular block param using * syntax should parse"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert!(params.contains_key("blk"));
+        assert_eq!(param_order, vec!["blk"]);
+        assert!(
+            block_params.contains("blk"),
+            "`blk` should be a block param"
+        );
+        assert_eq!(block_params.len(), 1);
+        assert!(
+            !lazy_block_params.contains("blk"),
+            "`blk` should NOT be lazy (only one star)"
+        );
+        assert!(
+            lazy_block_params.is_empty(),
+            "No lazy block params for *blk"
+        );
+    }
+
+    #[test]
+    fn test_mixed_block_params() {
+        // Mixed block / lazy-block / normal params
+        let result = MacroProcessor::parse_params("*a **b c");
+        assert!(
+            result.is_ok(),
+            "Mixed '*a **b c' params should parse correctly"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(
+            params.len(),
+            3,
+            "Three params should be parsed from '*a **b c'"
+        );
+        assert!(params.contains_key("a"));
+        assert!(params.contains_key("b"));
+        assert!(params.contains_key("c"));
+
+        assert_eq!(
+            param_order,
+            vec!["a", "b", "c"],
+            "Param order should follow the declaration order for '*a **b c'"
+        );
+
+        // Block params: both *a and **b are block parameters
+        assert!(
+            block_params.contains("a"),
+            "`a` should be treated as a block param"
+        );
+        assert!(
+            block_params.contains("b"),
+            "`b` should be treated as a block param"
+        );
+        assert!(
+            !block_params.contains("c"),
+            "`c` should not be treated as a block param"
+        );
+        assert_eq!(
+            block_params.len(),
+            2,
+            "Only `a` and `b` should be in block_params for '*a **b c'"
+        );
+
+        // Lazy-block params: only **b is lazy
+        assert!(
+            !lazy_block_params.contains("a"),
+            "`a` should not be treated as a lazy block param"
+        );
+        assert!(
+            lazy_block_params.contains("b"),
+            "`b` should be treated as a lazy block param"
+        );
+        assert!(
+            !lazy_block_params.contains("c"),
+            "`c` should not be treated as a lazy block param"
+        );
+        assert_eq!(
+            lazy_block_params.len(),
+            1,
+            "Only `b` should be in lazy_block_params for '*a **b c'"
+        );
+    }
+
+    #[test]
+    fn test_regular_params_with_defaults() {
+        // Regular params with defaults should not be block params
+        let result = MacroProcessor::parse_params("x:=1 y:=2.5 z:=foo");
+        assert!(result.is_ok(), "Regular params with defaults should parse");
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+
+        assert_eq!(params.len(), 3);
+        assert_eq!(param_order, vec!["x", "y", "z"]);
+
+        // None of these should be block params
+        assert!(
+            block_params.is_empty(),
+            "Defaulted params are not block params"
+        );
+        assert!(
+            lazy_block_params.is_empty(),
+            "Defaulted params are not lazy block params"
+        );
+    }
+
+    #[test]
+    fn test_triple_asterisk_rejected() {
+        // Triple asterisk should be rejected (invalid)
+        let result = MacroProcessor::parse_params("***foo");
+        assert!(
+            result.is_err(),
+            "Triple asterisk should be rejected as invalid"
+        );
+        assert!(
+            matches!(result.unwrap_err(), XacroError::InvalidParameterName { .. }),
+            "Should return InvalidParameterName error"
+        );
     }
 
     #[test]

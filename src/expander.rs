@@ -12,7 +12,10 @@
 
 use crate::{
     error::XacroError,
-    features::{macros::MacroDefinition, properties::PropertyProcessor},
+    features::{
+        macros::{MacroDefinition, MacroProcessor},
+        properties::PropertyProcessor,
+    },
     processor::CompatMode,
     utils::xml::extract_xacro_namespace,
     utils::xml::is_xacro_element,
@@ -447,9 +450,9 @@ fn expand_element(
         let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
         let (params_map, param_order, block_params_set, lazy_block_params_set) =
             if ctx.compat_mode.duplicate_params {
-                crate::features::macros::MacroProcessor::parse_params_compat(params_str)?
+                MacroProcessor::parse_params_compat(params_str)?
             } else {
-                crate::features::macros::MacroProcessor::parse_params(params_str)?
+                MacroProcessor::parse_params(params_str)?
             };
 
         // Create macro definition
@@ -740,8 +743,7 @@ fn expand_macro_call(
         .ok_or_else(|| XacroError::UndefinedMacro(macro_name.to_string()))?;
 
     // Collect macro arguments and blocks from call element
-    let (args, blocks) =
-        crate::features::macros::MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
+    let (args, blocks) = MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
 
     // Pre-expand blocks in caller's scope before entering macro scope
     // CRITICAL: Must happen BEFORE pushing macro's parameter scope to ensure

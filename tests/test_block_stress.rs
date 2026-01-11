@@ -4,9 +4,10 @@
 /// - *param (regular block): inserts element itself (wrapper + children)
 /// - **param (lazy block): inserts children only (strips wrapper)
 use xacro::XacroProcessor;
+use xmltree::Element;
 
-fn normalize(s: &str) -> String {
-    s.replace(char::is_whitespace, "")
+fn parse_result(xml: &str) -> Element {
+    Element::parse(xml.as_bytes()).expect("Should parse valid XML")
 }
 
 #[test]
@@ -25,13 +26,16 @@ fn test_single_star_preserves_wrapper() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should preserve the wrapper element
-    assert!(
-        normalized.contains("<out><wrapper>content</wrapper></out>"),
-        "Expected wrapper preserved with *param, got: {}",
-        result
+    let out = root.get_child("out").expect("Should have <out> element");
+    let wrapper = out
+        .get_child("wrapper")
+        .expect("Should have <wrapper> child (preserved by *param)");
+    assert_eq!(
+        wrapper.get_text().as_deref(),
+        Some("content"),
+        "Wrapper should contain 'content' text"
     );
 }
 
@@ -51,18 +55,21 @@ fn test_double_star_strips_wrapper() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should strip the wrapper, insert only "content" text node
+    let out = root.get_child("out").expect("Should have <out> element");
+
+    // Should NOT have wrapper element (stripped by **param)
     assert!(
-        normalized.contains("<out>content</out>"),
-        "Expected wrapper stripped with **param, got: {}",
-        result
+        out.get_child("wrapper").is_none(),
+        "Wrapper should be stripped with **param"
     );
-    assert!(
-        !normalized.contains("<wrapper>"),
-        "Wrapper should be stripped with **param, got: {}",
-        result
+
+    // Should have text node directly
+    assert_eq!(
+        out.get_text().as_deref(),
+        Some("content"),
+        "Should have text content directly (wrapper stripped)"
     );
 }
 
@@ -84,25 +91,25 @@ fn test_mixed_star_positional() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
     // First param (*a) should preserve wrapper
-    assert!(
-        normalized.contains("<res_a><wrap_a>A</wrap_a></res_a>"),
-        "Expected *a to preserve wrapper, got: {}",
-        result
-    );
+    let res_a = root.get_child("res_a").expect("Should have <res_a>");
+    let wrap_a = res_a
+        .get_child("wrap_a")
+        .expect("Should have <wrap_a> preserved by *a");
+    assert_eq!(wrap_a.get_text().as_deref(), Some("A"));
 
     // Second param (**b) should strip wrapper
+    let res_b = root.get_child("res_b").expect("Should have <res_b>");
     assert!(
-        normalized.contains("<res_b>B</res_b>"),
-        "Expected **b to strip wrapper, got: {}",
-        result
+        res_b.get_child("wrap_b").is_none(),
+        "Should NOT have <wrap_b> (stripped by **b)"
     );
-    assert!(
-        !normalized.contains("<res_b><wrap_b>"),
-        "Expected **b to strip wrap_b, got: {}",
-        result
+    assert_eq!(
+        res_b.get_text().as_deref(),
+        Some("B"),
+        "Should have text directly"
     );
 }
 
@@ -122,14 +129,13 @@ fn test_empty_single_star() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should preserve the empty void element
-    assert!(
-        normalized.contains("<out><void/></out>"),
-        "Expected empty element preserved with *param, got: {}",
-        result
-    );
+    let out = root.get_child("out").expect("Should have <out>");
+    let void = out
+        .get_child("void")
+        .expect("Should have <void/> preserved by *param");
+    assert!(void.children.is_empty(), "<void> should be empty");
 }
 
 #[test]
@@ -148,18 +154,31 @@ fn test_empty_double_star() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should strip void element, leaving out empty (no children to insert)
+    let out = root.get_child("out").expect("Should have <out>");
+
+    // Should NOT have void element (stripped by **param)
     assert!(
-        normalized.contains("<out></out>") || normalized.contains("<out/>"),
-        "Expected empty <out> with **param on empty element, got: {}",
-        result
+        out.get_child("void").is_none(),
+        "Should NOT have <void> (stripped by **param)"
     );
+
+    // Should have no children (empty element had no children to insert)
+    let significant_children: Vec<_> = out
+        .children
+        .iter()
+        .filter(|n| {
+            if let Some(text) = n.as_text() {
+                !text.trim().is_empty()
+            } else {
+                true // Elements, comments, etc.
+            }
+        })
+        .collect();
     assert!(
-        !normalized.contains("<void"),
-        "Expected void element stripped with **param, got: {}",
-        result
+        significant_children.is_empty(),
+        "<out> should be empty (no children to insert from empty element)"
     );
 }
 
@@ -181,19 +200,37 @@ fn test_single_star_with_attributes() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should preserve wrapper with all attributes
-    assert!(
-        normalized.contains("<wrapper") && normalized.contains("attr=\"value\""),
-        "Expected wrapper with attributes preserved, got: {}",
-        result
+    let out = root.get_child("out").expect("Should have <out>");
+    let wrapper = out
+        .get_child("wrapper")
+        .expect("Should have <wrapper> preserved by *param");
+
+    // Check attributes preserved
+    use xmltree::AttributeName;
+    assert_eq!(
+        wrapper
+            .attributes
+            .get(&AttributeName::local("attr"))
+            .map(|s| s.as_str()),
+        Some("value"),
+        "attr attribute should be preserved"
     );
-    assert!(
-        normalized.contains("<inner>text</inner>"),
-        "Expected children preserved, got: {}",
-        result
+    assert_eq!(
+        wrapper
+            .attributes
+            .get(&AttributeName::local("id"))
+            .map(|s| s.as_str()),
+        Some("123"),
+        "id attribute should be preserved"
     );
+
+    // Check children preserved
+    let inner = wrapper
+        .get_child("inner")
+        .expect("Should have <inner> child");
+    assert_eq!(inner.get_text().as_deref(), Some("text"));
 }
 
 #[test]
@@ -214,22 +251,19 @@ fn test_double_star_strips_attributes() {
 </robot>"#;
 
     let result = processor.run_from_string(input).unwrap();
-    let normalized = normalize(&result);
+    let root = parse_result(&result);
 
-    // Should strip wrapper and all its attributes
+    let out = root.get_child("out").expect("Should have <out>");
+
+    // Should NOT have wrapper (stripped by **param)
     assert!(
-        !normalized.contains("<wrapper"),
-        "Expected wrapper stripped with **param, got: {}",
-        result
+        out.get_child("wrapper").is_none(),
+        "Wrapper should be stripped by **param"
     );
-    assert!(
-        !normalized.contains("attr=\"value\""),
-        "Expected attributes stripped with **param, got: {}",
-        result
-    );
-    assert!(
-        normalized.contains("<out><inner>text</inner></out>"),
-        "Expected only children preserved, got: {}",
-        result
-    );
+
+    // Should have inner element directly (children preserved)
+    let inner = out
+        .get_child("inner")
+        .expect("Should have <inner> child directly (wrapper stripped)");
+    assert_eq!(inner.get_text().as_deref(), Some("text"));
 }

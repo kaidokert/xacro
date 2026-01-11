@@ -102,29 +102,34 @@ impl MacroProcessor {
 
         for token in Self::split_params_respecting_quotes(params_str)? {
             // Parse token to determine parameter type and components
-            let (param_name_str, is_block, is_lazy, default_value_str) = if token.starts_with("**")
-            {
-                // Lazy block parameter (**param - inserts children only)
-                let stripped = token.trim_start_matches('*');
-
+            let (param_name_str, is_block, is_lazy, default_value_str) = if token.starts_with('*') {
+                // Block parameter (**param or *param)
                 // Block parameters CANNOT have defaults
                 if token.contains(":=") {
                     return Err(XacroError::BlockParameterWithDefault {
                         param: token.clone(),
                     });
                 }
-                (stripped.to_string(), true, true, None)
-            } else if token.starts_with('*') {
-                // Regular block parameter (*param - inserts element itself)
-                let stripped = token.trim_start_matches('*');
 
-                // Block parameters CANNOT have defaults
-                if token.contains(":=") {
-                    return Err(XacroError::BlockParameterWithDefault {
+                // Check for lazy block (**param) vs regular block (*param)
+                let (stripped, is_lazy) = if let Some(s) = token.strip_prefix("**") {
+                    // Lazy block parameter (**param - inserts children only)
+                    (s, true)
+                } else if let Some(s) = token.strip_prefix('*') {
+                    // Regular block parameter (*param - inserts element itself)
+                    (s, false)
+                } else {
+                    unreachable!("starts_with('*') check guarantees this branch is reachable");
+                };
+
+                // Validate no extra asterisks (reject ***param, ****param, etc.)
+                if stripped.starts_with('*') {
+                    return Err(XacroError::InvalidParameterName {
                         param: token.clone(),
                     });
                 }
-                (stripped.to_string(), true, false, None)
+
+                (stripped.to_string(), true, is_lazy, None)
             } else if let Some((name, value)) = token.split_once(":=") {
                 // Regular parameter with default value
                 // Strip surrounding quotes from default value if present
@@ -226,10 +231,10 @@ impl MacroProcessor {
             .filter_map(xmltree::XMLNode::as_element);
 
         log::debug!(
-            "collect_macro_args: macro '{}' has {} block params: {:?}",
+            "collect_macro_args: macro '{}' has {} block params, {} lazy",
             macro_def.name,
             macro_def.block_params.len(),
-            macro_def.block_params
+            macro_def.lazy_block_params.len()
         );
         log::debug!(
             "collect_macro_args: macro call has {} child elements",
