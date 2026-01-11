@@ -2483,11 +2483,10 @@ fn test_cwd_extension_no_args() {
     assert!(result.is_err(), "$(cwd) with arguments should fail");
 
     let err = result.unwrap_err();
-    let err_str = err.to_string();
     assert!(
-        err_str.contains("cwd") && err_str.contains("does not take arguments"),
-        "Error should mention cwd doesn't take arguments, got: {}",
-        err_str
+        matches!(&err, xacro::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments")),
+        "Expected InvalidExtension error for $(cwd) with arguments, got: {:?}",
+        err
     );
 }
 
