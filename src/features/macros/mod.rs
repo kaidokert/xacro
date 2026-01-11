@@ -6,7 +6,7 @@ pub use xmltree::Element;
 pub type ParamsMap = HashMap<String, Option<String>>;
 pub type ParamOrder = Vec<String>;
 pub type BlockParamsSet = HashSet<String>;
-pub type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet);
+pub type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet, BlockParamsSet);
 
 pub type MacroArgs = HashMap<String, String>;
 pub type MacroBlocks = HashMap<String, Element>;
@@ -18,6 +18,7 @@ pub struct MacroDefinition {
     pub params: ParamsMap,       // Regular params with optional defaults
     pub param_order: ParamOrder, // Parameter declaration order (critical for block params!)
     pub block_params: BlockParamsSet, // Block params (names without * prefix)
+    pub lazy_block_params: BlockParamsSet, // Lazy block params (**param - insert children only)
     pub content: Element,
 }
 
@@ -97,20 +98,38 @@ impl MacroProcessor {
         let mut params = HashMap::new();
         let mut param_order = Vec::new();
         let mut block_params = HashSet::new();
+        let mut lazy_block_params = HashSet::new();
 
         for token in Self::split_params_respecting_quotes(params_str)? {
             // Parse token to determine parameter type and components
-            let (param_name_str, is_block, default_value_str) = if let Some(stripped) =
-                token.strip_prefix('*')
-            {
-                // Block parameter (e.g., *origin)
+            let (param_name_str, is_block, is_lazy, default_value_str) = if token.starts_with('*') {
+                // Block parameter (**param or *param)
                 // Block parameters CANNOT have defaults
                 if token.contains(":=") {
                     return Err(XacroError::BlockParameterWithDefault {
                         param: token.clone(),
                     });
                 }
-                (stripped.to_string(), true, None)
+
+                // Check for lazy block (**param) vs regular block (*param)
+                let (stripped, is_lazy) = if let Some(s) = token.strip_prefix("**") {
+                    // Lazy block parameter (**param - inserts children only)
+                    (s, true)
+                } else if let Some(s) = token.strip_prefix('*') {
+                    // Regular block parameter (*param - inserts element itself)
+                    (s, false)
+                } else {
+                    unreachable!("starts_with('*') check guarantees this branch is unreachable");
+                };
+
+                // Validate no extra asterisks (reject ***param, ****param, etc.)
+                if stripped.starts_with('*') {
+                    return Err(XacroError::InvalidParameterName {
+                        param: token.clone(),
+                    });
+                }
+
+                (stripped.to_string(), true, is_lazy, None)
             } else if let Some((name, value)) = token.split_once(":=") {
                 // Regular parameter with default value
                 // Strip surrounding quotes from default value if present
@@ -124,10 +143,15 @@ impl MacroProcessor {
                 } else {
                     value
                 };
-                (name.to_string(), false, Some(unquoted_value.to_string()))
+                (
+                    name.to_string(),
+                    false,
+                    false,
+                    Some(unquoted_value.to_string()),
+                )
             } else {
                 // Regular parameter without default
-                (token.clone(), false, None)
+                (token.clone(), false, false, None)
             };
 
             // Validate parameter name is not empty
@@ -150,17 +174,24 @@ impl MacroProcessor {
             }
             if is_block {
                 block_params.insert(param_name.clone());
+                if is_lazy {
+                    lazy_block_params.insert(param_name.clone());
+                } else {
+                    // Regular block, remove from lazy set if previously there
+                    lazy_block_params.remove(&param_name);
+                }
                 params.insert(param_name, None);
             } else {
-                // In compat mode, if changing from block to non-block, remove from block_params
+                // In compat mode, if changing from block to non-block, remove from block_params and lazy_block_params
                 if compat_mode {
                     block_params.remove(&param_name);
+                    lazy_block_params.remove(&param_name);
                 }
                 params.insert(param_name, default_value_str);
             }
         }
 
-        Ok((params, param_order, block_params))
+        Ok((params, param_order, block_params, lazy_block_params))
     }
 
     pub fn collect_macro_args(
@@ -199,6 +230,21 @@ impl MacroProcessor {
             .iter()
             .filter_map(xmltree::XMLNode::as_element);
 
+        log::debug!(
+            "collect_macro_args: macro '{}' has {} block params, {} lazy",
+            macro_def.name,
+            macro_def.block_params.len(),
+            macro_def.lazy_block_params.len()
+        );
+        log::debug!(
+            "collect_macro_args: macro call has {} child elements",
+            element
+                .children
+                .iter()
+                .filter_map(|n| n.as_element())
+                .count()
+        );
+
         // Iterate through params in order they were declared
         // Block params consume child elements sequentially from the iterator
         for param_name in &macro_def.param_order {
@@ -210,6 +256,11 @@ impl MacroProcessor {
                             macro_name: macro_def.name.clone(),
                             param: param_name.clone(),
                         })?;
+                log::debug!(
+                    "collect_macro_args: captured block param '{}' <- element '<{}>...'",
+                    param_name,
+                    child_element.name
+                );
                 block_values.insert(param_name.clone(), child_element.clone());
             }
         }

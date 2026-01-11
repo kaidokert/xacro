@@ -12,7 +12,10 @@
 
 use crate::{
     error::XacroError,
-    features::{macros::MacroDefinition, properties::PropertyProcessor},
+    features::{
+        macros::{MacroDefinition, MacroProcessor},
+        properties::PropertyProcessor,
+    },
     processor::CompatMode,
     utils::xml::extract_xacro_namespace,
     utils::xml::is_xacro_element,
@@ -445,11 +448,12 @@ fn expand_element(
 
         // Parse params attribute (optional - treat missing as empty string)
         let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
-        let (params_map, param_order, block_params_set) = if ctx.compat_mode.duplicate_params {
-            crate::features::macros::MacroProcessor::parse_params_compat(params_str)?
-        } else {
-            crate::features::macros::MacroProcessor::parse_params(params_str)?
-        };
+        let (params_map, param_order, block_params_set, lazy_block_params_set) =
+            if ctx.compat_mode.duplicate_params {
+                MacroProcessor::parse_params_compat(params_str)?
+            } else {
+                MacroProcessor::parse_params(params_str)?
+            };
 
         // Create macro definition
         let macro_def = MacroDefinition {
@@ -457,6 +461,7 @@ fn expand_element(
             params: params_map,
             param_order,
             block_params: block_params_set,
+            lazy_block_params: lazy_block_params_set,
             content: elem.clone(),
         };
 
@@ -738,8 +743,7 @@ fn expand_macro_call(
         .ok_or_else(|| XacroError::UndefinedMacro(macro_name.to_string()))?;
 
     // Collect macro arguments and blocks from call element
-    let (args, blocks) =
-        crate::features::macros::MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
+    let (args, blocks) = MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
 
     // Pre-expand blocks in caller's scope before entering macro scope
     // CRITICAL: Must happen BEFORE pushing macro's parameter scope to ensure
@@ -747,15 +751,53 @@ fn expand_macro_call(
     let mut expanded_blocks = HashMap::new();
     let mut unexpanded_blocks = blocks;
 
+    log::debug!(
+        "expand_macro_call: macro '{}' received {} blocks from collect_macro_args: {:?}",
+        macro_name,
+        unexpanded_blocks.len(),
+        unexpanded_blocks.keys().collect::<Vec<_>>()
+    );
+
     // Pre-expand blocks in declaration order to preserve in-order evaluation semantics
     for param_name in &macro_def.param_order {
         if macro_def.block_params.contains(param_name) {
             // collect_macro_args guarantees the block exists, so unwrap is safe
             let raw_block = unexpanded_blocks.remove(param_name).unwrap();
-            let expanded = expand_node(XMLNode::Element(raw_block), ctx)?;
+            log::debug!(
+                "expand_macro_call: expanding block param '{}' (element '<{}>')",
+                param_name,
+                raw_block.name
+            );
+
+            // CRITICAL: Behavior depends on * vs ** prefix:
+            // *param (regular block) → insert the element itself
+            // **param (lazy block) → insert only the element's children
+            let is_lazy = macro_def.lazy_block_params.contains(param_name);
+            let expanded = if is_lazy {
+                // Lazy block (**param): expand children only
+                // Example: <wrapper><inner/></wrapper> → inserts <inner/> only
+                expand_children_list(raw_block.children, ctx)?
+            } else {
+                // Regular block (*param): expand the element itself
+                // Example: <link name="test"/> → inserts <link name="test"/>
+                expand_node(XMLNode::Element(raw_block), ctx)?
+            };
+
+            log::debug!(
+                "expand_macro_call: block param '{}' {} expanded to {} nodes",
+                param_name,
+                if is_lazy { "(lazy)" } else { "(regular)" },
+                expanded.len()
+            );
             expanded_blocks.insert(param_name.clone(), expanded);
         }
     }
+
+    log::debug!(
+        "expand_macro_call: pushing {} expanded blocks to stack: {:?}",
+        expanded_blocks.len(),
+        expanded_blocks.keys().collect::<Vec<_>>()
+    );
 
     // Resolve parameters with defaults, supporting chained defaults
     // Process in declaration order so later defaults can reference earlier ones

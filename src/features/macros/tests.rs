@@ -56,7 +56,7 @@ mod macro_tests {
     #[test]
     fn test_block_param_attribute_collision() {
         // Create a macro definition with block param "*content"
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("*content").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -64,6 +64,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -101,6 +102,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -134,10 +136,179 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("");
         assert!(result.is_ok(), "Empty params should be valid");
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
         assert!(params.is_empty(), "Should have no params");
         assert!(param_order.is_empty(), "Should have no param order");
         assert!(block_params.is_empty(), "Should have no block params");
+        assert!(
+            lazy_block_params.is_empty(),
+            "Should have no lazy block params"
+        );
+    }
+
+    #[test]
+    fn test_lazy_block_param_single() {
+        // Single lazy block param using ** syntax
+        let result = MacroProcessor::parse_params("**blk");
+        assert!(
+            result.is_ok(),
+            "Single lazy block param using ** syntax should parse"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(params.len(), 1, "Exactly one param should be parsed");
+        assert!(params.contains_key("blk"), "Param map should contain `blk`");
+        assert_eq!(
+            param_order,
+            vec!["blk"],
+            "Param order should contain only `blk`"
+        );
+        assert!(
+            block_params.contains("blk"),
+            "`blk` should be treated as a block param"
+        );
+        assert_eq!(
+            block_params.len(),
+            1,
+            "Only `blk` should be in block_params for **blk"
+        );
+        assert!(
+            lazy_block_params.contains("blk"),
+            "`blk` should be tracked as a lazy block param"
+        );
+        assert_eq!(
+            lazy_block_params.len(),
+            1,
+            "Only `blk` should be in lazy_block_params for **blk"
+        );
+    }
+
+    #[test]
+    fn test_regular_block_param_single() {
+        // Single regular block param using * syntax
+        let result = MacroProcessor::parse_params("*blk");
+        assert!(
+            result.is_ok(),
+            "Single regular block param using * syntax should parse"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(params.len(), 1);
+        assert!(params.contains_key("blk"));
+        assert_eq!(param_order, vec!["blk"]);
+        assert!(
+            block_params.contains("blk"),
+            "`blk` should be a block param"
+        );
+        assert_eq!(block_params.len(), 1);
+        assert!(
+            !lazy_block_params.contains("blk"),
+            "`blk` should NOT be lazy (only one star)"
+        );
+        assert!(
+            lazy_block_params.is_empty(),
+            "No lazy block params for *blk"
+        );
+    }
+
+    #[test]
+    fn test_mixed_block_params() {
+        // Mixed block / lazy-block / normal params
+        let result = MacroProcessor::parse_params("*a **b c");
+        assert!(
+            result.is_ok(),
+            "Mixed '*a **b c' params should parse correctly"
+        );
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+        assert_eq!(
+            params.len(),
+            3,
+            "Three params should be parsed from '*a **b c'"
+        );
+        assert!(params.contains_key("a"));
+        assert!(params.contains_key("b"));
+        assert!(params.contains_key("c"));
+
+        assert_eq!(
+            param_order,
+            vec!["a", "b", "c"],
+            "Param order should follow the declaration order for '*a **b c'"
+        );
+
+        // Block params: both *a and **b are block parameters
+        assert!(
+            block_params.contains("a"),
+            "`a` should be treated as a block param"
+        );
+        assert!(
+            block_params.contains("b"),
+            "`b` should be treated as a block param"
+        );
+        assert!(
+            !block_params.contains("c"),
+            "`c` should not be treated as a block param"
+        );
+        assert_eq!(
+            block_params.len(),
+            2,
+            "Only `a` and `b` should be in block_params for '*a **b c'"
+        );
+
+        // Lazy-block params: only **b is lazy
+        assert!(
+            !lazy_block_params.contains("a"),
+            "`a` should not be treated as a lazy block param"
+        );
+        assert!(
+            lazy_block_params.contains("b"),
+            "`b` should be treated as a lazy block param"
+        );
+        assert!(
+            !lazy_block_params.contains("c"),
+            "`c` should not be treated as a lazy block param"
+        );
+        assert_eq!(
+            lazy_block_params.len(),
+            1,
+            "Only `b` should be in lazy_block_params for '*a **b c'"
+        );
+    }
+
+    #[test]
+    fn test_regular_params_with_defaults() {
+        // Regular params with defaults should not be block params
+        let result = MacroProcessor::parse_params("x:=1 y:=2.5 z:=foo");
+        assert!(result.is_ok(), "Regular params with defaults should parse");
+
+        let (params, param_order, block_params, lazy_block_params) = result.unwrap();
+
+        assert_eq!(params.len(), 3);
+        assert_eq!(param_order, vec!["x", "y", "z"]);
+
+        // None of these should be block params
+        assert!(
+            block_params.is_empty(),
+            "Defaulted params are not block params"
+        );
+        assert!(
+            lazy_block_params.is_empty(),
+            "Defaulted params are not lazy block params"
+        );
+    }
+
+    #[test]
+    fn test_triple_asterisk_rejected() {
+        // Triple asterisk should be rejected (invalid)
+        let result = MacroProcessor::parse_params("***foo");
+        assert!(
+            result.is_err(),
+            "Triple asterisk should be rejected as invalid"
+        );
+        assert!(
+            matches!(result.unwrap_err(), XacroError::InvalidParameterName { .. }),
+            "Should return InvalidParameterName error"
+        );
     }
 
     #[test]
@@ -179,7 +350,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("x:=1 y:=2.5 z:=foo");
         assert!(result.is_ok(), "Regular params with defaults should parse");
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Check params map
         assert_eq!(params.len(), 3);
@@ -202,7 +373,7 @@ mod macro_tests {
             "Regular params without defaults should parse"
         );
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Check params map (None = no default)
         assert_eq!(params.len(), 3);
@@ -222,7 +393,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("*origin *geometry");
         assert!(result.is_ok(), "Block params should parse");
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Check params map (block params have None value)
         assert_eq!(params.len(), 2);
@@ -243,7 +414,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("prefix *origin suffix:=default");
         assert!(result.is_ok(), "Mixed params should parse");
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Check all params present
         assert_eq!(params.len(), 3);
@@ -264,7 +435,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("angle:=${pi/2} scale:=${2*base}");
         assert!(result.is_ok(), "Defaults with expressions should parse");
 
-        let (params, _param_order, _block_params) = result.unwrap();
+        let (params, _param_order, _block_params, _lazy_block_params) = result.unwrap();
 
         // Parser doesn't evaluate, just stores the raw string
         assert_eq!(params.get("angle"), Some(&Some("${pi/2}".to_string())));
@@ -276,7 +447,7 @@ mod macro_tests {
     #[test]
     fn test_collect_macro_args_attributes_only() {
         // Create macro definition with regular params
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("x y z:=default").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -284,6 +455,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -310,7 +482,7 @@ mod macro_tests {
     #[test]
     fn test_collect_macro_args_blocks_only() {
         // Create macro definition with block params
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("*origin *geometry").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -318,6 +490,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -364,7 +537,7 @@ mod macro_tests {
     #[test]
     fn test_collect_macro_args_missing_block_parameter() {
         // Create macro definition expecting a block param
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("*content").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -372,6 +545,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -396,7 +570,7 @@ mod macro_tests {
     #[test]
     fn test_collect_macro_args_extra_children() {
         // Create macro definition expecting 1 block param
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("*content").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -404,6 +578,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -437,7 +612,7 @@ mod macro_tests {
     #[test]
     fn test_collect_macro_args_mixed_params_and_blocks() {
         // Create macro definition with both types
-        let (params, param_order, block_params) =
+        let (params, param_order, block_params, _lazy_block_params) =
             MacroProcessor::parse_params("prefix *content suffix").expect("Valid params");
 
         let macro_def = MacroDefinition {
@@ -445,6 +620,7 @@ mod macro_tests {
             params,
             param_order,
             block_params,
+            lazy_block_params: HashSet::new(),
             content: Element::new("dummy"),
         };
 
@@ -490,7 +666,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("name:='value'");
         assert!(result.is_ok(), "Should parse single-quoted value");
 
-        let (params, order, blocks) = result.unwrap();
+        let (params, order, blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(order.len(), 1);
         assert_eq!(blocks.len(), 0);
@@ -503,7 +679,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params("rpy:='0 0 0'");
         assert!(result.is_ok(), "Should parse multi-word quoted value");
 
-        let (params, order, blocks) = result.unwrap();
+        let (params, order, blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(order.len(), 1);
         assert_eq!(blocks.len(), 0);
@@ -519,7 +695,7 @@ mod macro_tests {
             "Should parse multi-word double-quoted value"
         );
 
-        let (params, _order, _blocks) = result.unwrap();
+        let (params, _order, _blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(params.get("xyz"), Some(&Some("1 2 3".to_string())));
     }
@@ -536,7 +712,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, order, blocks) = result.unwrap();
+        let (params, order, blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 5);
         assert_eq!(order.len(), 5);
         assert_eq!(blocks.len(), 0);
@@ -558,7 +734,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, order, blocks) = result.unwrap();
+        let (params, order, blocks, _lazy_blocks) = result.unwrap();
 
         // Verify we parsed all 4 parameters
         assert_eq!(params.len(), 4, "Expected 4 parameters total");
@@ -597,7 +773,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, order, _blocks) = result.unwrap();
+        let (params, order, _blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 2);
         assert_eq!(order, vec!["expr", "name"]);
         assert_eq!(params.get("expr"), Some(&Some("x:=5 y:=10".to_string())));
@@ -649,7 +825,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, _, _) = result.unwrap();
+        let (params, _, _, _) = result.unwrap();
         assert_eq!(params.get("p"), Some(&Some("x".to_string())));
     }
 
@@ -665,7 +841,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, _, _) = result.unwrap();
+        let (params, _, _, _) = result.unwrap();
         // Quote-stripping should extract the 'x'
         assert_eq!(params.get("p"), Some(&Some("x".to_string())));
     }
@@ -733,7 +909,7 @@ mod macro_tests {
             result.err()
         );
 
-        let (params, order, _) = result.unwrap();
+        let (params, order, _, _) = result.unwrap();
         // Only one parameter is parsed - the entire string is one token
         assert_eq!(params.len(), 1, "Adjacent quotes treated as single token");
         assert_eq!(order, vec!["a"]);
@@ -770,7 +946,7 @@ mod macro_tests {
         let result = MacroProcessor::parse_params_compat("x:=1 y:=2 x:=3");
         assert!(result.is_ok(), "Compat mode should accept duplicates");
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Last declaration wins for value
         assert_eq!(params.get("x"), Some(&Some("3".to_string())));
@@ -791,7 +967,7 @@ mod macro_tests {
             "Compat mode should accept duplicate block params"
         );
 
-        let (params, param_order, block_params) = result.unwrap();
+        let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Should have one entry
         assert_eq!(params.len(), 1);
