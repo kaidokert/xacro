@@ -1360,3 +1360,39 @@ mod tests {
         }
     }
 }
+
+#[test]
+fn test_context_can_shadow_len_builtin() {
+    use std::collections::HashMap;
+
+    let mut interp = Interpreter::new();
+    let mut properties = HashMap::new();
+    properties.insert("len".to_string(), "0.2".to_string());
+
+    // Build context
+    let context = build_pyisheval_context(&properties, &mut interp).unwrap();
+
+    // Check that context has "len"
+    assert!(context.contains_key("len"), "Context should contain 'len'");
+    assert_eq!(
+        context.get("len"),
+        Some(&Value::Number(0.2)),
+        "len should be 0.2"
+    );
+
+    // Try to evaluate an expression with it
+    let result = evaluate_expression(&mut interp, "len", &context).unwrap();
+    assert_eq!(
+        result,
+        Some(Value::Number(0.2)),
+        "Should return 0.2, not builtin"
+    );
+
+    // Try in a real expression
+    let result2 = evaluate_expression(&mut interp, "len * 2", &context).unwrap();
+    assert_eq!(
+        result2,
+        Some(Value::Number(0.4)),
+        "Should be able to use len in expressions"
+    );
+}

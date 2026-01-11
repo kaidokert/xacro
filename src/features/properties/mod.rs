@@ -116,23 +116,42 @@ fn is_lambda_parameter(
 fn is_python_keyword(name: &str) -> bool {
     matches!(
         name,
-        // Python keywords
-        "True" | "False" | "None" |
-        "and" | "or" | "not" | "is" | "in" |
-        "if" | "else" | "elif" |
-        "for" | "while" |
-        "lambda" |
-        "def" | "class" | "return" | "yield" |
-        "try" | "except" | "finally" | "raise" |
-        "with" | "as" |
-        "import" | "from" |
-        "pass" | "break" | "continue" |
-        "global" | "nonlocal" |
-        "assert" | "del" |
-        // Common built-in functions that pyisheval supports
-        "abs" | "min" | "max" | "sum" | "len" | "range" |
-        "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" |
-        "sin" | "cos" | "tan" | "sqrt" | "radians" | "degrees"
+        // Python keywords (but NOT built-in functions that can be shadowed)
+        "True"
+            | "False"
+            | "None"
+            | "and"
+            | "or"
+            | "not"
+            | "is"
+            | "in"
+            | "if"
+            | "else"
+            | "elif"
+            | "for"
+            | "while"
+            | "lambda"
+            | "def"
+            | "class"
+            | "return"
+            | "yield"
+            | "try"
+            | "except"
+            | "finally"
+            | "raise"
+            | "with"
+            | "as"
+            | "import"
+            | "from"
+            | "pass"
+            | "break"
+            | "continue"
+            | "global"
+            | "nonlocal"
+            | "assert"
+            | "del" // NOTE: Built-in functions like len, abs, min, max, etc. are NOT filtered here
+                    // because they can be shadowed by macro parameters or properties.
+                    // Python allows: def foo(len): return len * 2  # len parameter shadows built-in
     )
 }
 
