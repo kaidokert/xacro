@@ -1371,8 +1371,7 @@ mod tests {
         // Build context
         let context = build_pyisheval_context(&properties, &mut interp).unwrap();
 
-        // Check that context has "len"
-        assert!(context.contains_key("len"), "Context should contain 'len'");
+        // Check that context has "len" with correct value
         assert_eq!(
             context.get("len"),
             Some(&Value::Number(0.2)),

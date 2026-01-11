@@ -153,9 +153,15 @@ fn is_python_keyword(name: &str) -> bool {
             | "global"
             | "nonlocal"
             | "assert"
-            | "del" // NOTE: Built-in functions like len, abs, min, max, etc. are NOT filtered here
-                    // because they can be shadowed by macro parameters or properties.
-                    // Python allows: def foo(len): return len * 2  # len parameter shadows built-in
+            | "del"
+            // Math functions that are preprocessed (cannot be shadowed due to preprocessing)
+            // See preprocess_math_functions() in src/utils/eval.rs
+            | "abs" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+            | "sqrt" | "floor" | "ceil" // NOTE: radians() and degrees() are NOT filtered here because they are
+                                        // implemented as lambda functions in pyisheval, so they CAN be shadowed.
+                                        // NOTE: len, min, max, sum, range, int, float, str, bool, list, tuple, dict
+                                        // are also NOT filtered here because they can be shadowed by macro parameters
+                                        // or properties. Python allows: def foo(len): return len * 2
     )
 }
 
