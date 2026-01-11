@@ -2385,3 +2385,140 @@ fn test_lazy_block_empty_element_inserts_nothing() {
         significant_children
     );
 }
+
+#[test]
+fn test_cwd_extension() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="working_dir" value="$(cwd)"/>
+  <path>${working_dir}</path>
+</robot>"#;
+
+    let result = processor.run_from_string(input).unwrap();
+    let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
+
+    let path_elem = root.get_child("path").expect("Should have <path> element");
+    let path_text = path_elem.get_text().expect("Should have path text");
+
+    // $(cwd) should expand to the actual current working directory
+    let current_dir = std::env::current_dir().expect("Should be able to get current_dir");
+    let expected_path = current_dir.display().to_string();
+
+    assert!(
+        std::path::Path::new(path_text.as_ref()).is_absolute(),
+        "$(cwd) should expand to absolute path, got: {}",
+        path_text
+    );
+
+    assert_eq!(
+        path_text.as_ref(),
+        expected_path,
+        "$(cwd) should expand to actual current working directory"
+    );
+
+    // Should not contain literal $(cwd)
+    assert!(
+        !result.contains("$(cwd)"),
+        "$(cwd) should be expanded, not literal"
+    );
+}
+
+#[test]
+fn test_cwd_with_property_reference() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="cwd_path" value="$(cwd)"/>
+  <path1>$(cwd)</path1>
+  <path2>${cwd_path}</path2>
+</robot>"#;
+
+    let result = processor.run_from_string(input).unwrap();
+    let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
+
+    let path1_elem = root
+        .get_child("path1")
+        .expect("Should have <path1> element");
+    let path1_text = path1_elem.get_text().expect("Should have path1 text");
+
+    let path2_elem = root
+        .get_child("path2")
+        .expect("Should have <path2> element");
+    let path2_text = path2_elem.get_text().expect("Should have path2 text");
+
+    // Both should be absolute paths
+    assert!(
+        std::path::Path::new(path1_text.as_ref()).is_absolute(),
+        "Direct $(cwd) should expand to absolute path, got: {}",
+        path1_text
+    );
+
+    assert!(
+        std::path::Path::new(path2_text.as_ref()).is_absolute(),
+        "Property reference to $(cwd) should expand to absolute path, got: {}",
+        path2_text
+    );
+
+    // Both should be the same path
+    assert_eq!(
+        path1_text.as_ref(),
+        path2_text.as_ref(),
+        "Direct $(cwd) and property reference should give same result"
+    );
+}
+
+#[test]
+fn test_cwd_extension_no_args() {
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="invalid" value="$(cwd extra)"/>
+  <path>${invalid}</path>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+
+    // Should fail - $(cwd) doesn't accept arguments
+    assert!(result.is_err(), "$(cwd) with arguments should fail");
+
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, xacro::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments")),
+        "Expected InvalidExtension error for $(cwd) with arguments, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn test_cwd_iterative_substitution() {
+    // Test that $(cwd) works through multi-pass substitution (escaped with $$, then expanded)
+    let processor = XacroProcessor::new();
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="escaped_cwd" value="$$(cwd)"/>
+  <path>${escaped_cwd}</path>
+</robot>"#;
+
+    let result = processor.run_from_string(input).unwrap();
+    let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
+
+    let path_elem = root.get_child("path").expect("Should have <path> element");
+    let path_text = path_elem.get_text().expect("Should have path text");
+
+    // $$(cwd) first becomes $(cwd) (unescape), then expands to actual cwd (second pass)
+    let current_dir = std::env::current_dir().expect("Should be able to get current_dir");
+    let expected_path = current_dir.display().to_string();
+
+    assert_eq!(
+        path_text.as_ref(),
+        expected_path,
+        "Iterative substitution should resolve $$(cwd) -> $(cwd) -> actual_path"
+    );
+
+    // Should not contain any literal placeholders
+    assert!(
+        !result.contains("$(cwd)") && !result.contains("${"),
+        "All placeholders should be fully expanded"
+    );
+}

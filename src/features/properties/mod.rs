@@ -564,10 +564,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     }
                 }
                 TokenType::Extension => {
-                    // Preserve extension syntax for later resolution
-                    result.push_str("$(");
-                    result.push_str(&token_value);
-                    result.push(')');
+                    // Resolve extension immediately
+                    let resolved = self.resolve_extension(&token_value)?;
+                    result.push_str(&resolved);
                 }
                 TokenType::DollarDollarBrace => {
                     // Preserve escape sequence: $$ → $
@@ -594,11 +593,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         &self,
         text: &str,
     ) -> Result<String, XacroError> {
-        // Iterative substitution: keep evaluating as long as ${...} expressions remain
+        // Iterative substitution: keep evaluating as long as ${...} expressions or $(...) extensions remain
+        // Note: contains() checks are conservative (may have false positives like "$( not-an-extension)"),
+        // but the loop short-circuits when result doesn't change, avoiding unnecessary iterations.
         let mut result = text.to_string();
         let mut iteration = 0;
 
-        while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
+        while (result.contains("${") || result.contains("$(")) && iteration < MAX_SUBSTITUTION_DEPTH
+        {
             // Build context with only the properties referenced in this iteration
             // This is more efficient than resolving all properties upfront
             let properties = self.build_eval_context(&result)?;
@@ -606,7 +608,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
             // Use metadata-aware substitution
             let next = self.substitute_one_pass(&result, &properties)?;
 
-            // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
+            // Short-circuit: if result didn't change, we're done (no valid expressions/extensions found)
             if next == result {
                 break;
             }
@@ -616,7 +618,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         }
 
         // If we hit the limit with remaining placeholders, this indicates a problem
-        if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
+        if iteration >= MAX_SUBSTITUTION_DEPTH && (result.contains("${") || result.contains("$(")) {
             return Err(XacroError::MaxSubstitutionDepth {
                 depth: MAX_SUBSTITUTION_DEPTH,
                 snippet: truncate_snippet(&result),
@@ -659,7 +661,27 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                 reason: "Extension cannot be empty: $()".to_string(),
             })?;
 
-        // Extract argument name (required)
+        // Handle extensions that don't require arguments
+        match ext_type {
+            "cwd" => {
+                // $(cwd) returns the current working directory
+                // Matches Python xacro: os.path.abspath(root_dir) where root_dir defaults to os.curdir
+                if parts_iter.next().is_some() {
+                    return Err(XacroError::InvalidExtension {
+                        content: content.to_string(),
+                        reason: "$(cwd) extension does not take arguments".to_string(),
+                    });
+                }
+                return std::env::current_dir()
+                    .map(|p| p.display().to_string())
+                    .map_err(XacroError::from);
+            }
+            _ => {
+                // All other extensions require an argument
+            }
+        }
+
+        // Extract argument name (required for remaining extensions)
         let arg_name = parts_iter
             .next()
             .ok_or_else(|| XacroError::InvalidExtension {
