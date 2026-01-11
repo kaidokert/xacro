@@ -113,26 +113,55 @@ fn is_lambda_parameter(
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
+///
+/// NOTE: Newer Python keywords (match/case from 3.10+, async/await from 3.5+)
+/// are intentionally omitted because ROS xacro targets older Python versions (2.7/3.x)
+/// for broad compatibility. These features are not used in the xacro ecosystem.
 fn is_python_keyword(name: &str) -> bool {
     matches!(
         name,
-        // Python keywords
-        "True" | "False" | "None" |
-        "and" | "or" | "not" | "is" | "in" |
-        "if" | "else" | "elif" |
-        "for" | "while" |
-        "lambda" |
-        "def" | "class" | "return" | "yield" |
-        "try" | "except" | "finally" | "raise" |
-        "with" | "as" |
-        "import" | "from" |
-        "pass" | "break" | "continue" |
-        "global" | "nonlocal" |
-        "assert" | "del" |
-        // Common built-in functions that pyisheval supports
-        "abs" | "min" | "max" | "sum" | "len" | "range" |
-        "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" |
-        "sin" | "cos" | "tan" | "sqrt" | "radians" | "degrees"
+        // Python keywords (but NOT built-in functions that can be shadowed)
+        "True"
+            | "False"
+            | "None"
+            | "and"
+            | "or"
+            | "not"
+            | "is"
+            | "in"
+            | "if"
+            | "else"
+            | "elif"
+            | "for"
+            | "while"
+            | "lambda"
+            | "def"
+            | "class"
+            | "return"
+            | "yield"
+            | "try"
+            | "except"
+            | "finally"
+            | "raise"
+            | "with"
+            | "as"
+            | "import"
+            | "from"
+            | "pass"
+            | "break"
+            | "continue"
+            | "global"
+            | "nonlocal"
+            | "assert"
+            | "del"
+            // Math functions that are preprocessed (cannot be shadowed due to preprocessing)
+            // See preprocess_math_functions() in src/utils/eval.rs
+            | "abs" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+            | "sqrt" | "floor" | "ceil" // NOTE: radians() and degrees() are NOT filtered here because they are
+                                        // implemented as lambda functions in pyisheval, so they CAN be shadowed.
+                                        // NOTE: len, min, max, sum, range, int, float, str, bool, list, tuple, dict
+                                        // are also NOT filtered here because they can be shadowed by macro parameters
+                                        // or properties. Python allows: def foo(len): return len * 2
     )
 }
 

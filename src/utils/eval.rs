@@ -1359,4 +1359,72 @@ mod tests {
             result.expect("Evaluation should succeed for all supported math functions");
         }
     }
+
+    #[test]
+    fn test_context_can_shadow_len_builtin() {
+        use std::collections::HashMap;
+
+        let mut interp = Interpreter::new();
+        let mut properties = HashMap::new();
+        properties.insert("len".to_string(), "0.2".to_string());
+
+        // Build context
+        let context = build_pyisheval_context(&properties, &mut interp).unwrap();
+
+        // Check that context has "len" with correct value
+        assert_eq!(
+            context.get("len"),
+            Some(&Value::Number(0.2)),
+            "len should be 0.2"
+        );
+
+        // Try to evaluate an expression with it
+        let result = evaluate_expression(&mut interp, "len", &context).unwrap();
+        assert_eq!(
+            result,
+            Some(Value::Number(0.2)),
+            "Should return 0.2, not builtin"
+        );
+
+        // Try in a real expression
+        let result2 = evaluate_expression(&mut interp, "len * 2", &context).unwrap();
+        assert_eq!(
+            result2,
+            Some(Value::Number(0.4)),
+            "Should be able to use len in expressions"
+        );
+    }
+
+    #[test]
+    fn test_context_can_shadow_other_builtins() {
+        use std::collections::HashMap;
+
+        let mut interp = Interpreter::new();
+        let mut properties = HashMap::new();
+        properties.insert("min".to_string(), "42".to_string());
+        properties.insert("max".to_string(), "100".to_string());
+
+        // Build context
+        let context = build_pyisheval_context(&properties, &mut interp).unwrap();
+
+        // Check that context has the shadowable built-ins with correct values
+        assert_eq!(
+            context.get("min"),
+            Some(&Value::Number(42.0)),
+            "min should be 42.0"
+        );
+        assert_eq!(
+            context.get("max"),
+            Some(&Value::Number(100.0)),
+            "max should be 100.0"
+        );
+
+        // Try to evaluate expressions with them
+        let result = evaluate_expression(&mut interp, "min + max", &context).unwrap();
+        assert_eq!(
+            result,
+            Some(Value::Number(142.0)),
+            "Should be able to use min and max in expressions"
+        );
+    }
 }
