@@ -278,6 +278,19 @@ impl XacroProcessor {
         XacroProcessor::serialize(&doc)
     }
 
+    fn finalize_tree_children(
+        element: &mut xmltree::Element,
+        xacro_ns: &str,
+        compat_mode: &CompatMode,
+    ) -> Result<(), XacroError> {
+        for child in &mut element.children {
+            if let Some(child_elem) = child.as_mut_element() {
+                Self::finalize_tree(child_elem, xacro_ns, compat_mode)?;
+            }
+        }
+        Ok(())
+    }
+
     fn finalize_tree(
         element: &mut xmltree::Element,
         xacro_ns: &str,
@@ -294,17 +307,17 @@ impl XacroProcessor {
             if compat_mode.namespace {
                 let prefix = element.prefix.as_deref().unwrap_or("");
                 if prefix != "xacro" {
+                    let element_display = if prefix.is_empty() {
+                        format!("<{}>", element.name)
+                    } else {
+                        format!("<{}:{}>", prefix, element.name)
+                    };
                     log::warn!(
-                        "Namespace collision: <{}:{}> uses xacro namespace URI but different prefix (compat mode)",
-                        prefix,
-                        element.name
+                        "Namespace collision: {} uses xacro namespace URI but different prefix (compat mode)",
+                        element_display
                     );
                     // Pass through - recursively finalize children but don't error
-                    for child in &mut element.children {
-                        if let Some(child_elem) = child.as_mut_element() {
-                            Self::finalize_tree(child_elem, xacro_ns, compat_mode)?;
-                        }
-                    }
+                    Self::finalize_tree_children(element, xacro_ns, compat_mode)?;
                     return Ok(());
                 }
             }
@@ -359,11 +372,7 @@ impl XacroProcessor {
         }
 
         // Recursively process children
-        for child in &mut element.children {
-            if let Some(child_elem) = child.as_mut_element() {
-                Self::finalize_tree(child_elem, xacro_ns, compat_mode)?;
-            }
-        }
+        Self::finalize_tree_children(element, xacro_ns, compat_mode)?;
 
         Ok(())
     }

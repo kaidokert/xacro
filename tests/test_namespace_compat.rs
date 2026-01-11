@@ -11,6 +11,37 @@
 
 use xacro::{CompatMode, XacroError, XacroProcessor};
 
+// Local test helpers for XML parsing (reduce boilerplate)
+// TODO: Move to tests/common/mod.rs when generalizing later
+
+/// Get attribute value by local name
+fn get_attr<'a>(
+    elem: &'a xmltree::Element,
+    name: &str,
+) -> &'a str {
+    elem.attributes
+        .iter()
+        .find(|(attr_name, _)| attr_name.local_name == name)
+        .map(|(_, value)| value.as_str())
+        .unwrap_or_else(|| panic!("Expected '{}' attribute", name))
+}
+
+/// Find child element by name and prefix
+fn find_element_by_prefix<'a>(
+    parent: &'a xmltree::Element,
+    name: &str,
+    prefix: &str,
+) -> &'a xmltree::Element {
+    parent
+        .children
+        .iter()
+        .find_map(|node| {
+            node.as_element()
+                .filter(|elem| elem.name == name && elem.prefix.as_deref() == Some(prefix))
+        })
+        .unwrap_or_else(|| panic!("Expected <{}:{}> element", prefix, name))
+}
+
 #[test]
 fn test_namespace_typo_error_by_default() {
     // Namespace URI "typo" should error in strict mode
@@ -298,8 +329,9 @@ fn test_multiple_compat_modes() {
 
 #[test]
 fn test_namespace_collision_strict_mode() {
-    // Namespace collision: two prefixes bound to same URI
-    // This should error in strict mode (poor XML practice)
+    // Namespace collision scenario: two prefixes bound to same unknown URI (#interface)
+    // In strict mode, this errors during namespace extraction (unknown URI validation)
+    // before the collision handling in finalize_tree is reached
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:interface="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
        xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
@@ -355,23 +387,29 @@ fn test_namespace_collision_compat_mode() {
 
     let output = result.unwrap();
 
+    // Parse output XML to verify structure
+    let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+
     // Verify expression was evaluated
-    assert!(
-        output.contains(r#"xyz="0 0 42""#),
-        "Should evaluate expression correctly, got: {}",
-        output
+    let link = root.get_child("link").expect("Should have <link> element");
+    let visual = link
+        .get_child("visual")
+        .expect("Should have <visual> element");
+    let origin = visual
+        .get_child("origin")
+        .expect("Should have <origin> element");
+    assert_eq!(
+        get_attr(origin, "xyz"),
+        "0 0 42",
+        "Should evaluate expression correctly"
     );
 
     // Verify <interface:position> was preserved
-    assert!(
-        output.contains("<interface:position"),
-        "Should preserve <interface:position> element, got: {}",
-        output
-    );
-    assert!(
-        output.contains(r#"name="position_iface_0""#),
-        "Should preserve position_iface_0 attribute, got: {}",
-        output
+    let interface_pos = find_element_by_prefix(&root, "position", "interface");
+    assert_eq!(
+        get_attr(interface_pos, "name"),
+        "position_iface_0",
+        "Should preserve position_iface_0 attribute"
     );
 }
 
@@ -415,22 +453,39 @@ fn test_namespace_collision_multiple_elements() {
 
     let output = result.unwrap();
 
+    // Parse output XML to verify structure
+    let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+
     // Verify xacro processing worked
-    assert!(
-        output.contains(r#"xyz="0 0 0.2""#),
-        "Should evaluate expression, got: {}",
-        output
+    let link = root.get_child("link").expect("Should have <link> element");
+    let visual = link
+        .get_child("visual")
+        .expect("Should have <visual> element");
+    let origin = visual
+        .get_child("origin")
+        .expect("Should have <origin> element");
+    assert_eq!(
+        get_attr(origin, "xyz"),
+        "0 0 0.2",
+        "Should evaluate expression"
     );
 
     // Verify both interface elements were preserved
-    assert!(
-        output.contains(r#"<interface:position name="position_iface_0""#),
-        "Should preserve interface:position, got: {}",
-        output
+    let gazebo = root
+        .get_child("gazebo")
+        .expect("Should have <gazebo> element");
+
+    let position = find_element_by_prefix(gazebo, "position", "interface");
+    assert_eq!(
+        get_attr(position, "name"),
+        "position_iface_0",
+        "Should preserve interface:position name attribute"
     );
-    assert!(
-        output.contains(r#"<interface:audio name="audio_iface""#),
-        "Should preserve interface:audio, got: {}",
-        output
+
+    let audio = find_element_by_prefix(gazebo, "audio", "interface");
+    assert_eq!(
+        get_attr(audio, "name"),
+        "audio_iface",
+        "Should preserve interface:audio name attribute"
     );
 }
