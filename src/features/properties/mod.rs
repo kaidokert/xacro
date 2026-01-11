@@ -113,6 +113,10 @@ fn is_lambda_parameter(
 }
 
 /// Check if a name is a Python keyword or built-in that shouldn't be treated as a property
+///
+/// NOTE: Newer Python keywords (match/case from 3.10+, async/await from 3.5+)
+/// are intentionally omitted because ROS xacro targets older Python versions (2.7/3.x)
+/// for broad compatibility. These features are not used in the xacro ecosystem.
 fn is_python_keyword(name: &str) -> bool {
     matches!(
         name,
