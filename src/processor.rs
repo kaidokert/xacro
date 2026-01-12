@@ -299,6 +299,39 @@ impl XacroProcessor {
         // Check if this element is in the xacro namespace (indicates unprocessed feature)
         // Must check namespace URI, not prefix, to handle namespace aliasing (e.g., xmlns:x="...")
 
+        // Remove xacro namespace declarations from all elements first
+        // Strategy: Remove prefixes that are:
+        // 1. Literally named "xacro" (regardless of URI)
+        // 2. Bound to known standard xacro URIs (defense-in-depth)
+        // This handles both standard URIs and non-standard URIs accepted in compat mode.
+        // Do this BEFORE checking for unprocessed features to ensure cleanup happens regardless.
+        //
+        // Note: We DON'T remove non-"xacro" prefixes bound to non-standard URIs, even if
+        // that URI happens to be used as xacro_ns in compat mode. Those prefixes may be
+        // actively used in the document (namespace collision case).
+        if !xacro_ns.is_empty() {
+            if let Some(ref mut ns) = element.namespaces {
+                // Find prefixes to remove
+                let prefixes_to_remove: Vec<String> =
+                    ns.0.iter()
+                        .filter(|(prefix, uri)| {
+                            // Always remove "xacro" prefix
+                            if prefix.as_str() == "xacro" {
+                                return true;
+                            }
+                            // Remove other prefixes only if bound to known standard URIs
+                            is_known_xacro_uri(uri.as_str())
+                        })
+                        .map(|(prefix, _)| prefix.clone())
+                        .collect();
+
+                // Remove all found prefixes
+                for prefix in prefixes_to_remove {
+                    ns.0.remove(&prefix);
+                }
+            }
+        }
+
         // Case 1: Element has namespace and matches declared xacro namespace
         if !xacro_ns.is_empty() && element.namespace.as_deref() == Some(xacro_ns) {
             // Compat mode: handle namespace collision (same URI bound to multiple prefixes)
@@ -347,26 +380,6 @@ impl XacroProcessor {
                          Please add xmlns:xacro=\"{}\" to your root element.",
                         element.name, elem_ns, elem_ns
                     )));
-                }
-            }
-        }
-
-        // Remove ALL known xacro namespace declarations (if namespace was declared)
-        // This handles cases where included files use different xacro URI variants
-        // Find and remove whichever prefixes are bound to ANY known xacro namespace URI
-        // This handles both standard (xmlns:xacro="...") and non-standard (xmlns:foo="...") prefixes
-        if !xacro_ns.is_empty() {
-            if let Some(ref mut ns) = element.namespaces {
-                // Find all prefixes bound to ANY known xacro namespace URI
-                let prefixes_to_remove: Vec<String> =
-                    ns.0.iter()
-                        .filter(|(_, uri)| is_known_xacro_uri(uri.as_str()))
-                        .map(|(prefix, _)| prefix.clone())
-                        .collect();
-
-                // Remove all found prefixes
-                for prefix in prefixes_to_remove {
-                    ns.0.remove(&prefix);
                 }
             }
         }
