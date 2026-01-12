@@ -240,7 +240,7 @@ impl XacroProcessor {
         let xacro_ns = extract_xacro_namespace(&doc.root, self.compat_mode.namespace)?;
 
         // Create expansion context with CLI arguments and compat mode
-        // Math constants (pi, e, tau, etc.) are automatically initialized by PropertyProcessor::new()
+        // Math constants (pi, e, tau, etc.) are automatically initialized by EvalContext::new()
         // CLI args are passed to the context and take precedence over XML defaults
         let mut ctx = XacroContext::new_with_compat(
             base_path.to_path_buf(),

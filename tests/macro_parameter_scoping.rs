@@ -4,8 +4,8 @@ use crate::common::*;
 /// Integration test for macro parameter scoping bug
 ///
 /// This test uses the FULL XacroProcessor pipeline (not just MacroProcessor),
-/// which runs PropertyProcessor BEFORE MacroProcessor. This exposes the bug
-/// where PropertyProcessor tries to evaluate ${name} inside macro definitions
+/// which runs EvalContext BEFORE MacroProcessor. This exposes the bug
+/// where EvalContext tries to evaluate ${name} inside macro definitions
 /// before the macro parameters are defined.
 #[test]
 fn test_macro_with_parameters_full_pipeline() {

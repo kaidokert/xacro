@@ -12,7 +12,7 @@
 
 use crate::{
     error::XacroError,
-    eval::PropertyProcessor,
+    eval::EvalContext,
     parse::{
         macro_def::{MacroDefinition, MacroProcessor},
         xml::{extract_xacro_namespace, is_xacro_element},
@@ -92,7 +92,7 @@ impl Drop for IncludeGuard<'_> {
 /// Automatically pops property scope when dropped, ensuring correct variable
 /// shadowing even if macro expansion panics.
 struct ScopeGuard<'a> {
-    properties: &'a PropertyProcessor,
+    properties: &'a EvalContext,
 }
 
 impl Drop for ScopeGuard<'_> {
@@ -510,7 +510,7 @@ fn expand_element(
 
         // 2. Fallback: Check block stack (macro block parameters)
         // This will error with UndefinedBlock if not found
-        let nodes = ctx.lookup_block(&name)?;
+        let nodes = ctx.get_block(&name)?;
         return Ok(nodes);
     }
 

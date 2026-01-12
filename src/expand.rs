@@ -1,8 +1,7 @@
 //! Expansion state and context management
 
 use crate::{
-    error::XacroError, eval::PropertyProcessor, parse::macro_def::MacroDefinition,
-    processor::CompatMode,
+    error::XacroError, eval::EvalContext, parse::macro_def::MacroDefinition, processor::CompatMode,
 };
 use core::cell::RefCell;
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
@@ -10,12 +9,12 @@ use xmltree::XMLNode;
 
 pub struct XacroContext {
     /// Property processor with scope support
-    pub properties: PropertyProcessor,
+    pub properties: EvalContext,
 
     /// Macro definitions wrapped in Rc - uses RefCell for interior mutability
     pub macros: RefCell<HashMap<String, Rc<MacroDefinition>>>,
 
-    /// CLI arguments (shared with PropertyProcessor for $(arg) resolution)
+    /// CLI arguments (shared with EvalContext for $(arg) resolution)
     /// Wrapped in Rc<RefCell<...>> for shared mutable access
     pub args: Rc<RefCell<HashMap<String, String>>>,
 
@@ -58,7 +57,7 @@ impl XacroContext {
 
     /// Create a new context with CLI arguments
     ///
-    /// The args parameter is shared with the PropertyProcessor for $(arg) resolution.
+    /// The args parameter is shared with the EvalContext for $(arg) resolution.
     pub fn new_with_args(
         base_path: PathBuf,
         xacro_ns: String,
@@ -70,7 +69,7 @@ impl XacroContext {
     /// Create a new context with compatibility mode
     ///
     /// The compat_mode parameter enables Python xacro compatibility features.
-    /// The args parameter is shared with the PropertyProcessor for $(arg) resolution.
+    /// The args parameter is shared with the EvalContext for $(arg) resolution.
     pub fn new_with_compat(
         base_path: PathBuf,
         xacro_ns: String,
@@ -81,7 +80,7 @@ impl XacroContext {
         let args = Rc::new(RefCell::new(args));
 
         XacroContext {
-            properties: PropertyProcessor::new_with_args(args.clone()),
+            properties: EvalContext::new_with_args(args.clone()),
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),
@@ -127,14 +126,6 @@ impl XacroContext {
             .ok_or_else(|| XacroError::UndefinedBlock {
                 name: name.to_string(),
             })
-    }
-
-    /// Alias for get_block (backward compatibility)
-    pub fn lookup_block(
-        &self,
-        name: &str,
-    ) -> Result<Vec<XMLNode>, XacroError> {
-        self.get_block(name)
     }
 
     /// Set the maximum recursion depth
