@@ -76,7 +76,6 @@ fn test_other_namespaces_preserved() {
 
 #[test]
 fn test_unimplemented_feature_detection_arg() {
-    // xacro:arg is now IMPLEMENTED (Phase 5) - verify it works
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:arg name="robot_name" default="my_robot"/>

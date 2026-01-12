@@ -277,6 +277,3 @@ impl MacroProcessor {
         Ok((param_values, block_values))
     }
 }
-
-#[cfg(test)]
-mod tests;

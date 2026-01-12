@@ -28,3 +28,4 @@ Cargo.lock
 /scripts/
 /ref/
 *.log
+*.bak

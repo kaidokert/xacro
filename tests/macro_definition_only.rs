@@ -3,8 +3,8 @@ use crate::common::*;
 
 /// Test that macro definitions (without calls) don't trigger undefined variable errors
 ///
-/// This is a CRITICAL test - if a file only defines a macro but never calls it,
-/// the macro parameters should never be evaluated during definition.
+/// If a file only defines a macro but never calls it, the macro parameters
+/// should never be evaluated during definition.
 #[test]
 fn test_macro_definition_without_call() {
     let input = r#"<?xml version="1.0"?>
@@ -21,7 +21,7 @@ fn test_macro_definition_without_call() {
     assert_xacro_contains!(output, "<robot", "Should have robot element");
 }
 
-/// Test the actual failing case from PR2 corpus
+/// Test the actual failing case from PR2
 #[test]
 fn test_pr2_head_gazebo_macro_only() {
     let input = r#"<?xml version="1.0"?>

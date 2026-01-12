@@ -29,7 +29,7 @@ pub fn test_init() {
 }
 
 // =============================================================================
-// Phase 1: Core Processing Helpers
+// Core Processing Helpers
 // =============================================================================
 
 /// Process xacro string, return Result.
@@ -136,7 +136,7 @@ pub fn run_xacro_file<P: AsRef<std::path::Path>>(path: P) -> String {
 }
 
 // =============================================================================
-// Phase 2: XML Parsing Helpers
+// XML Parsing Helpers
 // =============================================================================
 
 /// Get attribute value by local name.
@@ -222,7 +222,7 @@ pub fn parse_xml(xml: &str) -> Element {
 }
 
 // =============================================================================
-// Phase 3: Assertion Macros (preserve call-site line numbers)
+// Assertion Macros (preserve call-site line numbers)
 // =============================================================================
 
 /// Assert that output contains expected string.
@@ -375,7 +375,7 @@ macro_rules! assert_attr_float {
 }
 
 // =============================================================================
-// Phase 4: Error Checking Macros (preserve call-site line numbers)
+// Error Checking Macros (preserve call-site line numbers)
 // =============================================================================
 
 /// Assert that processing fails with specific error message.

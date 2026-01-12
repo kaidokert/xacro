@@ -4,7 +4,7 @@
 // Rust xacro is namespace-aware and rejects "typo" URIs by default,
 // but accepts them with --compat=namespace flag.
 //
-// Real-world corpus has 52 files (70% of errors) with namespace "typos" like:
+// Real-world has files with namespace "typos" like:
 //   xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
 // instead of the correct:
 //   xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro"
@@ -122,8 +122,7 @@ fn test_namespace_typo_still_errors_with_compat_duplicate_params() {
 
 #[test]
 fn test_real_world_playerstage_interface_typo() {
-    // Real-world case from corpus: playerstage.sourceforge.net with #interface
-    // This is the most common namespace "typo" (52 of 74 errors, 70%)
+    // Real-world case: playerstage.sourceforge.net with #interface
     let input = r#"<?xml version="1.0"?>
 <robot name='taurob_tracker'
        xmlns:xacro='http://playerstage.sourceforge.net/gazebo/xmlschema/#interface'>

@@ -1,11 +1,17 @@
+pub mod document;
+pub mod macro_def;
+pub mod xml;
+
+pub use document::*;
+pub use macro_def::*;
+pub use xml::*;
 #[cfg(test)]
 mod macro_tests {
     use std::collections::{HashMap, HashSet};
 
-    use crate::features::macros::Element;
-    use crate::features::macros::MacroDefinition;
+    use super::*;
 
-    use crate::{features::macros::MacroProcessor, XacroError};
+    use crate::XacroError;
     use xmltree::XMLNode;
 
     #[test]

@@ -25,7 +25,7 @@ pub enum XacroError {
     EvalError {
         expr: String,
         #[source]
-        source: crate::utils::eval::EvalError,
+        source: crate::eval::EvalError,
     },
 
     #[error("XML write error: {0}")]
@@ -145,14 +145,12 @@ pub enum XacroError {
 }
 
 // Implement From trait for EvalError to avoid duplicated error mapping
-impl From<crate::utils::eval::EvalError> for XacroError {
-    fn from(e: crate::utils::eval::EvalError) -> Self {
+impl From<crate::eval::EvalError> for XacroError {
+    fn from(e: crate::eval::EvalError) -> Self {
         XacroError::EvalError {
             expr: match &e {
-                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
-                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
-                    condition.clone()
-                }
+                crate::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                crate::eval::EvalError::InvalidBoolean { condition, .. } => condition.clone(),
             },
             source: e,
         }
@@ -160,20 +158,8 @@ impl From<crate::utils::eval::EvalError> for XacroError {
 }
 
 // Feature lists for consistent error messages
-// These are derived from the single source of truth in features/mod.rs
-// with the "xacro:" prefix added for display purposes
-
-pub const IMPLEMENTED_FEATURES: &[&str] = &[
-    "xacro:property",
-    "xacro:macro",
-    "xacro:if",
-    "xacro:unless",
-    "xacro:include",
-    "xacro:insert_block",
-    "xacro:arg", // NEW - Phase 5
-];
-
-pub const UNIMPLEMENTED_FEATURES: &[&str] = &["xacro:element", "xacro:attribute"];
+// Re-exported from directives module (single source of truth)
+pub use crate::directives::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
 
 /// Helper function to create consistent UnimplementedFeature error messages
 pub fn unimplemented_feature_error(feature: &str) -> XacroError {

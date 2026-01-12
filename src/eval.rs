@@ -1,12 +1,19 @@
+pub mod interpreter;
+pub mod lexer;
+pub mod scope;
+
+pub use interpreter::*;
+pub use lexer::*;
+pub use scope::*;
 #[cfg(test)]
 mod property_tests {
 
-    use crate::features::properties::HashMap;
-    use crate::features::properties::PropertyProcessor;
+    use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_scope_basic_shadowing() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Set up global property
         processor.add_raw_property("x".to_string(), "10".to_string());
@@ -34,7 +41,7 @@ mod property_tests {
 
     #[test]
     fn test_scope_fallback_to_global() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Set up global properties
         processor.add_raw_property("x".to_string(), "10".to_string());
@@ -56,7 +63,7 @@ mod property_tests {
 
     #[test]
     fn test_scope_nested_shadowing() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Global property
         processor.add_raw_property("x".to_string(), "10".to_string());
@@ -90,7 +97,7 @@ mod property_tests {
 
     #[test]
     fn test_scope_cache_bypass() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Set up global property
         processor.add_raw_property("x".to_string(), "10".to_string());
@@ -116,7 +123,7 @@ mod property_tests {
 
     #[test]
     fn test_scope_with_expressions() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Global property
         processor.add_raw_property("base".to_string(), "10".to_string());
@@ -135,7 +142,7 @@ mod property_tests {
 
     #[test]
     fn test_scope_undefined_property() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         // Push scope with only x defined
         let mut scope = HashMap::new();
@@ -156,7 +163,7 @@ mod property_tests {
 
     #[test]
     fn test_substitute_text_simple_arithmetic() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         processor.add_raw_property("x".to_string(), "10".to_string());
         processor.add_raw_property("y".to_string(), "5".to_string());
@@ -170,7 +177,7 @@ mod property_tests {
 
     #[test]
     fn test_substitute_text_with_functions() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         let result = processor.substitute_text("${abs(-5)}").unwrap();
         assert_eq!(result, "5");
@@ -181,7 +188,7 @@ mod property_tests {
 
     #[test]
     fn test_substitute_text_multiple_variables() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         processor.add_raw_property("prefix".to_string(), "robot_".to_string());
         processor.add_raw_property("name".to_string(), "arm".to_string());
@@ -194,7 +201,7 @@ mod property_tests {
 
     #[test]
     fn test_eval_boolean_literals() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         assert_eq!(processor.eval_boolean("True").unwrap(), true);
         assert_eq!(processor.eval_boolean("False").unwrap(), false);
@@ -204,7 +211,7 @@ mod property_tests {
 
     #[test]
     fn test_eval_boolean_comparisons() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         processor.add_raw_property("x".to_string(), "10".to_string());
         processor.add_raw_property("y".to_string(), "20".to_string());
@@ -218,7 +225,7 @@ mod property_tests {
 
     #[test]
     fn test_has_property_basic() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         processor.add_raw_property("x".to_string(), "10".to_string());
 
@@ -228,7 +235,7 @@ mod property_tests {
 
     #[test]
     fn test_has_property_with_scope() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         processor.add_raw_property("global".to_string(), "1".to_string());
 
@@ -247,7 +254,7 @@ mod property_tests {
 
     #[test]
     fn test_substitute_literal_zero() {
-        let processor: PropertyProcessor = PropertyProcessor::new();
+        let processor: EvalContext = EvalContext::new();
 
         let result = processor.substitute_text("${0}").unwrap();
         assert_eq!(result, "0", "Should evaluate literal 0 expression");
