@@ -9,38 +9,9 @@
 // instead of the correct:
 //   xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#xacro"
 
-use xacro::{CompatMode, XacroError, XacroProcessor};
-
-// Local test helpers for XML parsing (reduce boilerplate)
-// TODO: Move to tests/common/mod.rs when generalizing later
-
-/// Get attribute value by local name
-fn get_attr<'a>(
-    elem: &'a xmltree::Element,
-    name: &str,
-) -> &'a str {
-    elem.attributes
-        .iter()
-        .find(|(attr_name, _)| attr_name.local_name == name)
-        .map(|(_, value)| value.as_str())
-        .unwrap_or_else(|| panic!("Expected '{}' attribute", name))
-}
-
-/// Find child element by name and prefix
-fn find_element_by_prefix<'a>(
-    parent: &'a xmltree::Element,
-    name: &str,
-    prefix: &str,
-) -> &'a xmltree::Element {
-    parent
-        .children
-        .iter()
-        .find_map(|node| {
-            node.as_element()
-                .filter(|elem| elem.name == name && elem.prefix.as_deref() == Some(prefix))
-        })
-        .unwrap_or_else(|| panic!("Expected <{}:{}> element", prefix, name))
-}
+mod common;
+use crate::common::*;
+use xacro::{CompatMode, XacroError};
 
 #[test]
 fn test_namespace_typo_error_by_default() {
@@ -55,10 +26,8 @@ fn test_namespace_typo_error_by_default() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
     // Should error with MissingNamespace variant
+    let result = test_xacro(input);
     match result {
         Err(XacroError::MissingNamespace(msg)) => {
             assert!(
@@ -91,25 +60,10 @@ fn test_namespace_typo_accepted_with_compat_namespace() {
 </robot>"#;
 
     let compat_mode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-
-    // Should succeed in namespace compat mode
-    assert!(
-        result.is_ok(),
-        "Namespace URI typo should be accepted with --compat=namespace, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
+    let output = run_xacro_with_compat(input, compat_mode);
 
     // Verify expression was evaluated
-    assert!(
-        output.contains(r#"xyz="0 0 42""#),
-        "Should evaluate expression correctly, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"xyz="0 0 42""#);
 
     // Note: In lenient mode, non-standard xacro namespace URIs are preserved in output
     // (finalize_tree only removes known xacro URIs). This is acceptable since the goal
@@ -130,23 +84,9 @@ fn test_namespace_typo_accepted_with_compat_all() {
 </robot>"#;
 
     let compat_mode = "all".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
+    let output = run_xacro_with_compat(input, compat_mode);
 
-    // Should succeed with all compat modes enabled
-    assert!(
-        result.is_ok(),
-        "Namespace URI typo should be accepted with --compat=all, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"xyz="0 0 42""#),
-        "Should evaluate expression correctly, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"xyz="0 0 42""#);
 }
 
 #[test]
@@ -164,9 +104,7 @@ fn test_namespace_typo_still_errors_with_compat_duplicate_params() {
 </robot>"#;
 
     let compat_mode = "duplicate_params".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
+    let result = test_xacro_with_compat(input, compat_mode);
 
     // Should still error (namespace validation not disabled)
     match result {
@@ -200,8 +138,7 @@ fn test_real_world_playerstage_interface_typo() {
 </robot>"#;
 
     // Strict mode: should error
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     match result {
         Err(XacroError::MissingNamespace(msg)) => {
             assert!(
@@ -216,22 +153,10 @@ fn test_real_world_playerstage_interface_typo() {
 
     // Compat namespace mode: should succeed
     let compat_mode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Real-world namespace typo should work with --compat=namespace, got error: {:?}",
-        result.err()
-    );
+    let output = run_xacro_with_compat(input, compat_mode);
 
-    let output = result.unwrap();
     // Verify expression was evaluated
-    assert!(
-        output.contains(r#"radius="0.125""#),
-        "Should evaluate wheel_radius expression, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"radius="0.125""#);
 }
 
 #[test]
@@ -248,30 +173,17 @@ fn test_ros_wiki_xacro_interface_typo() {
 </robot>"#;
 
     // Strict mode: should error
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-    assert!(
-        matches!(result, Err(XacroError::MissingNamespace(_))),
+    assert_xacro_error_variant!(
+        input,
+        |e| matches!(e, &XacroError::MissingNamespace(_)),
         "Should error with MissingNamespace on wiki/xacro/#interface typo"
     );
 
     // Compat namespace mode: should succeed
     let compat_mode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Should accept wiki/xacro/#interface with --compat=namespace, got error: {:?}",
-        result.err()
-    );
+    let output = run_xacro_with_compat(input, compat_mode);
 
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"value="3.14159""#),
-        "Should evaluate pi expression, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"value="3.14159""#);
 }
 
 #[test]
@@ -289,8 +201,7 @@ fn test_multiple_compat_modes() {
 </robot>"#;
 
     // Both namespace typo AND duplicate params - should error in strict mode
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should error with both issues in strict mode"
@@ -298,9 +209,7 @@ fn test_multiple_compat_modes() {
 
     // Only namespace compat: should fail on duplicate params
     let compat_mode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
+    let result = test_xacro_with_compat(input, compat_mode);
     assert!(
         result.is_err(),
         "Should still error on duplicate params with only namespace compat"
@@ -309,22 +218,10 @@ fn test_multiple_compat_modes() {
 
     // Both modes: should succeed
     let compat_mode = "namespace,duplicate_params".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Should succeed with both compat modes, got error: {:?}",
-        result.err()
-    );
+    let output = run_xacro_with_compat(input, compat_mode);
 
-    let output = result.unwrap();
     // Last duplicate wins (x=2)
-    assert!(
-        output.contains(r#"value="2""#),
-        "Should use last duplicate param value, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"value="2""#);
 }
 
 #[test]
@@ -345,14 +242,11 @@ fn test_namespace_collision_strict_mode() {
   <interface:position name="position_iface_0"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
     // Should error: namespace URI validation happens before finalize_tree
-    assert!(
-        matches!(result, Err(XacroError::MissingNamespace(_))),
-        "Should error on namespace collision in strict mode, got: {:?}",
-        result
+    assert_xacro_error_variant!(
+        input,
+        |e| matches!(e, &XacroError::MissingNamespace(_)),
+        "Should error on namespace collision in strict mode"
     );
 }
 
@@ -374,30 +268,15 @@ fn test_namespace_collision_compat_mode() {
 </robot>"#;
 
     let compat_mode: CompatMode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-
-    // Should succeed and pass through <interface:position>
-    assert!(
-        result.is_ok(),
-        "Namespace collision should be accepted in compat mode, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
+    let output = run_xacro_with_compat(input, compat_mode);
 
     // Parse output XML to verify structure
-    let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+    let root = parse_xml(&output);
 
     // Verify expression was evaluated
-    let link = root.get_child("link").expect("Should have <link> element");
-    let visual = link
-        .get_child("visual")
-        .expect("Should have <visual> element");
-    let origin = visual
-        .get_child("origin")
-        .expect("Should have <origin> element");
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let origin = find_child(visual, "origin");
     assert_eq!(
         get_attr(origin, "xyz"),
         "0 0 42",
@@ -405,7 +284,7 @@ fn test_namespace_collision_compat_mode() {
     );
 
     // Verify <interface:position> was preserved
-    let interface_pos = find_element_by_prefix(&root, "position", "interface");
+    let interface_pos = find_child_prefixed(&root, "interface", "position");
     assert_eq!(
         get_attr(interface_pos, "name"),
         "position_iface_0",
@@ -433,37 +312,23 @@ fn test_namespace_collision_multiple_elements() {
 </robot>"#;
 
     // Strict mode: should error (namespace validation happens early)
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-    assert!(
-        matches!(result, Err(XacroError::MissingNamespace(_))),
+    assert_xacro_error_variant!(
+        input,
+        |e| matches!(e, &XacroError::MissingNamespace(_)),
         "Should error on namespace collision in strict mode"
     );
 
     // Compat namespace mode: should succeed
     let compat_mode: CompatMode = "namespace".parse().unwrap();
-    let processor =
-        XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat_mode);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Real-world namespace collision should work with --compat=namespace, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
+    let output = run_xacro_with_compat(input, compat_mode);
 
     // Parse output XML to verify structure
-    let root = xmltree::Element::parse(output.as_bytes()).expect("Should parse output XML");
+    let root = parse_xml(&output);
 
     // Verify xacro processing worked
-    let link = root.get_child("link").expect("Should have <link> element");
-    let visual = link
-        .get_child("visual")
-        .expect("Should have <visual> element");
-    let origin = visual
-        .get_child("origin")
-        .expect("Should have <origin> element");
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let origin = find_child(visual, "origin");
     assert_eq!(
         get_attr(origin, "xyz"),
         "0 0 0.2",
@@ -471,18 +336,16 @@ fn test_namespace_collision_multiple_elements() {
     );
 
     // Verify both interface elements were preserved
-    let gazebo = root
-        .get_child("gazebo")
-        .expect("Should have <gazebo> element");
+    let gazebo = find_child(&root, "gazebo");
 
-    let position = find_element_by_prefix(gazebo, "position", "interface");
+    let position = find_child_prefixed(gazebo, "interface", "position");
     assert_eq!(
         get_attr(position, "name"),
         "position_iface_0",
         "Should preserve interface:position name attribute"
     );
 
-    let audio = find_element_by_prefix(gazebo, "audio", "interface");
+    let audio = find_child_prefixed(gazebo, "interface", "audio");
     assert_eq!(
         get_attr(audio, "name"),
         "audio_iface",
@@ -499,11 +362,10 @@ fn test_namespace_removed_from_output_standard_uri() {
   <link size="${width}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Verify expansion worked correctly and xmlns:xacro is removed
-    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+    let root = parse_xml(&output);
 
     // xmlns:xacro should NOT appear in output (check parsed structure)
     assert!(
@@ -513,7 +375,7 @@ fn test_namespace_removed_from_output_standard_uri() {
         "xmlns:xacro should be removed from output"
     );
 
-    let link = root.get_child("link").unwrap();
+    let link = find_child(&root, "link");
     assert_eq!(get_attr(link, "size"), "0.5");
 }
 
@@ -529,11 +391,10 @@ fn test_namespace_removed_from_output_nonstandard_uri() {
 </robot>"#;
 
     let compat = "namespace".parse().unwrap();
-    let processor = XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat);
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro_with_compat(input, compat);
 
     // Verify processing worked correctly and xmlns:xacro is removed
-    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+    let root = parse_xml(&output);
 
     // xmlns:xacro should NOT appear in output (check parsed structure)
     assert!(
@@ -543,7 +404,7 @@ fn test_namespace_removed_from_output_nonstandard_uri() {
         "xmlns:xacro should be removed from output"
     );
 
-    let link = root.get_child("link").unwrap();
+    let link = find_child(&root, "link");
     assert_eq!(get_attr(link, "size"), "0.5");
 }
 
@@ -557,11 +418,10 @@ fn test_namespace_removed_aliased_prefix_standard_uri() {
   <link size="${width}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Verify expansion worked correctly and xmlns:foo is removed
-    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+    let root = parse_xml(&output);
 
     // xmlns:foo should NOT appear in output (defense-in-depth for aliased prefixes)
     assert!(
@@ -571,6 +431,6 @@ fn test_namespace_removed_aliased_prefix_standard_uri() {
         "xmlns:foo (bound to standard xacro URI) should be removed from output"
     );
 
-    let link = root.get_child("link").unwrap();
+    let link = find_child(&root, "link");
     assert_eq!(get_attr(link, "size"), "0.5");
 }

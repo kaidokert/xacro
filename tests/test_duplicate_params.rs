@@ -3,8 +3,8 @@
 // Python xacro silently accepts duplicate parameters (buggy behavior).
 // Rust xacro errors by default but accepts with --compat flag.
 
-use std::collections::HashMap;
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 #[test]
 fn test_duplicate_params_error_by_default() {
@@ -21,8 +21,7 @@ fn test_duplicate_params_error_by_default() {
   <xacro:test_macro/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should error with duplicate parameter message
     assert!(
@@ -63,29 +62,17 @@ fn test_duplicate_params_accepted_in_compat_mode() {
   <xacro:test_macro/>
 </robot>"#;
 
-    let processor = XacroProcessor::new_with_compat(std::collections::HashMap::new(), true);
-    let result = processor.run_from_string(input);
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
     // Should succeed in compat mode
-    assert!(
-        result.is_ok(),
-        "Duplicate parameters should be accepted in compat mode, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-
     // Last declaration wins (x:=3)
-    assert!(
-        output.contains(r#"<param_x value="3""#),
-        "Should use last declaration's default (x=3), got: {}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"<param_x value="3""#,
+        "Should use last declaration's default (x=3)"
     );
-    assert!(
-        output.contains(r#"<param_y value="2""#),
-        "Should use y=2, got: {}",
-        output
-    );
+    assert_xacro_contains!(output, r#"<param_y value="2""#, "Should use y=2");
 }
 
 #[test]
@@ -105,33 +92,29 @@ fn test_duplicate_params_multiple_duplicates() {
 </robot>"#;
 
     // Strict mode: should error
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Multiple duplicate parameters should error in strict mode"
     );
 
     // Compat mode: should succeed with last values
-    let processor = XacroProcessor::new_with_compat(std::collections::HashMap::new(), true);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Multiple duplicate parameters should be accepted in compat mode, got error: {:?}",
-        result.err()
-    );
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<param_a value="3""#),
+    assert_xacro_contains!(
+        output,
+        r#"<param_a value="3""#,
         "Should use last 'a' declaration (a=3)"
     );
-    assert!(
-        output.contains(r#"<param_b value="5""#),
+    assert_xacro_contains!(
+        output,
+        r#"<param_b value="5""#,
         "Should use last 'b' declaration (b=5)"
     );
-    assert!(
-        output.contains(r#"<param_c value="4""#),
+    assert_xacro_contains!(
+        output,
+        r#"<param_c value="4""#,
         "Should use 'c' declaration (c=4)"
     );
 }
@@ -155,21 +138,15 @@ fn test_duplicate_params_with_passed_values() {
 </robot>"#;
 
     // Compat mode: Accepts duplicates but still respects passed values
-    let processor = XacroProcessor::new_with_compat(std::collections::HashMap::new(), true);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Should succeed in compat mode, got error: {:?}",
-        result.err()
-    );
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
-    let output = result.unwrap();
     // Our implementation: Respects passed value (100), not last default (2)
     // This is BETTER than Python xacro's buggy behavior
-    assert!(
-        output.contains(r#"<param_x value="100""#),
-        "Should use passed value (100) - better than Python's buggy behavior, got: {}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"<param_x value="100""#,
+        "Should use passed value (100) - better than Python's buggy behavior"
     );
 }
 
@@ -193,8 +170,7 @@ fn test_real_world_hk_camera_case() {
 </robot>"#;
 
     // Strict mode: should error
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Real-world duplicate params should error in strict mode"
@@ -202,24 +178,16 @@ fn test_real_world_hk_camera_case() {
     assert!(result.unwrap_err().to_string().contains("color_xyz_offset"));
 
     // Compat mode: should succeed (last declarations win)
-    let processor = XacroProcessor::new_with_compat(std::collections::HashMap::new(), true);
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Real-world duplicate params should work in compat mode, got error: {:?}",
-        result.err()
-    );
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
-    let output = result.unwrap();
     // Last declarations: color_xyz_offset:='0 0.015 0', color_rpy_offset:='0 0 0'
-    assert!(
-        output.contains(r#"xyz="0 0.015 0""#),
+    assert_xacro_contains!(
+        output,
+        r#"xyz="0 0.015 0""#,
         "Should use last xyz declaration"
     );
-    assert!(
-        output.contains(r#"rpy="0 0 0""#),
-        "Should use last rpy declaration"
-    );
+    assert_xacro_contains!(output, r#"rpy="0 0 0""#, "Should use last rpy declaration");
 }
 
 // ============================================================================
@@ -240,8 +208,7 @@ fn test_duplicate_block_params_error_by_default() {
   </xacro:block_dup>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     assert!(
         result.is_err(),
@@ -273,16 +240,14 @@ fn test_duplicate_block_params_compat_last_wins() {
   </xacro:block_dup>
 </robot>"#;
 
-    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
-    let output = processor
-        .run_from_string(input)
-        .expect("Compat mode should accept duplicate *block params");
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
     // Should successfully insert the single block parameter
-    assert!(
-        output.contains(r#"name="base""#),
-        "Compat mode should accept duplicate block param declarations: {}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"name="base""#,
+        "Compat mode should accept duplicate block param declarations"
     );
 }
 
@@ -301,8 +266,7 @@ fn test_block_and_nonblock_param_conflict_error_by_default() {
   </xacro:block_nonblock_conflict>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     assert!(
         result.is_err(),
@@ -333,16 +297,14 @@ fn test_block_and_nonblock_param_conflict_compat_last_wins() {
   </xacro:block_nonblock_conflict>
 </robot>"#;
 
-    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
-    let output = processor
-        .run_from_string(input)
-        .expect("Compat mode should accept block/non-block param conflict");
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
     // "last declaration wins": block declaration should be used
-    assert!(
-        output.contains(r#"name="from_block""#),
-        "Compat mode should use last (block) declaration: {}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"name="from_block""#,
+        "Compat mode should use last (block) declaration"
     );
 }
 
@@ -359,16 +321,14 @@ fn test_block_and_nonblock_param_conflict_compat_reverse_order() {
   <xacro:reverse_conflict/>
 </robot>"#;
 
-    let processor = XacroProcessor::new_with_compat(HashMap::new(), true);
-    let output = processor
-        .run_from_string(input)
-        .expect("Compat mode should accept block-then-nonblock param conflict");
+    let compat = "all".parse().expect("Should parse compat mode");
+    let output = run_xacro_with_compat(input, compat);
 
     // "last declaration wins": non-block declaration should be used (with default)
     // Should NOT try to consume a child element
-    assert!(
-        output.contains(r#"name="default_value""#),
-        "Compat mode should use last (non-block) declaration with default: {}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"name="default_value""#,
+        "Compat mode should use last (non-block) declaration with default"
     );
 }

@@ -1,10 +1,12 @@
+mod common;
+use crate::common::*;
 use xacro::XacroProcessor;
 use xmltree::Element;
 
 #[test]
 fn test_basic_property() {
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="width" value="0.5"/>
   <link name="base">
@@ -14,51 +16,40 @@ fn test_basic_property() {
       </geometry>
     </visual>
   </link>
-</robot>"#;
+</robot>"#,
+    );
 
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed to process: {:?}", result.err());
-
-    let output = result.unwrap();
-    assert!(output.contains("0.5"), "Property substitution failed");
-    assert!(!output.contains("${width}"), "Property not expanded");
-    assert!(
-        !output.contains("xacro:property"),
-        "Property definition not removed"
+    assert_xacro_contains!(output, "0.5", "Property substitution failed");
+    assert_xacro_not_contains!(output, "${width}", "Property should be expanded");
+    assert_xacro_not_contains!(
+        output,
+        "xacro:property",
+        "Property definition should be removed"
     );
 }
 
 #[test]
 fn test_basic_macro() {
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test_link" params="name">
     <link name="${name}"/>
   </xacro:macro>
 
   <xacro:test_link name="base"/>
-</robot>"#;
-
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed to process: {:?}", result.err());
-
-    let output = result.unwrap();
-    assert!(output.contains(r#"name="base""#), "Macro expansion failed");
-    assert!(
-        !output.contains("xacro:macro"),
-        "Macro definition not removed"
+</robot>"#,
     );
-    assert!(
-        !output.contains("xacro:test_link"),
-        "Macro call not expanded"
-    );
+
+    assert_xacro_contains!(output, r#"name="base""#, "Macro expansion failed");
+    assert_xacro_not_contains!(output, "xacro:macro", "Macro definition should be removed");
+    assert_xacro_not_contains!(output, "xacro:test_link", "Macro call should be expanded");
 }
 
 #[test]
 fn test_conditional() {
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="use_sensor" value="true"/>
   <xacro:if value="${use_sensor}">
@@ -67,75 +58,57 @@ fn test_conditional() {
   <xacro:unless value="${use_sensor}">
     <link name="no_sensor"/>
   </xacro:unless>
-</robot>"#;
+</robot>"#,
+    );
 
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed to process: {:?}", result.err());
-
-    let output = result.unwrap();
-    assert!(output.contains(r#"name="sensor""#), "If condition failed");
-    assert!(
-        !output.contains(r#"name="no_sensor""#),
-        "Unless condition failed"
+    assert_xacro_contains!(
+        output,
+        r#"name="sensor""#,
+        "xacro:if should include content when true"
+    );
+    assert_xacro_not_contains!(
+        output,
+        r#"name="no_sensor""#,
+        "xacro:unless should exclude content when condition is true"
     );
 }
 
 #[test]
 fn test_math_constants() {
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="angle" value="${pi/4}"/>
   <link name="test" value="${angle}"/>
-</robot>"#;
+</robot>"#,
+    );
 
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed to process: {:?}", result.err());
-
-    let output = result.unwrap();
     // pi/4 = 0.7853981633974483
-    assert!(output.contains("0.785"), "Math constant pi not available");
+    assert_xacro_contains!(output, "0.785");
 }
 
 #[test]
 fn test_include_basic() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/include_test.xacro");
-    assert!(
-        result.is_ok(),
-        "Failed to process include: {:?}",
-        result.err()
-    );
+    let output = run_xacro_file("tests/data/include_test.xacro");
 
-    let output = result.unwrap();
     // Should contain content from included file
-    assert!(output.contains("base_link"), "Include content not found");
+    assert_xacro_contains!(output, "base_link");
 }
 
 #[test]
 fn test_include_nested() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/include_test_nested_base.xacro");
-    assert!(
-        result.is_ok(),
-        "Failed to process nested includes: {:?}",
-        result.err()
-    );
+    let output = run_xacro_file("tests/data/include_test_nested_base.xacro");
 
-    let output = result.unwrap();
     // Should contain content from nested includes (arm and hand files)
-    assert!(output.contains("arm_base"), "Arm include content not found");
-    assert!(
-        output.contains("hand_base"),
-        "Hand include content not found"
-    );
+    assert_xacro_contains!(output, "arm_base");
+    assert_xacro_contains!(output, "hand_base");
 }
 
 #[test]
 fn test_include_with_macros() {
     // Test that includes work properly with macro expansion
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test_link" params="name">
     <link name="${name}"/>
@@ -143,23 +116,17 @@ fn test_include_with_macros() {
 
   <!-- This would normally be in a separate file -->
   <xacro:test_link name="included_link"/>
-</robot>"#;
-
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed to process: {:?}", result.err());
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="included_link""#),
-        "Macro in include failed"
+</robot>"#,
     );
+
+    assert_xacro_contains!(output, r#"name="included_link""#);
 }
 
 #[test]
 fn test_property_default_attribute() {
     // Test the include-once guard pattern used in real-world files
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Include-once guard pattern -->
   <xacro:property name="materials_defined" default="false"/>
@@ -178,22 +145,13 @@ fn test_property_default_attribute() {
       <color rgba="1 0 0 1"/>
     </material>
   </xacro:unless>
-</robot>"#;
-
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Property default attribute should work: {:?}",
-        result.err()
+</robot>"#,
     );
 
-    let output = result.unwrap();
-    assert!(
-        output.contains("aluminum"),
-        "First material should be defined"
-    );
-    assert!(
-        !output.contains("should_not_appear"),
+    assert_xacro_contains!(output, "aluminum", "First material should be defined");
+    assert_xacro_not_contains!(
+        output,
+        "should_not_appear",
         "Second material block should be skipped"
     );
 }
@@ -201,8 +159,8 @@ fn test_property_default_attribute() {
 #[test]
 fn test_property_default_vs_value() {
     // Test that value overrides default
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- default is used if property not already defined -->
   <xacro:property name="test1" default="default_value"/>
@@ -211,18 +169,13 @@ fn test_property_default_vs_value() {
   <!-- value always sets the property -->
   <xacro:property name="test2" default="ignored" value="actual_value"/>
   <link name="${test2}"/>
-</robot>"#;
-
-    let result = processor.run_from_string(input);
-    assert!(result.is_ok(), "Failed: {:?}", result.err());
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="default_value""#),
-        "Default should be used"
+</robot>"#,
     );
-    assert!(
-        output.contains(r#"name="actual_value""#),
+
+    assert_xacro_contains!(output, r#"name="default_value""#, "Default should be used");
+    assert_xacro_contains!(
+        output,
+        r#"name="actual_value""#,
         "Value should override default"
     );
 }
@@ -233,8 +186,8 @@ fn test_property_default_vs_value() {
 /// evaluate parameters at each level, including arithmetic expressions.
 #[test]
 fn test_nested_macro_calls_with_expressions() {
-    let processor = XacroProcessor::new();
-    let input = r#"<?xml version="1.0"?>
+    let output = run_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="inner" params="mass x">
     <inertia izz="${(1/12) * mass * x*x}"/>
@@ -247,44 +200,22 @@ fn test_nested_macro_calls_with_expressions() {
   <link name="test">
     <xacro:outer mass="2.0" x="0.5"/>
   </link>
-</robot>"#;
-
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Nested macro calls with expressions should work: {:?}",
-        result.err()
+</robot>"#,
     );
 
-    let output = result.unwrap();
-
     // Parse and verify numeric value
-    let root = Element::parse(output.as_bytes()).expect("Should parse output XML");
-    let link = root.get_child("link").expect("Should find link element");
-    let inertia = link
-        .get_child("inertia")
-        .expect("Should find inertia element");
-
-    let izz: f64 = inertia
-        .get_attribute("izz")
-        .expect("Should have izz attribute")
-        .parse()
-        .expect("izz should parse to f64");
+    let root = parse_xml(&output);
+    let link = find_child(&root, "link");
+    let inertia = find_child(link, "inertia");
 
     // izz = (1/12) * mass * x*x = (1/12) * 2.0 * 0.5*0.5 = 0.041666...
     let expected_izz = (1.0 / 12.0) * 2.0 * 0.5 * 0.5;
-
-    const TOLERANCE: f64 = 1e-9;
-    assert!(
-        (izz - expected_izz).abs() < TOLERANCE,
-        "izz should be {}, got {}",
-        expected_izz,
-        izz
-    );
+    assert_attr_float!(inertia, "izz", expected_izz, 1e-9);
 
     // Verify no unevaluated placeholders remain
-    assert!(
-        !output.contains("${"),
+    assert_xacro_not_contains!(
+        output,
+        "${",
         "Output should not contain unevaluated expressions"
     );
 }
@@ -298,7 +229,6 @@ fn test_nested_macro_calls_with_expressions() {
 /// the inner 'a' isn't defined yet. This is correct - it prevents infinite loops.
 #[test]
 fn test_circular_property_dependency() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="a" value="${b * 2}"/>
@@ -309,7 +239,7 @@ fn test_circular_property_dependency() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Circular dependencies are detected via UndefinedVar or CircularPropertyDependency
     // Both error types correctly prevent infinite loops
@@ -333,7 +263,6 @@ fn test_circular_property_dependency() {
 /// Test integer truthiness in conditionals (0 is false, non-zero is true)
 #[test]
 fn test_conditional_integer_truthiness() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="${0}">
@@ -347,7 +276,7 @@ fn test_conditional_integer_truthiness() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Integer truthiness should work: {:?}",
@@ -363,7 +292,6 @@ fn test_conditional_integer_truthiness() {
 /// Test float truthiness in conditionals (0.0 is false, non-zero is true)
 #[test]
 fn test_conditional_float_truthiness() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="${0.0}">
@@ -377,7 +305,7 @@ fn test_conditional_float_truthiness() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Float truthiness should work: {:?}",
@@ -399,7 +327,6 @@ fn test_conditional_float_truthiness() {
 /// Test boolean string literals in conditionals
 #[test]
 fn test_conditional_boolean_literals() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="true">
@@ -410,7 +337,7 @@ fn test_conditional_boolean_literals() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Boolean literals should work: {:?}",
@@ -431,7 +358,6 @@ fn test_conditional_boolean_literals() {
 /// Test nested conditionals
 #[test]
 fn test_nested_conditionals() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="true">
@@ -444,7 +370,7 @@ fn test_nested_conditionals() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Nested conditionals should work: {:?}",
@@ -459,7 +385,6 @@ fn test_nested_conditionals() {
 /// Test conditional error handling - missing value attribute
 #[test]
 fn test_conditional_missing_value_attribute() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if>
@@ -467,7 +392,7 @@ fn test_conditional_missing_value_attribute() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err(), "Missing value attribute should error");
 
     let err = result.err().unwrap();
@@ -485,7 +410,6 @@ fn test_conditional_missing_value_attribute() {
 /// Test forward property references (property A references B defined later)
 #[test]
 fn test_property_forward_reference() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="derived" value="${base * 2}"/>
@@ -493,7 +417,7 @@ fn test_property_forward_reference() {
   <link name="test" value="${derived}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Forward references should work: {:?}",
@@ -510,7 +434,6 @@ fn test_property_forward_reference() {
 /// Test multilevel property dependencies (A → B → C)
 #[test]
 fn test_property_multilevel_dependencies() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="level1" value="${level2 * 2}"/>
@@ -519,7 +442,7 @@ fn test_property_multilevel_dependencies() {
   <link name="test" value="${level1}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Multilevel dependencies should work: {:?}",
@@ -534,7 +457,6 @@ fn test_property_multilevel_dependencies() {
 /// Test unused property with undefined variable (should NOT error - lazy evaluation)
 #[test]
 fn test_property_unused_with_undefined_var() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="unused" value="${undefined_var}"/>
@@ -542,7 +464,7 @@ fn test_property_unused_with_undefined_var() {
   <link name="test" value="${used}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Unused property with undefined variable should not error (lazy eval): {:?}",
@@ -556,14 +478,13 @@ fn test_property_unused_with_undefined_var() {
 /// Test used property with undefined variable (SHOULD error)
 #[test]
 fn test_property_used_with_undefined_var_errors() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="bad" value="${undefined_var}"/>
   <link name="test" value="${bad}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Used property with undefined variable should error"
@@ -577,7 +498,6 @@ fn test_property_used_with_undefined_var_errors() {
 /// Test basic insert_block functionality
 #[test]
 fn test_insert_block_basic() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test" params="*content">
@@ -591,7 +511,7 @@ fn test_insert_block_basic() {
   </xacro:test>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Basic insert_block should work: {:?}",
@@ -606,7 +526,6 @@ fn test_insert_block_basic() {
 /// Test insert_block with multiple block parameters
 #[test]
 fn test_insert_block_multiple_params() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="dual" params="*block1 *block2">
@@ -624,7 +543,7 @@ fn test_insert_block_multiple_params() {
   </xacro:dual>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Multiple block params should work: {:?}",
@@ -639,7 +558,6 @@ fn test_insert_block_multiple_params() {
 /// Test insert_block with property expressions in blocks
 #[test]
 fn test_insert_block_with_expressions() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="value" value="42"/>
@@ -655,7 +573,7 @@ fn test_insert_block_with_expressions() {
   </xacro:test>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "insert_block with expressions should work: {:?}",
@@ -672,7 +590,6 @@ fn test_insert_block_with_expressions() {
 /// Test insert_block error - missing block parameter
 #[test]
 fn test_insert_block_undefined_name() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test" params="*content">
@@ -686,7 +603,7 @@ fn test_insert_block_undefined_name() {
   </xacro:test>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err(), "Undefined block name should error");
 
     let err = result.err().unwrap();
@@ -703,7 +620,7 @@ fn test_insert_block_undefined_name() {
 #[test]
 fn test_custom_max_recursion_depth() {
     // Create processor with very low depth limit
-    let processor = xacro::XacroProcessor::new_with_depth(5);
+    let processor = XacroProcessor::new_with_depth(5);
 
     // Create deeply nested macro calls that exceed depth of 5
     let input = r#"<?xml version="1.0"?>
@@ -735,7 +652,6 @@ fn test_custom_max_recursion_depth() {
 /// Test that circular block references are detected and cause an error
 #[test]
 fn test_circular_block_references() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="circular" params="*block1 *block2">
@@ -754,7 +670,7 @@ fn test_circular_block_references() {
   </xacro:circular>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Circular block references should cause an error"
@@ -779,7 +695,6 @@ fn test_circular_block_references() {
 /// Test deeply nested macros expand correctly
 #[test]
 fn test_deeply_nested_macros() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="level3" params="x">
@@ -797,7 +712,7 @@ fn test_deeply_nested_macros() {
   <xacro:level1 x="42"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Deeply nested macros should work: {:?}",
@@ -814,7 +729,6 @@ fn test_deeply_nested_macros() {
 /// Test reusing a block multiple times
 #[test]
 fn test_insert_block_reuse() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="duplicate" params="*content">
@@ -827,7 +741,7 @@ fn test_insert_block_reuse() {
   </xacro:duplicate>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Block reuse should work: {:?}",
@@ -847,7 +761,6 @@ fn test_insert_block_reuse() {
 /// Test insert_block with global properties
 #[test]
 fn test_insert_block_with_global_property() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="global_x" value="1"/>
@@ -862,7 +775,7 @@ fn test_insert_block_with_global_property() {
   </xacro:foo>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Block with global property should work: {:?}",
@@ -879,7 +792,6 @@ fn test_insert_block_with_global_property() {
 /// Test missing block parameter causes error
 #[test]
 fn test_insert_block_missing_block() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="needs_block" params="*content">
@@ -889,7 +801,7 @@ fn test_insert_block_missing_block() {
   <xacro:needs_block/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err(), "Missing block parameter should error");
 
     let err = result.err().unwrap();
@@ -903,7 +815,6 @@ fn test_insert_block_missing_block() {
 /// Test extra children causes error
 #[test]
 fn test_insert_block_extra_children() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="one_block" params="*content">
@@ -916,7 +827,7 @@ fn test_insert_block_extra_children() {
   </xacro:one_block>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err(), "Extra children should error");
 
     let err = result.err().unwrap();
@@ -930,7 +841,6 @@ fn test_insert_block_extra_children() {
 /// Test nested macro calls inside blocks
 #[test]
 fn test_insert_block_nested_macros() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="inner" params="value">
@@ -948,7 +858,7 @@ fn test_insert_block_nested_macros() {
   </xacro:wrapper>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Nested macros in blocks should work: {:?}",
@@ -966,7 +876,6 @@ fn test_insert_block_nested_macros() {
 /// Test multiple block parameters maintain ordering
 #[test]
 fn test_insert_block_multiple_block_params_ordering() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="pair" params="*first *second">
@@ -982,7 +891,7 @@ fn test_insert_block_multiple_block_params_ordering() {
   </xacro:pair>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Multiple block params should work: {:?}",
@@ -1005,7 +914,6 @@ fn test_insert_block_multiple_block_params_ordering() {
 /// Property a2 references a before a is defined
 #[test]
 fn test_property_forward_reference_official() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="a2" value="${2*a}"/>
@@ -1015,7 +923,7 @@ fn test_property_forward_reference_official() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Forward reference should work with lazy evaluation: {:?}",
@@ -1033,7 +941,6 @@ fn test_property_forward_reference_official() {
 /// a -> b -> c -> d (deeper than typical 3-level tests)
 #[test]
 fn test_property_transitive_chain_4_levels() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="a" value="42"/>
@@ -1045,7 +952,7 @@ fn test_property_transitive_chain_4_levels() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "4-level transitive chain should resolve: {:?}",
@@ -1064,7 +971,6 @@ fn test_property_transitive_chain_4_levels() {
 /// Tests branching dependency resolution (not just linear chains)
 #[test]
 fn test_property_diamond_dependency_graph() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="a" value="42"/>
@@ -1077,7 +983,7 @@ fn test_property_diamond_dependency_graph() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Diamond dependency graph should resolve: {:?}",
@@ -1094,7 +1000,6 @@ fn test_property_diamond_dependency_graph() {
 /// Test multiple substitutions in a single attribute value
 #[test]
 fn test_property_multi_substitution() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="1"/>
@@ -1105,7 +1010,7 @@ fn test_property_multi_substitution() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Multi-substitution should work: {:?}",
@@ -1122,7 +1027,6 @@ fn test_property_multi_substitution() {
 /// Test xacro:unless (inverse of if)
 #[test]
 fn test_unless_basic() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:unless value="true">
@@ -1133,7 +1037,7 @@ fn test_unless_basic() {
   </xacro:unless>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Unless should work: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1150,13 +1054,12 @@ fn test_unless_basic() {
 /// Test that xacro:if preserves comments and text nodes
 #[test]
 fn test_if_preserves_comments_and_text() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="1"><!-- comment --> text <b>bar</b></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "If with mixed content should work: {:?}",
@@ -1172,7 +1075,6 @@ fn test_if_preserves_comments_and_text() {
 /// Test integration of conditionals with properties
 #[test]
 fn test_integration_conditionals_with_properties() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="use_feature" value="1"/>
@@ -1189,7 +1091,7 @@ fn test_integration_conditionals_with_properties() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Conditionals with properties should work: {:?}",
@@ -1215,14 +1117,13 @@ fn test_integration_conditionals_with_properties() {
 /// Test basic property substitution using test data files
 #[test]
 fn test_property_basic() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot name="test_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="width" value="0.5"/>
   <box size="${width}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1244,7 +1145,6 @@ fn test_property_basic() {
 /// Test nested property references
 #[test]
 fn test_property_nested() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot name="test_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="1"/>
@@ -1252,7 +1152,7 @@ fn test_property_nested() {
   <point coord="${y}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1270,8 +1170,7 @@ fn test_property_nested() {
 /// Test basic macro expansion using test data files
 #[test]
 fn test_macro_basic() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/macro_test.xacro");
+    let result = test_xacro_file("tests/data/macro_test.xacro");
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1293,8 +1192,7 @@ fn test_macro_basic() {
 /// Test multiple includes
 #[test]
 fn test_include_multi() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/include_test_multi_base.xacro");
+    let result = test_xacro_file("tests/data/include_test_multi_base.xacro");
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1309,8 +1207,7 @@ fn test_include_multi() {
 /// Test include from subdirectory
 #[test]
 fn test_include_subdirectory() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/include_test_directory.xacro");
+    let result = test_xacro_file("tests/data/include_test_directory.xacro");
     assert!(
         result.is_ok(),
         "Include from subdirectory failed: {:?}",
@@ -1328,8 +1225,7 @@ fn test_include_subdirectory() {
 /// Test multiple property definitions
 #[test]
 fn test_property_multiple() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/property_test_multiple.xacro");
+    let result = test_xacro_file("tests/data/property_test_multiple.xacro");
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1342,8 +1238,7 @@ fn test_property_multiple() {
 /// Test properties defined out of order
 #[test]
 fn test_property_multiple_out_of_order() {
-    let processor = XacroProcessor::new();
-    let result = processor.run("tests/data/property_test_multiple_out_of_order.xacro");
+    let result = test_xacro_file("tests/data/property_test_multiple_out_of_order.xacro");
     assert!(
         result.is_ok(),
         "Out of order properties should work with lazy evaluation: {:?}",
@@ -1360,14 +1255,13 @@ fn test_property_multiple_out_of_order() {
 /// Test property substitution in attributes
 #[test]
 fn test_property_attributes() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot name="test_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="prefix" value="arm"/>
   <link name="${prefix}_link"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Failed to process: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1386,7 +1280,6 @@ fn test_property_attributes() {
 /// Test arithmetic property expressions
 #[test]
 fn test_property_arithmetic() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="5"/>
@@ -1397,7 +1290,7 @@ fn test_property_arithmetic() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Arithmetic failed: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1414,7 +1307,6 @@ fn test_property_arithmetic() {
 /// Test property with expression values
 #[test]
 fn test_property_value_expressions() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="base" value="10"/>
@@ -1422,7 +1314,7 @@ fn test_property_value_expressions() {
   <link name="test" value="${computed}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Property with expression value failed: {:?}",
@@ -1439,7 +1331,6 @@ fn test_property_value_expressions() {
 /// Test property redefinition with lazy evaluation
 #[test]
 fn test_property_redefinition_lazy() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="10"/>
@@ -1448,7 +1339,7 @@ fn test_property_redefinition_lazy() {
   <link name="test" value="${y}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Property redefinition failed: {:?}",
@@ -1466,14 +1357,13 @@ fn test_property_redefinition_lazy() {
 /// Test alternative namespace prefix (e.g., xacro: vs x:)
 #[test]
 fn test_property_alternative_namespace_prefix() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:x="http://www.ros.org/wiki/xacro">
   <x:property name="width" value="0.5"/>
   <link name="test" size="${width}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Alternative namespace prefix should work: {:?}",
@@ -1490,14 +1380,13 @@ fn test_property_alternative_namespace_prefix() {
 /// Test namespace handling
 #[test]
 fn test_property_namespace_handling() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" xmlns:other="http://example.com">
   <xacro:property name="x" value="42"/>
   <other:element value="${x}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Multiple namespaces should work: {:?}",
@@ -1514,20 +1403,18 @@ fn test_property_namespace_handling() {
 /// Test error propagation in property expressions
 #[test]
 fn test_property_error_propagation() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <link name="test" value="${undefined_property}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err(), "Undefined property should cause error");
 }
 
 /// Test macro call evaluates parameters
 #[test]
 fn test_macro_call_evaluates_parameters() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="base" value="10"/>
@@ -1537,7 +1424,7 @@ fn test_macro_call_evaluates_parameters() {
   <xacro:test_macro value="${base * 2}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Macro call with expression should work: {:?}",
@@ -1554,7 +1441,6 @@ fn test_macro_call_evaluates_parameters() {
 /// Test macro definition is not evaluated until called
 #[test]
 fn test_macro_definition_only_not_evaluated() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test_macro" params="value">
@@ -1563,7 +1449,7 @@ fn test_macro_definition_only_not_evaluated() {
   </xacro:macro>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     // Should succeed because macro is never called
     assert!(
         result.is_ok(),
@@ -1581,7 +1467,6 @@ fn test_macro_definition_only_not_evaluated() {
 /// Test macro with late-binding defaults
 #[test]
 fn test_macro_late_binding_defaults() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="default_mass" value="1"/>
@@ -1593,7 +1478,7 @@ fn test_macro_late_binding_defaults() {
   <xacro:link_macro name="link2"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Late-binding defaults should work: {:?}",
@@ -1611,7 +1496,6 @@ fn test_macro_late_binding_defaults() {
 /// Test macro parameters override global properties
 #[test]
 fn test_macro_param_overrides_global() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="global"/>
@@ -1621,7 +1505,7 @@ fn test_macro_param_overrides_global() {
   <xacro:test_macro x="local"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Macro param should override global: {:?}",
@@ -1642,7 +1526,6 @@ fn test_macro_param_overrides_global() {
 /// Test macro can access global properties
 #[test]
 fn test_macro_with_global_property() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="global_x" value="1"/>
@@ -1652,7 +1535,7 @@ fn test_macro_with_global_property() {
   <xacro:test_macro local_y="2.0"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Macro with global property should work: {:?}",
@@ -1667,7 +1550,6 @@ fn test_macro_with_global_property() {
 /// Test nested macro calls
 #[test]
 fn test_nested_macro_calls() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="inner" params="value">
@@ -1681,7 +1563,7 @@ fn test_nested_macro_calls() {
   <xacro:outer x="21"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Nested macro calls should work: {:?}",
@@ -1699,7 +1581,6 @@ fn test_nested_macro_calls() {
 /// Test conditional with value preservation
 #[test]
 fn test_conditional_value_preservation() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="1">
@@ -1710,7 +1591,7 @@ fn test_conditional_value_preservation() {
   </xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_ok(), "Conditionals failed: {:?}", result.err());
 
     let output = result.unwrap();
@@ -1727,7 +1608,6 @@ fn test_conditional_value_preservation() {
 /// Test if with boolean literals
 #[test]
 fn test_if_boolean_literals() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="true"><included_true/></xacro:if>
@@ -1736,7 +1616,7 @@ fn test_if_boolean_literals() {
   <xacro:if value="False"><excluded_False/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Boolean literals failed: {:?}",
@@ -1767,7 +1647,6 @@ fn test_if_boolean_literals() {
 /// Use ${3*0.1} for float evaluation, not literal "1.0"
 #[test]
 fn test_if_float_truthiness() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="${3*0.0}"><excluded_zero/></xacro:if>
@@ -1775,7 +1654,7 @@ fn test_if_float_truthiness() {
   <xacro:if value="${1.5 + 0.5}"><included_two/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Float truthiness failed: {:?}",
@@ -1800,7 +1679,6 @@ fn test_if_float_truthiness() {
 /// Test if with integer truthiness
 #[test]
 fn test_if_integer_truthiness() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="1"><included_one/></xacro:if>
@@ -1808,7 +1686,7 @@ fn test_if_integer_truthiness() {
   <xacro:if value="42"><included_fortytwo/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Integer truthiness failed: {:?}",
@@ -1827,13 +1705,12 @@ fn test_if_integer_truthiness() {
 /// Test if with invalid value causes error
 #[test]
 fn test_if_invalid_value_error() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if value="not_a_boolean"><content/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Invalid boolean 'not_a_boolean' should cause error"
@@ -1843,13 +1720,12 @@ fn test_if_invalid_value_error() {
 /// Test if with missing value attribute
 #[test]
 fn test_if_missing_value_attribute() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:if><content/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Missing value attribute should cause error"
@@ -1859,7 +1735,6 @@ fn test_if_missing_value_attribute() {
 /// Test if with expressions
 #[test]
 fn test_if_with_expressions() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="x" value="5"/>
@@ -1867,7 +1742,7 @@ fn test_if_with_expressions() {
   <xacro:if value="${x &lt; 3}"><less/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "If with expressions failed: {:?}",
@@ -1882,7 +1757,6 @@ fn test_if_with_expressions() {
 /// Test if with properties
 #[test]
 fn test_if_with_properties() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="enable_feature" value="1"/>
@@ -1891,7 +1765,7 @@ fn test_if_with_properties() {
   <xacro:if value="${disable_feature}"><disabled/></xacro:if>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "If with properties failed: {:?}",
@@ -1919,7 +1793,6 @@ fn test_if_with_properties() {
 /// Test dynamic property name substitution
 #[test]
 fn test_property_dynamic_name() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="prefix" value="left"/>
@@ -1929,7 +1802,7 @@ fn test_property_dynamic_name() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Dynamic property name failed: {:?}",
@@ -1947,7 +1820,6 @@ fn test_property_dynamic_name() {
 /// Test dynamic property name with concatenation
 #[test]
 fn test_property_dynamic_name_concatenation() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="side" value="right"/>
@@ -1958,7 +1830,7 @@ fn test_property_dynamic_name_concatenation() {
   </link>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Dynamic property name concatenation failed: {:?}",
@@ -1976,7 +1848,6 @@ fn test_property_dynamic_name_concatenation() {
 /// Test dynamic macro name substitution
 #[test]
 fn test_macro_dynamic_name() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="prefix" value="mobile"/>
@@ -1986,7 +1857,7 @@ fn test_macro_dynamic_name() {
   <xacro:mobile_base size="1.0"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Dynamic macro name failed: {:?}",
@@ -2035,8 +1906,7 @@ fn test_include_dynamic_filename() {
     let root_path = temp_path.join("root.xacro");
     fs::write(&root_path, &root_content).unwrap();
 
-    let processor = XacroProcessor::new();
-    let result = processor.run(&root_path);
+    let result = test_xacro_file(&root_path);
     assert!(
         result.is_ok(),
         "Dynamic include filename failed: {:?}",
@@ -2083,8 +1953,7 @@ fn test_include_dynamic_filename_with_path() {
     let root_path = temp_path.join("root.xacro");
     fs::write(&root_path, &root_content).unwrap();
 
-    let processor = XacroProcessor::new();
-    let result = processor.run(&root_path);
+    let result = test_xacro_file(&root_path);
     assert!(
         result.is_ok(),
         "Dynamic include with path concatenation failed: {:?}",
@@ -2102,7 +1971,6 @@ fn test_include_dynamic_filename_with_path() {
 /// Test dynamic insert_block name substitution
 #[test]
 fn test_insert_block_dynamic_name() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="block_name" value="content"/>
@@ -2116,7 +1984,7 @@ fn test_insert_block_dynamic_name() {
   </xacro:foo>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Dynamic insert_block name failed: {:?}",
@@ -2139,7 +2007,6 @@ fn test_insert_block_dynamic_name() {
 /// Test dynamic insert_block name with conditional selection
 #[test]
 fn test_insert_block_dynamic_name_conditional() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="use_left" value="1"/>
@@ -2160,7 +2027,7 @@ fn test_insert_block_dynamic_name_conditional() {
   </xacro:selector>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Dynamic insert_block with conditional selection failed: {:?}",
@@ -2185,7 +2052,6 @@ fn test_insert_block_dynamic_name_conditional() {
 /// substituted because we only expanded children. This test ensures that fix works.
 #[test]
 fn test_root_element_attribute_substitution() {
-    let processor = XacroProcessor::new();
     // Test case: macro parameter should be substitutable in root element attributes
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -2197,7 +2063,7 @@ fn test_root_element_attribute_substitution() {
   <xacro:make_robot robot_name="test"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_ok(),
         "Root element attribute substitution failed: {:?}",
@@ -2215,14 +2081,13 @@ fn test_root_element_attribute_substitution() {
 /// Test that root element attributes with undefined properties fail gracefully
 #[test]
 fn test_root_element_undefined_property_error() {
-    let processor = XacroProcessor::new();
     // This should fail because robot_name is not defined when root element is processed
     let input = r#"<?xml version="1.0"?>
 <robot name="${undefined_prop}" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <link name="base"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should fail with undefined property in root element"
@@ -2239,7 +2104,6 @@ fn test_root_element_undefined_property_error() {
 /// Tests that block parameters are evaluated in caller's scope, not macro's scope
 #[test]
 fn test_insert_block_parameter_collision_regression() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="global_x" value="1"/>
@@ -2268,9 +2132,7 @@ fn test_insert_block_parameter_collision_regression() {
   </xacro:bar>
 </robot>"#;
 
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let result = run_xacro(input);
 
     // Verify block content uses caller's local_y (2), not macro parameters (3 or 4)
     // Check for attribute presence regardless of order
@@ -2289,7 +2151,6 @@ fn test_insert_block_parameter_collision_regression() {
 
 #[test]
 fn test_macro_simple_expression_evaluation() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test_macro" params="mass">
@@ -2302,12 +2163,10 @@ fn test_macro_simple_expression_evaluation() {
   <xacro:test_macro mass="0.6"/>
 </robot>"#;
 
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let result = run_xacro(input);
 
     // Parse output to check attributes robustly
-    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse output XML");
+    let root = parse_xml(&result);
     let inertial = root
         .get_child("inertial")
         .expect("Should find inertial element");
@@ -2343,7 +2202,6 @@ fn test_lazy_block_empty_element_inserts_nothing() {
     // Block parameters match POSITIONALLY (element name doesn't matter).
     // **param (lazy block) inserts only children, not the wrapper element.
     // Empty element = no children = nothing inserted.
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test_macro" params="**content">
@@ -2358,8 +2216,8 @@ fn test_lazy_block_empty_element_inserts_nothing() {
   </xacro:test_macro>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse valid XML");
+    let result = run_xacro(input);
+    let root = parse_xml(&result);
 
     // Python xacro: <other></other> positionally captured as "content" block.
     // Since it's empty, insert_block inserts nothing (no children).
@@ -2388,14 +2246,13 @@ fn test_lazy_block_empty_element_inserts_nothing() {
 
 #[test]
 fn test_cwd_extension() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="working_dir" value="$(cwd)"/>
   <path>${working_dir}</path>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
+    let result = run_xacro(input);
     let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
 
     let path_elem = root.get_child("path").expect("Should have <path> element");
@@ -2426,7 +2283,6 @@ fn test_cwd_extension() {
 
 #[test]
 fn test_cwd_with_property_reference() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="cwd_path" value="$(cwd)"/>
@@ -2434,7 +2290,7 @@ fn test_cwd_with_property_reference() {
   <path2>${cwd_path}</path2>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
+    let result = run_xacro(input);
     let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
 
     let path1_elem = root
@@ -2470,14 +2326,13 @@ fn test_cwd_with_property_reference() {
 
 #[test]
 fn test_cwd_extension_no_args() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="invalid" value="$(cwd extra)"/>
   <path>${invalid}</path>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - $(cwd) doesn't accept arguments
     assert!(result.is_err(), "$(cwd) with arguments should fail");
@@ -2493,14 +2348,13 @@ fn test_cwd_extension_no_args() {
 #[test]
 fn test_cwd_iterative_substitution() {
     // Test that $(cwd) works through multi-pass substitution (escaped with $$, then expanded)
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="escaped_cwd" value="$$(cwd)"/>
   <path>${escaped_cwd}</path>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
+    let result = run_xacro(input);
     let root = Element::parse(result.as_bytes()).expect("Should parse valid XML");
 
     let path_elem = root.get_child("path").expect("Should have <path> element");

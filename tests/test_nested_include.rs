@@ -1,3 +1,5 @@
+mod common;
+use crate::common::*;
 use std::fs;
 use std::path::PathBuf;
 use xacro::XacroProcessor;
@@ -24,23 +26,24 @@ fn test_nested_include_cross_namespace() {
     let input_path = test_data_dir.join("nested_include_main.xacro");
     let expected_path = test_data_dir.join("nested_include_main_expected.urdf");
 
-    let expected =
-        fs::read_to_string(&expected_path).expect("failed to read expected URDF fixture");
+    let expected = fs::read_to_string(&expected_path)
+        .expect("Should read expected URDF fixture from tests/data");
 
     let processor = XacroProcessor::new();
-    let result = processor
+    let output = processor
         .run(&input_path)
-        .expect("xacro processor failed on nested-include fixture");
+        .expect("Xacro processor should handle nested includes across namespace variants");
 
     // Check for unexpanded macro calls (the bug symptom)
-    assert!(
-        !result.contains("<xacro:"),
+    assert_xacro_not_contains!(
+        output,
+        "<xacro:",
         "Output contains unexpanded xacro tags - cross-namespace macro expansion failed"
     );
 
     // Verify output matches expected
     assert_eq!(
-        normalize(&result),
+        normalize(&output),
         normalize(&expected),
         "Output should match expected URDF"
     );

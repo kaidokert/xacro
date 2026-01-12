@@ -1,4 +1,5 @@
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Integration test for macro parameter scoping bug
 ///
@@ -23,36 +24,22 @@ fn test_macro_with_parameters_full_pipeline() {
   <xacro:box_link name="base_link" size="0.5"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Macro parameters should be evaluated during expansion, not definition. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Macro parameters should be evaluated during expansion, not definition",
     );
-
-    let output = result.unwrap();
-
-    // Verify the macro was expanded with correct parameter values
-    assert!(
-        output.contains(r#"name="base_link""#),
+    assert_xacro_contains!(
+        output,
+        r#"name="base_link""#,
         "Macro should expand with name parameter"
     );
-    assert!(
-        output.contains(r#"0.5 0.5 0.5"#),
+    assert_xacro_contains!(
+        output,
+        r#"0.5 0.5 0.5"#,
         "Macro should expand with size parameter"
     );
-
-    // Verify no macro elements remain
-    assert!(
-        !output.contains("xacro:macro"),
-        "Macro definition should be removed"
-    );
-    assert!(
-        !output.contains("xacro:box_link"),
-        "Macro call should be removed"
-    );
+    assert_xacro_not_contains!(output, "xacro:macro", "Macro definition should be removed");
+    assert_xacro_not_contains!(output, "xacro:box_link", "Macro call should be removed");
 }
 
 /// Test that global properties work inside macros
@@ -75,18 +62,20 @@ fn test_macro_with_global_property_full_pipeline() {
   <xacro:box_link name="base_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Global properties should be accessible inside macros. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Global properties should be accessible inside macros",
     );
-
-    let output = result.unwrap();
-    assert!(output.contains(r#"name="base_link""#));
-    assert!(output.contains(r#"0.5 0.5 0.5"#));
+    assert_xacro_contains!(
+        output,
+        r#"name="base_link""#,
+        "Macro should expand with name parameter"
+    );
+    assert_xacro_contains!(
+        output,
+        r#"0.5 0.5 0.5"#,
+        "Global property should be accessible in macro"
+    );
 }
 
 /// Test property defined inside macro that references macro parameter
@@ -102,12 +91,13 @@ fn test_property_inside_macro_referencing_parameter() {
   <xacro:link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    let output = result.expect("Property inside macro should reference macro parameter");
-    assert!(
-        output.contains(r#"name="link_base""#),
+    let output = run_xacro_expect(
+        input,
+        "Property inside macro should reference macro parameter",
+    );
+    assert_xacro_contains!(
+        output,
+        r#"name="link_base""#,
         "Property should have been evaluated with macro parameter"
     );
 }
@@ -133,20 +123,12 @@ fn test_macro_params_override_globals_full_pipeline() {
   <xacro:box_link name="base_link" size="0.5"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Macro parameters should override global properties. Error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(output.contains(r#"name="base_link""#));
+    let output = run_xacro_expect(input, "Macro parameters should override global properties");
+    assert_xacro_contains!(output, r#"name="base_link""#);
     // Should use macro param size=0.5, NOT global property size=1.0
-    assert!(
-        output.contains(r#"0.5 0.5 0.5"#),
+    assert_xacro_contains!(
+        output,
+        r#"0.5 0.5 0.5"#,
         "Macro parameter should override global property"
     );
     assert!(
@@ -170,21 +152,15 @@ fn test_macro_parameter_dependency() {
   <xacro:foo a="5"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Parameter default should be able to reference another parameter. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Parameter default should be able to reference another parameter",
     );
-
-    let output = result.unwrap();
-
     // Verify 'a' is 5 and 'b' is 10 (a*2)
-    assert!(output.contains(r#"a="5""#), "Parameter 'a' should be 5");
-    assert!(
-        output.contains(r#"b="10""#),
+    assert_xacro_contains!(output, r#"a="5""#, "Parameter 'a' should be 5");
+    assert_xacro_contains!(
+        output,
+        r#"b="10""#,
         "Parameter 'b' should be 10 (a*2 where a=5)"
     );
 }
@@ -204,28 +180,20 @@ fn test_macro_chained_parameter_defaults() {
   <xacro:foo/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Chained parameter defaults should resolve in declaration order. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Chained parameter defaults should resolve in declaration order",
     );
-
-    let output = result.unwrap();
-
     // Verify: a=1 (default), b=2 (1*2), c=6 (2*3)
-    assert!(
-        output.contains(r#"a="1""#),
-        "Parameter 'a' should be 1 (default)"
-    );
-    assert!(
-        output.contains(r#"b="2""#),
+    assert_xacro_contains!(output, r#"a="1""#, "Parameter 'a' should be 1 (default)");
+    assert_xacro_contains!(
+        output,
+        r#"b="2""#,
         "Parameter 'b' should be 2 (a*2 where a=1)"
     );
-    assert!(
-        output.contains(r#"c="6""#),
+    assert_xacro_contains!(
+        output,
+        r#"c="6""#,
         "Parameter 'c' should be 6 (b*3 where b=2)"
     );
 }
@@ -245,15 +213,13 @@ fn test_macro_missing_parameter_in_default() {
   <xacro:foo/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should error when required parameter 'a' is missing"
     );
 
-    let err = result.err().unwrap();
+    let err = result.unwrap_err();
     let err_str = format!("{:?}", err);
 
     // Should get MissingParameter error for 'a', not treat it as falsy/zero

@@ -3,8 +3,9 @@
 //! Python xacro provides inf and nan via math.inf/math.nan.
 //! We inject them directly into the pyisheval context HashMap to bypass parsing.
 
+mod common;
+use crate::common::*;
 use std::collections::HashMap;
-use xacro::XacroProcessor;
 
 /// Test that inf is available as a constant in expressions
 #[test]
@@ -19,23 +20,14 @@ fn test_inf_constant_in_expression() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
-    // Check that inf appears in the output
-    assert!(
-        result.contains("inf"),
-        "Output should contain 'inf', got: {}",
-        result
+    let output = run_xacro_expect(input, "Processing should succeed");
+    assert_xacro_contains!(output, "inf", "Output should contain 'inf'");
+    assert_xacro_contains!(output, r#"xyz="inf"#, "Output should have xyz='inf ...'");
+    assert_xacro_not_contains!(
+        output,
+        "xacro:property",
+        "Should not contain xacro directives"
     );
-    assert!(
-        result.contains(r#"xyz="inf"#),
-        "Output should have xyz='inf ...'"
-    );
-    // Should not contain xacro directives
-    assert!(!result.contains("xacro:property"));
 }
 
 /// Test that nan is available as a constant in expressions
@@ -51,18 +43,18 @@ fn test_nan_constant_in_expression() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
+    let output = run_xacro_expect(input, "Processing should succeed");
     // NaN can format as "NaN" or "nan" depending on platform
     assert!(
-        result.contains("NaN") || result.contains("nan"),
+        output.contains("NaN") || output.contains("nan"),
         "Output should contain NaN or nan, got: {}",
-        result
+        output
     );
-    assert!(!result.contains("xacro:property"));
+    assert_xacro_not_contains!(
+        output,
+        "xacro:property",
+        "Should not contain xacro directives"
+    );
 }
 
 /// Test that inf works in arithmetic expressions
@@ -79,18 +71,9 @@ fn test_inf_in_arithmetic() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
-    // inf * 2 should still be inf
-    assert!(result.contains("inf"), "Output should contain inf");
-    // Should have both positive and negative infinity
-    assert!(
-        result.contains("-inf"),
-        "Output should contain -inf for negation"
-    );
+    let output = run_xacro_expect(input, "Processing should succeed");
+    assert_xacro_contains!(output, "inf", "inf * 2 should still be inf");
+    assert_xacro_contains!(output, "-inf", "Output should contain -inf for negation");
 }
 
 /// Test that nan works in arithmetic expressions (nan propagates)
@@ -107,13 +90,9 @@ fn test_nan_in_arithmetic() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
+    let output = run_xacro_expect(input, "Processing should succeed");
     // NaN propagates through arithmetic - both should be NaN
-    let nan_count = result.matches("NaN").count() + result.matches("nan").count();
+    let nan_count = output.matches("NaN").count() + output.matches("nan").count();
     assert!(
         nan_count >= 2,
         "Output should have at least 2 NaN/nan occurrences"
@@ -134,23 +113,18 @@ fn test_inf_nan_in_conditionals() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
-    // Should have finite link (5 < inf is true)
-    assert!(
-        result.contains(r#"name="finite"#),
-        "Should have finite link"
+    let output = run_xacro_expect(input, "Processing should succeed");
+    assert_xacro_contains!(
+        output,
+        r#"name="finite"#,
+        "Should have finite link (5 < inf is true)"
     );
-    // Should NOT have not_shown link (x == nan is always false)
-    assert!(
-        !result.contains(r#"name="not_shown"#),
-        "Should not have not_shown link"
+    assert_xacro_not_contains!(
+        output,
+        r#"name="not_shown"#,
+        "Should not have not_shown link (5 == nan is false)"
     );
-    // Should not contain xacro directives
-    assert!(!result.contains("xacro:if"));
+    assert_xacro_not_contains!(output, "xacro:if", "Should not contain xacro directives");
 }
 
 /// Test that properties can be assigned inf/nan values
@@ -168,18 +142,22 @@ fn test_property_assignment_with_inf_nan() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let output = run_xacro_expect(input, "Processing should succeed");
+    let root = parse_xml(&output);
+    let link = find_child(&root, "link");
+    let inertial = find_child(link, "inertial");
 
-    // mass should be inf
-    assert!(result.contains(r#"<mass value="inf"#), "Mass should be inf");
-    // ixx should be NaN or nan
-    assert!(
-        result.contains(r#"ixx="NaN"#) || result.contains(r#"ixx="nan"#),
-        "ixx should be NaN or nan"
-    );
+    // Mass is an element with value attribute
+    let mass = find_child(inertial, "mass");
+    assert_xacro_attr!(mass, "value", "inf");
+
+    // ixx is an attribute on inertia element
+    let inertia = find_child(inertial, "inertia");
+    let ixx_str = get_attr(inertia, "ixx");
+    let ixx: f64 = ixx_str
+        .parse()
+        .expect(&format!("Failed to parse ixx '{}' as f64", ixx_str));
+    assert!(ixx.is_nan(), "ixx should be NaN");
 }
 
 /// Test that inf/nan properties can be referenced by other properties
@@ -196,13 +174,12 @@ fn test_inf_nan_property_references() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
-    // derived_inf (inf * 3) should still be inf
-    assert!(result.contains(r#"xyz="inf"#), "derived_inf should be inf");
+    let output = run_xacro_expect(input, "Processing should succeed");
+    assert_xacro_contains!(
+        output,
+        r#"xyz="inf"#,
+        "derived_inf (inf * 3) should still be inf"
+    );
 }
 
 /// Test inf/nan with xacro:arg (command-line arguments)
@@ -220,18 +197,18 @@ fn test_inf_nan_with_args() {
 </robot>"#;
 
     let args = HashMap::new(); // Use default value (inf)
-    let processor = XacroProcessor::new_with_args(args);
-    let result = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
-
-    // limit should be inf from the default arg value
-    assert!(
-        result.contains(r#"xyz="inf"#),
+    let output = run_xacro_with_args(input, args);
+    assert_xacro_contains!(
+        output,
+        r#"xyz="inf"#,
         "limit should be inf from default arg"
     );
-    assert!(!result.contains("xacro:arg"));
-    assert!(!result.contains("$(arg"));
+    assert_xacro_not_contains!(
+        output,
+        "xacro:arg",
+        "Should not contain xacro:arg directives"
+    );
+    assert_xacro_not_contains!(output, "$(arg", "Should not contain $(arg references");
 }
 
 /// Test that lambda expressions can reference properties with inf values
@@ -246,14 +223,13 @@ fn test_lambda_referencing_inf_property() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Lambda should be able to reference infinite property");
-
-    // The lambda should evaluate to true (1) since inf == inf
-    assert!(
-        result.contains(r#"value="1"#),
+    let output = run_xacro_expect(
+        input,
+        "Lambda should be able to reference infinite property",
+    );
+    assert_xacro_contains!(
+        output,
+        r#"value="1"#,
         "Lambda should correctly evaluate inf == inf as true"
     );
 }
@@ -279,10 +255,7 @@ fn test_lambda_referencing_nan_property_fails() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // This will fail with an error because my_nan is not loaded into the interpreter
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Lambda referencing NaN property should fail (known limitation)"

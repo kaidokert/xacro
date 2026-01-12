@@ -1,4 +1,5 @@
-use xacro::processor::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Helper function to run a math function test and verify the angle result
 fn run_angle_test(
@@ -7,13 +8,12 @@ fn run_angle_test(
     tolerance: f64,
     expect_msg: &str,
 ) {
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect(expect_msg);
+    let output = run_xacro_expect(input, expect_msg);
 
     // Extract angle value and compare numerically
     let re = regex::Regex::new(r#"angle="([^"]+)""#).expect("Valid regex");
     let caps = re
-        .captures(&result)
+        .captures(&output)
         .expect("angle attribute not found in output");
     let angle_val: f64 = caps[1].parse().expect("angle value is not a valid float");
     assert!(
@@ -318,8 +318,6 @@ fn test_multiple_adjacent_math_functions() {
 
 #[test]
 fn test_acos_domain_validation() {
-    use xacro::processor::XacroProcessor;
-
     // Test that acos(2) fails (out of domain [-1, 1])
     // This matches Python xacro behavior which raises ValueError
     let input = r#"<?xml version="1.0"?>
@@ -330,8 +328,7 @@ fn test_acos_domain_validation() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - domain validation prevents replacement, then pyisheval fails
     // This matches Python xacro's ValueError for out-of-domain inputs
@@ -340,8 +337,6 @@ fn test_acos_domain_validation() {
 
 #[test]
 fn test_asin_domain_validation() {
-    use xacro::processor::XacroProcessor;
-
     // Test that asin(-1.5) fails (out of domain [-1, 1])
     // This matches Python xacro behavior which raises ValueError
     let input = r#"<?xml version="1.0"?>
@@ -352,8 +347,7 @@ fn test_asin_domain_validation() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - domain validation prevents replacement, then pyisheval fails
     // This matches Python xacro's ValueError for out-of-domain inputs
@@ -362,8 +356,6 @@ fn test_asin_domain_validation() {
 
 #[test]
 fn test_acos_nan_domain() {
-    use xacro::processor::XacroProcessor;
-
     // Test that acos(NaN) fails
     // NaN fails the domain check (!(-1.0..=1.0).contains(&NaN) == true)
     // This leaves the function call unresolved, causing pyisheval to fail
@@ -375,8 +367,7 @@ fn test_acos_nan_domain() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - NaN fails domain check, function call remains unresolved
     assert!(result.is_err(), "Should error for acos(NaN)");
@@ -384,8 +375,6 @@ fn test_acos_nan_domain() {
 
 #[test]
 fn test_asin_nan_domain() {
-    use xacro::processor::XacroProcessor;
-
     // Test that asin(NaN) fails
     // NaN fails the domain check (!(-1.0..=1.0).contains(&NaN) == true)
     // This leaves the function call unresolved, causing pyisheval to fail
@@ -397,8 +386,7 @@ fn test_asin_nan_domain() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - NaN fails domain check, function call remains unresolved
     assert!(result.is_err(), "Should error for asin(NaN)");
