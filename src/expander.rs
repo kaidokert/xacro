@@ -12,17 +12,39 @@
 
 use crate::{
     error::XacroError,
-    features::{
-        macros::{MacroDefinition, MacroProcessor},
-        properties::PropertyProcessor,
+    eval::PropertyProcessor,
+    parse::{
+        macro_def::{MacroDefinition, MacroProcessor},
+        xml::{extract_xacro_namespace, is_xacro_element},
     },
-    processor::CompatMode,
-    utils::xml::extract_xacro_namespace,
-    utils::xml::is_xacro_element,
 };
 use core::cell::RefCell;
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 use xmltree::{Element, XMLNode};
+
+// Re-export XacroContext from expand module
+pub use crate::expand::XacroContext;
+
+// ============================================================================
+// Directive Validation Constants
+// ============================================================================
+
+/// Single source of truth for all xacro directive names
+///
+/// This ensures that directive lists stay synchronized across the codebase.
+/// Implemented xacro directives (element names without "xacro:" prefix)
+const IMPLEMENTED_DIRECTIVES: &[&str] = &[
+    "property",
+    "macro",
+    "if",
+    "unless",
+    "include",
+    "insert_block",
+    "arg",
+];
+
+/// Unimplemented xacro directives (element names without "xacro:" prefix)
+const UNIMPLEMENTED_DIRECTIVES: &[&str] = &["element", "attribute"];
 
 // ============================================================================
 // RAII Guards for Panic-Safe Stack Management
@@ -90,138 +112,6 @@ struct BlockGuard<'a> {
 impl Drop for BlockGuard<'_> {
     fn drop(&mut self) {
         self.blocks.borrow_mut().pop();
-    }
-}
-
-// ============================================================================
-
-/// Unified context for single-pass expansion
-///
-/// This struct holds all the state needed during recursive expansion,
-/// including properties, macros, and various stacks for tracking scope.
-pub struct XacroContext {
-    /// Property processor with scope support (from Step 1)
-    pub properties: PropertyProcessor,
-
-    /// Macro definitions wrapped in Rc (from Step 2) - uses RefCell for interior mutability
-    pub macros: RefCell<HashMap<String, Rc<MacroDefinition>>>,
-
-    /// CLI arguments (shared with PropertyProcessor for $(arg) resolution)
-    /// Wrapped in Rc<RefCell<...>> for shared mutable access
-    pub args: Rc<RefCell<HashMap<String, String>>>,
-
-    /// Include stack for circular include detection (uses RefCell for interior mutability)
-    pub include_stack: RefCell<Vec<PathBuf>>,
-
-    /// Namespace stack: (file_path, xacro_namespace_prefix) (uses RefCell for interior mutability)
-    pub namespace_stack: RefCell<Vec<(PathBuf, String)>>,
-
-    /// Block stack for insert_block arguments (uses RefCell for interior mutability)
-    /// Stores pre-expanded XMLNode content for each block parameter
-    pub block_stack: RefCell<Vec<HashMap<String, Vec<XMLNode>>>>,
-
-    /// Current base path for resolving relative includes (uses RefCell for interior mutability)
-    pub base_path: RefCell<PathBuf>,
-
-    /// Current overall recursion depth (uses RefCell for interior mutability to enable RAII guards)
-    pub recursion_depth: RefCell<usize>,
-
-    /// Maximum recursion depth before triggering error
-    /// Set conservatively to prevent stack overflow before the check triggers
-    pub max_recursion_depth: usize,
-
-    /// Python xacro compatibility modes
-    pub compat_mode: CompatMode,
-}
-
-impl XacroContext {
-    /// Default maximum recursion depth
-    /// Set conservatively to prevent stack overflow before the check triggers
-    pub const DEFAULT_MAX_DEPTH: usize = 50;
-
-    /// Create a new context with the given base path
-    pub fn new(
-        base_path: PathBuf,
-        xacro_ns: String,
-    ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, HashMap::new(), CompatMode::none())
-    }
-
-    /// Create a new context with CLI arguments
-    ///
-    /// # Arguments
-    /// * `base_path` - Base directory for resolving relative includes
-    /// * `xacro_ns` - Xacro namespace prefix (e.g., "xacro")
-    /// * `cli_args` - Arguments from CLI (take precedence over XML defaults)
-    pub fn new_with_args(
-        base_path: PathBuf,
-        xacro_ns: String,
-        cli_args: HashMap<String, String>,
-    ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, cli_args, CompatMode::none())
-    }
-
-    /// Create a new context with CLI arguments and compat mode
-    ///
-    /// # Arguments
-    /// * `base_path` - Base directory for resolving relative includes
-    /// * `xacro_ns` - Xacro namespace prefix (e.g., "xacro")
-    /// * `cli_args` - Arguments from CLI (take precedence over XML defaults)
-    /// * `compat_mode` - Python xacro compatibility modes
-    pub fn new_with_compat(
-        base_path: PathBuf,
-        xacro_ns: String,
-        cli_args: HashMap<String, String>,
-        compat_mode: CompatMode,
-    ) -> Self {
-        // Create shared args map for both PropertyProcessor and expander
-        // Initialize with CLI args (these take precedence over XML defaults)
-        let args = Rc::new(RefCell::new(cli_args));
-
-        Self {
-            properties: PropertyProcessor::new_with_args(args.clone()),
-            macros: RefCell::new(HashMap::new()),
-            args,
-            include_stack: RefCell::new(Vec::new()),
-            namespace_stack: RefCell::new(vec![(base_path.clone(), xacro_ns)]),
-            block_stack: RefCell::new(Vec::new()),
-            base_path: RefCell::new(base_path),
-            recursion_depth: RefCell::new(0),
-            max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
-            compat_mode,
-        }
-    }
-
-    /// Set the maximum recursion depth
-    pub fn set_max_recursion_depth(
-        &mut self,
-        depth: usize,
-    ) {
-        self.max_recursion_depth = depth;
-    }
-
-    /// Get current xacro namespace from top of stack
-    pub fn current_xacro_ns(&self) -> String {
-        self.namespace_stack
-            .borrow()
-            .last()
-            .map(|(_, ns)| ns.clone())
-            .expect("namespace_stack should never be empty - initialized in XacroContext::new()")
-    }
-
-    /// Look up a named block from the current macro scope
-    /// Returns pre-expanded XMLNodes
-    pub fn lookup_block(
-        &self,
-        name: &str,
-    ) -> Result<Vec<XMLNode>, XacroError> {
-        self.block_stack
-            .borrow()
-            .last()
-            .and_then(|blocks| blocks.get(name).cloned())
-            .ok_or_else(|| XacroError::UndefinedBlock {
-                name: name.to_string(),
-            })
     }
 }
 
@@ -391,7 +281,7 @@ fn expand_element(
                 }
 
                 // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
-                let content = crate::utils::xml::serialize_nodes(&elem.children)?;
+                let content = crate::parse::xml::serialize_nodes(&elem.children)?;
 
                 // Store as lazy property
                 ctx.properties.add_raw_property(name.clone(), content);
@@ -610,7 +500,7 @@ fn expand_element(
         // 1. Check properties FIRST (lazy properties have precedence)
         if let Some(raw_value) = ctx.properties.lookup_raw_value(&name) {
             // Parse raw XML string to nodes
-            let nodes = crate::utils::xml::parse_xml_fragment(&raw_value)?;
+            let nodes = crate::parse::xml::parse_xml_fragment(&raw_value)?;
 
             // Expand recursively using INSERTION SCOPE
             // This handles ${...} expressions and nested directives
@@ -704,7 +594,7 @@ fn is_macro_call(
     // to support cross-namespace macro expansion when includes use different xacro URI variants.
     let in_xacro_ns = !xacro_ns.is_empty()
         && elem.namespace.as_deref().is_some_and(|elem_ns| {
-            elem_ns == xacro_ns || crate::utils::xml::is_known_xacro_uri(elem_ns)
+            elem_ns == xacro_ns || crate::parse::xml::is_known_xacro_uri(elem_ns)
         });
 
     if !in_xacro_ns {
@@ -712,9 +602,6 @@ fn is_macro_call(
     }
 
     // Known directives (implemented and unimplemented) are NOT macro calls
-    // Use single source of truth from features/mod.rs to prevent maintenance hazards
-    use crate::features::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES};
-
     // Element name is the local name (without prefix)
     let elem_name = elem.name.as_str();
     if IMPLEMENTED_DIRECTIVES.contains(&elem_name) || UNIMPLEMENTED_DIRECTIVES.contains(&elem_name)

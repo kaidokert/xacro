@@ -1,5 +1,5 @@
-use crate::features::properties::BUILTIN_CONSTANTS;
-use crate::utils::lexer::{Lexer, TokenType};
+use super::lexer::{Lexer, TokenType};
+use super::scope::BUILTIN_CONSTANTS;
 use pyisheval::{Interpreter, Value};
 use regex::Regex;
 use std::collections::HashMap;

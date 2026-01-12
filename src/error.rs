@@ -25,7 +25,7 @@ pub enum XacroError {
     EvalError {
         expr: String,
         #[source]
-        source: crate::utils::eval::EvalError,
+        source: crate::eval::EvalError,
     },
 
     #[error("XML write error: {0}")]
@@ -145,14 +145,12 @@ pub enum XacroError {
 }
 
 // Implement From trait for EvalError to avoid duplicated error mapping
-impl From<crate::utils::eval::EvalError> for XacroError {
-    fn from(e: crate::utils::eval::EvalError) -> Self {
+impl From<crate::eval::EvalError> for XacroError {
+    fn from(e: crate::eval::EvalError) -> Self {
         XacroError::EvalError {
             expr: match &e {
-                crate::utils::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
-                crate::utils::eval::EvalError::InvalidBoolean { condition, .. } => {
-                    condition.clone()
-                }
+                crate::eval::EvalError::PyishEval { expr, .. } => expr.clone(),
+                crate::eval::EvalError::InvalidBoolean { condition, .. } => condition.clone(),
             },
             source: e,
         }

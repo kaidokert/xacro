@@ -1,9 +1,9 @@
-use crate::error::XacroError;
-use crate::utils::eval::{
+use super::interpreter::{
     eval_boolean, eval_text_with_interpreter, evaluate_expression, format_value_python_style,
     remove_quotes,
 };
-use crate::utils::lexer::{Lexer, TokenType};
+use super::lexer::{Lexer, TokenType};
+use crate::error::XacroError;
 use core::cell::RefCell;
 use pyisheval::Interpreter;
 use regex::Regex;
@@ -66,7 +66,7 @@ struct PropertyMetadata {
     is_float: bool,
 }
 
-pub struct PropertyProcessor<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
+pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
@@ -165,24 +165,24 @@ fn is_python_keyword(name: &str) -> bool {
     )
 }
 
-impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEPTH> {
+impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // Create with empty args map
         Self::new_with_args(Rc::new(RefCell::new(HashMap::new())))
     }
 
-    /// Create a new PropertyProcessor with a shared args reference
+    /// Create a new EvalContext with a shared args reference
     ///
     /// This constructor is used when args need to be shared with the expander
     /// (for xacro:arg directive processing). The args map is shared via Rc<RefCell<...>>
-    /// to allow both the expander (to define args) and PropertyProcessor (to resolve $(arg))
+    /// to allow both the expander (to define args) and EvalContext (to resolve $(arg))
     /// to access it.
     ///
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        use crate::utils::eval::init_interpreter;
+        use super::interpreter::init_interpreter;
 
         let interpreter = RefCell::new(init_interpreter());
 
@@ -517,7 +517,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use crate::utils::eval::build_pyisheval_context;
+        use super::interpreter::build_pyisheval_context;
 
         // Build pyisheval context
         let context = build_pyisheval_context(properties, &mut self.interpreter.borrow_mut())
@@ -544,7 +544,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
                     )
                     .map_err(|e| XacroError::EvalError {
                         expr: token_value.clone(),
-                        source: crate::utils::eval::EvalError::PyishEval {
+                        source: crate::eval::EvalError::PyishEval {
                             expr: token_value.clone(),
                             source: e,
                         },
@@ -1198,6 +1198,3 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> PropertyProcessor<MAX_SUBSTITUTION_DEP
         refs
     }
 }
-
-#[cfg(test)]
-mod tests;

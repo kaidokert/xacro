@@ -1,7 +1,7 @@
 use crate::{
     error::XacroError,
     expander::{expand_node, XacroContext},
-    utils::xml::{extract_xacro_namespace, is_known_xacro_uri},
+    parse::xml::{extract_xacro_namespace, is_known_xacro_uri},
 };
 use xmltree::XMLNode;
 
@@ -215,7 +215,7 @@ impl XacroProcessor {
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        let doc = crate::utils::document::XacroDocument::parse(content.as_bytes())?;
+        let doc = crate::parse::document::XacroDocument::parse(content.as_bytes())?;
         // Use current directory as base path for any includes in test content
         self.run_impl(doc, std::path::Path::new("."))
     }
@@ -223,7 +223,7 @@ impl XacroProcessor {
     /// Internal implementation
     fn run_impl(
         &self,
-        mut doc: crate::utils::document::XacroDocument,
+        mut doc: crate::parse::document::XacroDocument,
         base_path: &std::path::Path,
     ) -> Result<String, XacroError> {
         // Extract xacro namespace from document root (if present)
@@ -388,5 +388,20 @@ impl XacroProcessor {
         Self::finalize_tree_children(element, xacro_ns, compat_mode)?;
 
         Ok(())
+    }
+
+    /// Parse a xacro document from a file path
+    pub(crate) fn parse_file<P: AsRef<std::path::Path>>(
+        path: P
+    ) -> Result<crate::parse::XacroDocument, XacroError> {
+        let file = std::fs::File::open(path)?;
+        crate::parse::XacroDocument::parse(file)
+    }
+
+    /// Serialize a xacro document to a string
+    pub(crate) fn serialize(doc: &crate::parse::XacroDocument) -> Result<String, XacroError> {
+        let mut writer = Vec::new();
+        doc.write(&mut writer)?;
+        Ok(String::from_utf8(writer)?)
     }
 }

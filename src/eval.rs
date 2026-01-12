@@ -1,8 +1,18 @@
+pub mod interpreter;
+pub mod lexer;
+pub mod scope;
+
+pub use interpreter::*;
+pub use lexer::*;
+pub use scope::*;
+
+// Compatibility alias for existing code
+pub use scope::EvalContext as PropertyProcessor;
 #[cfg(test)]
 mod property_tests {
 
-    use crate::features::properties::HashMap;
-    use crate::features::properties::PropertyProcessor;
+    use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_scope_basic_shadowing() {

@@ -122,7 +122,7 @@ pub fn extract_xacro_namespace(
 /// # Examples
 /// ```
 /// use xmltree::Element;
-/// use xacro::utils::xml::is_xacro_element;
+/// use xacro::parse::is_xacro_element;
 ///
 /// let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 ///     <xacro:if value="true">
