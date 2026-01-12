@@ -489,3 +489,88 @@ fn test_namespace_collision_multiple_elements() {
         "Should preserve interface:audio name attribute"
     );
 }
+
+#[test]
+fn test_namespace_removed_from_output_standard_uri() {
+    // Test that standard xacro namespace URI is removed from output
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="width" value="0.5"/>
+  <link size="${width}"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).unwrap();
+
+    // Verify expansion worked correctly and xmlns:xacro is removed
+    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+
+    // xmlns:xacro should NOT appear in output (check parsed structure)
+    assert!(
+        root.namespaces
+            .as_ref()
+            .map_or(true, |ns| !ns.0.contains_key("xacro")),
+        "xmlns:xacro should be removed from output"
+    );
+
+    let link = root.get_child("link").unwrap();
+    assert_eq!(get_attr(link, "size"), "0.5");
+}
+
+#[test]
+fn test_namespace_removed_from_output_nonstandard_uri() {
+    // Test that non-standard xacro namespace URIs (accepted in compat mode)
+    // are also removed from output
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://playerstage.sourceforge.net/gazebo/xmlschema/#interface"
+       name="test">
+  <xacro:property name="width" value="0.5"/>
+  <link size="${width}"/>
+</robot>"#;
+
+    let compat = "namespace".parse().unwrap();
+    let processor = XacroProcessor::new_with_compat_mode(std::collections::HashMap::new(), compat);
+    let result = processor.run_from_string(input).unwrap();
+
+    // Verify processing worked correctly and xmlns:xacro is removed
+    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+
+    // xmlns:xacro should NOT appear in output (check parsed structure)
+    assert!(
+        root.namespaces
+            .as_ref()
+            .map_or(true, |ns| !ns.0.contains_key("xacro")),
+        "xmlns:xacro should be removed from output"
+    );
+
+    let link = root.get_child("link").unwrap();
+    assert_eq!(get_attr(link, "size"), "0.5");
+}
+
+#[test]
+fn test_namespace_removed_aliased_prefix_standard_uri() {
+    // Test defense-in-depth: non-"xacro" prefixes bound to standard xacro URIs
+    // should also be removed (e.g., xmlns:foo="http://www.ros.org/wiki/xacro")
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:foo="http://www.ros.org/wiki/xacro" name="test">
+  <foo:property name="width" value="0.5"/>
+  <link size="${width}"/>
+</robot>"#;
+
+    let processor = XacroProcessor::new();
+    let result = processor.run_from_string(input).unwrap();
+
+    // Verify expansion worked correctly and xmlns:foo is removed
+    let root = xmltree::Element::parse(result.as_bytes()).unwrap();
+
+    // xmlns:foo should NOT appear in output (defense-in-depth for aliased prefixes)
+    assert!(
+        root.namespaces
+            .as_ref()
+            .map_or(true, |ns| !ns.0.contains_key("foo")),
+        "xmlns:foo (bound to standard xacro URI) should be removed from output"
+    );
+
+    let link = root.get_child("link").unwrap();
+    assert_eq!(get_attr(link, "size"), "0.5");
+}
