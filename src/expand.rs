@@ -102,27 +102,19 @@ impl XacroContext {
             .borrow()
             .last()
             .map(|(_, ns)| ns.clone())
-            .unwrap_or_else(|| "xacro".to_string())
+            .expect("namespace_stack should never be empty - initialized in XacroContext::new()")
     }
 
-    /// Get a block parameter value from the block stack
-    ///
-    /// Searches the block stack from top to bottom for a block with the given name.
-    /// Returns a clone of the block's content (Vec<XMLNode>) if found.
-    ///
-    /// # Errors
-    ///
-    /// Returns `XacroError::UndefinedBlock` if no block with the given name is found.
-    pub fn get_block(
+    /// Look up a named block from the current macro scope
+    /// Returns pre-expanded XMLNodes
+    pub fn lookup_block(
         &self,
         name: &str,
     ) -> Result<Vec<XMLNode>, XacroError> {
         self.block_stack
             .borrow()
-            .iter()
-            .rev()
-            .find_map(|blocks| blocks.get(name))
-            .cloned()
+            .last()
+            .and_then(|blocks| blocks.get(name).cloned())
             .ok_or_else(|| XacroError::UndefinedBlock {
                 name: name.to_string(),
             })

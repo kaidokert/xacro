@@ -510,7 +510,7 @@ fn expand_element(
 
         // 2. Fallback: Check block stack (macro block parameters)
         // This will error with UndefinedBlock if not found
-        let nodes = ctx.get_block(&name)?;
+        let nodes = ctx.lookup_block(&name)?;
         return Ok(nodes);
     }
 
