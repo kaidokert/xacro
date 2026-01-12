@@ -312,7 +312,6 @@ mod tests {
 
     #[test]
     fn test_lexer_double_dollar_edge() {
-        // CRITICAL TEST: This was the reported truncation issue - "$$x"
         let input = "$$x";
         let tokens = lex_all(input);
 

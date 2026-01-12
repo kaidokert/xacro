@@ -1056,7 +1056,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             stack: &self.resolution_stack,
         };
 
-        // CRITICAL: First resolve any $(...) extensions in the raw value
+        // First resolve any $(...) extensions in the raw value
         // This allows property values to contain $(arg ...) references
         // Example: <xacro:property name="size" value="${$(arg scale) * 2}"/>
         let value_with_extensions_resolved = self.substitute_extensions_only(&raw_value)?;

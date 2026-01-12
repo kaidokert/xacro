@@ -3,8 +3,6 @@ use crate::common::*;
 
 /// Test that macro calls can use parameter expressions in their attributes
 ///
-/// This is a critical pattern used in real-world files like ridgeback.urdf.xacro:
-///
 /// ```xml
 /// <xacro:macro name="outer" params="prefix">
 ///   <xacro:inner prefix="${prefix}"/>  <!-- ${prefix} must be evaluated in outer's scope -->

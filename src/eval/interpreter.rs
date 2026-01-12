@@ -639,7 +639,7 @@ pub fn eval_boolean(
     let tokens: Vec<_> = lexer.collect();
 
     // CASE 1: Single ${expr} token → Preserve type, apply truthiness on Value
-    // This is CRITICAL for float truthiness: ${3*0.1} → float 0.3 → true
+    // This is important for float truthiness: ${3*0.1} → float 0.3 → true
     if tokens.len() == 1 && tokens[0].0 == TokenType::Expr {
         let value = interp
             .eval_with_context(&tokens[0].1, &context)

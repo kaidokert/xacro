@@ -1787,8 +1787,7 @@ fn test_if_with_properties() {
 // Dynamic Directive Attribute Tests
 // ============================================================================
 // Tests for ${...} substitution in xacro directive attributes (property name,
-// macro name, include filename, insert_block name). These are critical features
-// used extensively in real-world ROS URDF files.
+// macro name, include filename, insert_block name).
 
 /// Test dynamic property name substitution
 #[test]
