@@ -329,26 +329,28 @@ macro_rules! assert_xacro_attr {
 /// Assert that attribute has expected float value (with tolerance).
 ///
 /// Useful for numeric comparisons that may have floating-point precision differences.
-#[allow(dead_code)]
-pub fn assert_attr_float(
-    elem: &Element,
-    attr: &str,
-    expected: f64,
-    tolerance: f64,
-) {
-    let value_str = get_attr(elem, attr);
-    let value: f64 = value_str.parse().expect(&format!(
-        "Attribute '{}' is not a valid float: '{}'",
-        attr, value_str
-    ));
-    assert!(
-        (value - expected).abs() < tolerance,
-        "Attribute '{}': expected {}, got {} (tolerance: {})",
-        attr,
-        expected,
-        value,
-        tolerance
-    );
+#[macro_export]
+macro_rules! assert_attr_float {
+    ($elem:expr, $attr:expr, $expected:expr, $tolerance:expr) => {{
+        let value_str = $crate::common::get_attr($elem, $attr);
+        let value: f64 = value_str.parse().unwrap_or_else(|_| {
+            panic!(
+                "Attribute '{}' on <{}> is not a valid float: '{}'",
+                $attr,
+                ($elem).name,
+                value_str
+            )
+        });
+        assert!(
+            (value - $expected).abs() < $tolerance,
+            "Attribute '{}' on <{}>: expected {}, got {} (tolerance: {})",
+            $attr,
+            ($elem).name,
+            $expected,
+            value,
+            $tolerance
+        );
+    }};
 }
 
 // =============================================================================

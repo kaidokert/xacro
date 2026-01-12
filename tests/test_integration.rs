@@ -210,7 +210,7 @@ fn test_nested_macro_calls_with_expressions() {
 
     // izz = (1/12) * mass * x*x = (1/12) * 2.0 * 0.5*0.5 = 0.041666...
     let expected_izz = (1.0 / 12.0) * 2.0 * 0.5 * 0.5;
-    assert_attr_float(inertia, "izz", expected_izz, 1e-9);
+    assert_attr_float!(inertia, "izz", expected_izz, 1e-9);
 
     // Verify no unevaluated placeholders remain
     assert_xacro_not_contains!(
