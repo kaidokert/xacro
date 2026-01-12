@@ -1,4 +1,5 @@
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Test that macro parameters containing arrays/lists can be indexed
 ///
@@ -18,7 +19,6 @@ use xacro::XacroProcessor;
 /// ```
 #[test]
 fn test_array_parameter_indexing() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="my_list" value="${[1, 2, 3]}"/>
@@ -32,25 +32,17 @@ fn test_array_parameter_indexing() {
   <xacro:test_macro arr="${my_list}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Array indexing in macro parameters should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<value>1</value>"#),
-        "Array indexing should extract first element, got: {}",
-        output
+    let output = run_xacro_expect(input, "Array indexing in macro parameters should work");
+    assert_xacro_contains!(
+        output,
+        r#"<value>1</value>"#,
+        "Array indexing should extract first element"
     );
 }
 
 /// Test array indexing with multiple elements
 #[test]
 fn test_array_parameter_multiple_indices() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="dimensions" value="${[0.5, 1.2, 0.8]}"/>
@@ -64,25 +56,17 @@ fn test_array_parameter_multiple_indices() {
   <xacro:box size="${dimensions}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Multiple array indices should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"size="0.5 1.2 0.8""#),
-        "Should extract all array elements, got: {}",
-        output
+    let output = run_xacro_expect(input, "Multiple array indices should work");
+    assert_xacro_contains!(
+        output,
+        r#"size="0.5 1.2 0.8""#,
+        "Should extract all array elements"
     );
 }
 
 /// Test that array parameters work with arithmetic expressions
 #[test]
 fn test_array_parameter_with_arithmetic() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="base_dims" value="${[1.0, 2.0, 3.0]}"/>
@@ -96,32 +80,15 @@ fn test_array_parameter_with_arithmetic() {
   <xacro:scaled_box dims="${base_dims}" scale="2"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Array indexing with arithmetic should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"x="2""#),
-        "Should scale first element: 1.0 * 2 = 2"
-    );
-    assert!(
-        output.contains(r#"y="4""#),
-        "Should scale second element: 2.0 * 2 = 4"
-    );
-    assert!(
-        output.contains(r#"z="6""#),
-        "Should scale third element: 3.0 * 2 = 6"
-    );
+    let output = run_xacro_expect(input, "Array indexing with arithmetic should work");
+    assert_xacro_contains!(output, r#"x="2""#, "Should scale first element");
+    assert_xacro_contains!(output, r#"y="4""#, "Should scale second element");
+    assert_xacro_contains!(output, r#"z="6""#, "Should scale third element");
 }
 
 /// Test nested array parameter passing
 #[test]
 fn test_nested_macro_with_array_parameter() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="color_rgb" value="${[1.0, 0.0, 0.5]}"/>
@@ -141,25 +108,17 @@ fn test_nested_macro_with_array_parameter() {
   <xacro:part color="${color_rgb}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Nested macros with array parameters should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"rgba="1.0 0.0 0.5 1.0""#),
-        "Array should pass through nested macro calls, got: {}",
-        output
+    let output = run_xacro_expect(input, "Nested macros with array parameters should work");
+    assert_xacro_contains!(
+        output,
+        r#"rgba="1.0 0.0 0.5 1.0""#,
+        "Should pass array through nested macros"
     );
 }
 
 /// Test that inline array literals work as macro parameters
 #[test]
 fn test_inline_array_literal_parameter() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="positioned_link" params="coords">
@@ -172,18 +131,11 @@ fn test_inline_array_literal_parameter() {
   <xacro:positioned_link coords="${[1.5, 2.0, 3.5]}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Inline array literal as parameter should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"xyz="1.5 2.0 3.5""#),
-        "Should accept inline array literal, got: {}",
-        output
+    let output = run_xacro_expect(input, "Inline array literal as parameter should work");
+    assert_xacro_contains!(
+        output,
+        r#"xyz="1.5 2.0 3.5""#,
+        "Should extract elements from inline array"
     );
 }
 
@@ -193,7 +145,6 @@ fn test_inline_array_literal_parameter() {
 /// are packed together: [width, height, depth, mass]
 #[test]
 fn test_real_world_packed_array_parameter() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Pack related values together -->
@@ -216,16 +167,10 @@ fn test_real_world_packed_array_parameter() {
   <xacro:cuboid xyzm="${torso_xyzm}"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Real-world packed array pattern should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"size="0.067 0.023 0.128""#),
+    let output = run_xacro_expect(input, "Real-world packed array pattern should work");
+    assert_xacro_contains!(
+        output,
+        r#"size="0.067 0.023 0.128""#,
         "Should extract dimensions from array"
     );
     // Note: 0.778 * 0.2 = 0.15560000000000002 due to floating point precision
@@ -246,7 +191,6 @@ fn test_real_world_packed_array_parameter() {
 /// issue where commas are treated as parameter separators. This is a separate bug.
 #[test]
 fn test_array_parameter_indexing_with_default() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Define array as property -->
@@ -265,24 +209,20 @@ fn test_array_parameter_indexing_with_default() {
   <xacro:test_macro/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Default array parameter should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<value>4</value>"#),
+    let output = run_xacro_expect(input, "Default array parameter should work");
+    assert_xacro_contains!(
+        output,
+        r#"<value>4</value>"#,
         "Should extract first element from default array"
     );
-    assert!(
-        output.contains(r#"<value>5</value>"#),
+    assert_xacro_contains!(
+        output,
+        r#"<value>5</value>"#,
         "Should extract second element from default array"
     );
-    assert!(
-        output.contains(r#"<value>6</value>"#),
+    assert_xacro_contains!(
+        output,
+        r#"<value>6</value>"#,
         "Should extract third element from default array"
     );
 }
@@ -294,7 +234,6 @@ fn test_array_parameter_indexing_with_default() {
 /// fallback path in build_pyisheval_context.
 #[test]
 fn test_non_evaluable_strings_remain_strings() {
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- These look like they might be Python but are just strings -->
@@ -313,26 +252,21 @@ fn test_non_evaluable_strings_remain_strings() {
   <xacro:test name="test"/>
 </robot>"#;
 
-    let result = processor.run_from_string(input);
-    assert!(
-        result.is_ok(),
-        "Non-evaluable strings should work: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-
+    let output = run_xacro_expect(input, "Non-evaluable strings should work");
     // Verify strings are preserved as-is, not mis-evaluated
-    assert!(
-        output.contains(r#"<file>[not-a-list]</file>"#),
-        "Bracket-containing string should remain as string"
+    assert_xacro_contains!(
+        output,
+        r#"<file>[not-a-list]</file>"#,
+        "Should preserve non-array string"
     );
-    assert!(
-        output.contains(r#"<path>foo[0]</path>"#),
-        "Indexing-like string should remain as string"
+    assert_xacro_contains!(
+        output,
+        r#"<path>foo[0]</path>"#,
+        "Should preserve non-expression string"
     );
-    assert!(
-        output.contains(r#"<text>hello world</text>"#),
-        "Plain string should remain as string"
+    assert_xacro_contains!(
+        output,
+        r#"<text>hello world</text>"#,
+        "Should preserve plain text"
     );
 }

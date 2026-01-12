@@ -7,7 +7,8 @@
 //
 // We must match this behavior exactly.
 
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 // ============================================================================
 // Case 1: Glob Pattern with No Matches (warn, continue)
@@ -22,19 +23,13 @@ fn test_include_glob_pattern_no_matches_asterisk() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should succeed (warn but continue)
-    assert!(
-        result.is_ok(),
-        "Glob pattern with no matches should warn but continue, got error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Glob pattern with no matches should warn but continue",
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="base""#),
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
         "Should process rest of file after glob warning"
     );
 }
@@ -48,19 +43,13 @@ fn test_include_glob_pattern_no_matches_bracket() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should succeed (warn but continue)
-    assert!(
-        result.is_ok(),
-        "Template placeholder [URDF_LOCATION] should be treated as glob pattern and warn but continue, got error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Template placeholder [URDF_LOCATION] should be treated as glob pattern and warn but continue"
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="base""#),
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
         "Should process rest of file after glob warning"
     );
 }
@@ -74,19 +63,10 @@ fn test_include_glob_pattern_no_matches_question() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should succeed (warn but continue)
-    assert!(
-        result.is_ok(),
-        "Glob pattern with ? should warn but continue, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="base""#),
+    let output = run_xacro_expect(input, "Glob pattern with ? should warn but continue");
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
         "Should process rest of file after glob warning"
     );
 }
@@ -104,20 +84,11 @@ fn test_include_optional_missing_file() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should succeed (silent skip, no error, no warning)
-    assert!(
-        result.is_ok(),
-        "Optional include should silently skip, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="base""#),
-        "Should process rest of file after optional include skip"
+    let output = run_xacro_expect(input, "Optional include should silently skip");
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
+        "Should process rest of file after silent skip"
     );
 }
 
@@ -130,10 +101,7 @@ fn test_include_optional_false_missing_file() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should error (optional="false" means NOT optional)
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "optional=\"false\" with missing file should error"
@@ -159,10 +127,7 @@ fn test_include_regular_missing_file() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should error
+    let result = test_xacro(input);
     assert!(result.is_err(), "Regular missing file should error");
 
     let error = result.unwrap_err().to_string();
@@ -186,20 +151,11 @@ fn test_include_optional_glob_both_attributes() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Should succeed (silent skip due to optional="true")
-    assert!(
-        result.is_ok(),
-        "Optional glob with no matches should silently skip, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="base""#),
-        "Should process rest of file"
+    let output = run_xacro_expect(input, "Optional glob with no matches should silently skip");
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
+        "Should process rest of file after silent skip"
     );
 }
 
@@ -235,24 +191,16 @@ fn test_include_glob_with_actual_matches() {
         glob_pattern.display()
     );
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(&input);
-
-    // Should succeed and include the matched file
-    assert!(
-        result.is_ok(),
-        "Glob with matches should succeed, got error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"<link name="included_link""#),
+    let output = run_xacro_expect(&input, "Glob with matches should succeed");
+    assert_xacro_contains!(
+        output,
+        r#"<link name="included_link""#,
         "Should include content from matched file"
     );
-    assert!(
-        output.contains(r#"<link name="base""#),
-        "Should also include base content"
+    assert_xacro_contains!(
+        output,
+        r#"<link name="base""#,
+        "Should include main file content"
     );
     // temp_file automatically cleaned up when dropped
 }
@@ -274,19 +222,13 @@ fn test_python_xacro_compatibility_template_placeholder() {
 [MODIFIED_XACRO_COMMANDS]
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    // Must succeed to match Python xacro behavior
-    assert!(
-        result.is_ok(),
-        "Template with [URDF_LOCATION] must succeed like Python xacro, got error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Template with [URDF_LOCATION] must succeed like Python xacro",
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains("[ROBOT_NAME]"),
+    assert_xacro_contains!(
+        output,
+        "[ROBOT_NAME]",
         "Should preserve template placeholders in output"
     );
 }

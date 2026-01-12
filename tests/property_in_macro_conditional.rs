@@ -1,4 +1,5 @@
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Test property defined inside macro body, used in conditional
 ///
@@ -21,20 +22,14 @@ fn test_property_inside_macro_used_in_conditional() {
   <xacro:arm prefix="left"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Property inside macro should be available in conditional. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Property inside macro should be available in conditional",
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="left_link""#),
-        "Expected link name='left_link' in output:\n{}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"name="left_link""#,
+        "Expected link name='left_link' in output"
     );
 }
 
@@ -51,20 +46,11 @@ fn test_property_inside_macro_simple() {
   <xacro:test prefix="my"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Property inside macro should work. Error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="my_link""#),
-        "Expected link name='my_link' in output:\n{}",
-        output
+    let output = run_xacro_expect(input, "Property inside macro should work");
+    assert_xacro_contains!(
+        output,
+        r#"name="my_link""#,
+        "Expected link name='my_link' in output"
     );
 }
 
@@ -89,27 +75,11 @@ fn test_xurdf_sample_property_in_macro() {
   <xacro:arm prefix="right" reflect="-1" parent="torso" />
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "xurdf sample should process without error. Error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
-    // Check both macro expansions worked
-    assert!(output.contains(r#"prefix="left""#), "Missing left arm");
-    assert!(output.contains(r#"prefix="right""#), "Missing right arm");
-    assert!(
-        output.contains(r#"parent="left_elbow""#),
-        "Missing left_elbow"
-    );
-    assert!(
-        output.contains(r#"parent="right_elbow""#),
-        "Missing right_elbow"
-    );
+    let output = run_xacro_expect(input, "xurdf sample should process without error");
+    assert_xacro_contains!(output, r#"prefix="left""#, "Missing left arm");
+    assert_xacro_contains!(output, r#"prefix="right""#, "Missing right arm");
+    assert_xacro_contains!(output, r#"parent="left_elbow""#, "Missing left_elbow");
+    assert_xacro_contains!(output, r#"parent="right_elbow""#, "Missing right_elbow");
 }
 
 /// Test property defined inside macro body, used in conditional with non-standard prefix
@@ -134,29 +104,23 @@ fn test_property_inside_macro_used_in_conditional_with_alias_prefix() {
   <foo:arm prefix="left"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Property inside macro should be available in conditional with alias prefix. Error: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        input,
+        "Property inside macro should be available in conditional with alias prefix",
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="left_link""#),
-        "Expected link name='left_link' in output:\n{}",
-        output
+    assert_xacro_contains!(
+        output,
+        r#"name="left_link""#,
+        "Expected link name='left_link' in output"
     );
-
-    // Verify alias prefix is removed from output
-    assert!(
-        !output.contains("xmlns:foo"),
+    assert_xacro_not_contains!(
+        output,
+        "xmlns:foo",
         "Alias xacro prefix should be removed from output"
     );
-    assert!(
-        !output.contains("foo:"),
+    assert_xacro_not_contains!(
+        output,
+        "foo:",
         "No foo: prefixed elements should remain in output"
     );
 }

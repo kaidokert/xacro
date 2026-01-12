@@ -3,13 +3,8 @@
 // Lazy properties store XML content and expand it at insertion time,
 // with expressions evaluated using the insertion scope.
 
-use xacro::XacroProcessor;
-
-/// Helper to process xacro input and return the output
-fn process_xacro(input: &str) -> Result<String, xacro::XacroError> {
-    let processor = XacroProcessor::new();
-    processor.run_from_string(input)
-}
+mod common;
+use crate::common::*;
 
 /// Helper to normalize XML for comparison (remove extra whitespace)
 fn normalize(xml: &str) -> String {
@@ -34,15 +29,17 @@ fn test_lazy_property_basic() {
   <xacro:insert_block name="block1"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="test_link""#),
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="test_link""#,
         "Should insert the link element from lazy property"
     );
-    assert!(
-        !normalized.contains("xacro:property"),
+    assert_xacro_not_contains!(
+        normalized,
+        "xacro:property",
         "Should not contain xacro:property directive"
     );
 }
@@ -63,17 +60,15 @@ fn test_lazy_property_insertion_time_eval() {
   <xacro:insert_block name="block1"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="link_10""#),
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="link_10""#,
         "Should use x=10 (insertion time value), not x=5 (definition time value)"
     );
-    assert!(
-        !normalized.contains("link_5"),
-        "Should NOT use definition-time value"
-    );
+    assert_xacro_not_contains!(normalized, "link_5", "Should NOT use definition-time value");
 }
 
 // ============================================================================
@@ -95,11 +90,12 @@ fn test_lazy_property_insertion_scope() {
   <xacro:use_block x="5"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="link_5""#),
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="link_5""#,
         "Should use macro parameter x=5 (insertion scope)"
     );
 }
@@ -121,15 +117,17 @@ fn test_lazy_property_nested_directives() {
   <xacro:insert_block name="block1"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="conditional_link""#),
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="conditional_link""#,
         "Should expand nested xacro:if and include the link"
     );
-    assert!(
-        !normalized.contains("xacro:if"),
+    assert_xacro_not_contains!(
+        normalized,
+        "xacro:if",
         "Should NOT contain xacro:if directive in output"
     );
 }
@@ -155,17 +153,15 @@ fn test_lazy_property_precedence_over_block_param() {
   </xacro:test_macro>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="from_property""#),
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="from_property""#,
         "Should use property (properties have precedence)"
     );
-    assert!(
-        !normalized.contains("from_param"),
-        "Should NOT use block parameter"
-    );
+    assert_xacro_not_contains!(normalized, "from_param", "Should NOT use block parameter");
 }
 
 // ============================================================================
@@ -182,10 +178,9 @@ fn test_lazy_property_empty_valid() {
   </test>
 </robot>"#;
 
-    let result = process_xacro(input);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(result.is_ok(), "Empty property should not error");
-    let normalized = normalize(&result.unwrap());
     assert!(
         normalized.contains("<test")
             && (normalized.contains("</test>") || normalized.contains("<test/>")),
@@ -207,13 +202,13 @@ fn test_lazy_property_empty_valid() {
 
 #[test]
 fn test_lazy_property_text_only_not_created() {
-    let input = r#"<?xml version="1.0"?>
+    let result = test_xacro(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="greeting">Hello</xacro:property>
   <link name="${greeting}"/>
-</robot>"#;
-
-    let result = process_xacro(input);
+</robot>"#,
+    );
 
     assert!(
         result.is_err(),
@@ -237,18 +232,10 @@ fn test_lazy_property_mixed_content() {
   <xacro:insert_block name="mixed"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-
-    // Verify all mixed content is preserved
-    assert!(
-        result.contains("Start"),
-        "Should preserve text before element"
-    );
-    assert!(
-        result.contains("<middle"),
-        "Should contain the middle element"
-    );
-    assert!(result.contains("End"), "Should preserve text after element");
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, "Start", "Should preserve text before element");
+    assert_xacro_contains!(output, "<middle", "Should contain the middle element");
+    assert_xacro_contains!(output, "End", "Should preserve text after element");
 }
 
 // ============================================================================
@@ -266,10 +253,9 @@ fn test_lazy_property_namespace_preservation() {
   <xacro:insert_block name="namespaced_block"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-
+    let output = run_xacro(input);
     assert!(
-        result.contains("custom:element") || result.contains("custom:"),
+        output.contains("custom:element") || output.contains("custom:"),
         "Should preserve custom namespace prefix"
     );
     // Note: Namespace declaration might be moved to root, which is valid XML
@@ -291,16 +277,9 @@ fn test_lazy_property_comments_preserved() {
   <xacro:insert_block name="with_comment"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-
-    assert!(
-        result.contains("<!-- Comment before -->"),
-        "Should preserve comment before element"
-    );
-    assert!(
-        result.contains("<!-- Comment after -->"),
-        "Should preserve comment after element"
-    );
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, "<!-- Comment before -->");
+    assert_xacro_contains!(output, "<!-- Comment after -->");
 }
 
 // ============================================================================
@@ -319,14 +298,15 @@ fn test_lazy_property_cdata_and_pi_preserved() {
   <xacro:insert_block name="block1"/>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-
-    assert!(
-        result.contains("some <raw> content"),
+    let output = run_xacro(input);
+    assert_xacro_contains!(
+        output,
+        "some <raw> content",
         "Should preserve CDATA content"
     );
-    assert!(
-        result.contains("<?proc instruction?>"),
+    assert_xacro_contains!(
+        output,
+        "<?proc instruction?>",
         "Should preserve processing instruction"
     );
 }
@@ -348,12 +328,8 @@ fn test_lazy_property_comment_only_valid() {
   </test>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-
-    assert!(
-        result.contains("<!-- this is a comment-only lazy property -->"),
-        "Comment-only lazy property should be preserved"
-    );
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, "<!-- this is a comment-only lazy property -->");
 }
 
 // ============================================================================
@@ -376,15 +352,17 @@ fn test_lazy_property_local_precedence() {
   </xacro:test_local>
 </robot>"#;
 
-    let result = process_xacro(input).unwrap();
-    let normalized = normalize(&result);
+    let output = run_xacro(input);
+    let normalized = normalize(&output);
 
-    assert!(
-        normalized.contains(r#"<link name="from_local_property""#),
-        "Should use local property (properties have precedence even locally)"
+    assert_xacro_contains!(
+        normalized,
+        r#"<link name="from_local_property""#,
+        "Should use local property (local properties have precedence)"
     );
-    assert!(
-        !normalized.contains("from_block_param"),
+    assert_xacro_not_contains!(
+        normalized,
+        "from_block_param",
         "Should NOT use block parameter"
     );
 }

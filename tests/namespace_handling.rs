@@ -1,4 +1,6 @@
-use xacro::{XacroError, XacroProcessor};
+mod common;
+use crate::common::*;
+use xacro::XacroError;
 
 #[test]
 fn test_xacro_namespace_removed() {
@@ -14,14 +16,10 @@ fn test_xacro_namespace_removed() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Should not contain xmlns:xacro anywhere
-    assert!(
-        !output.contains("xmlns:xacro"),
-        "Output should not contain xmlns:xacro"
-    );
+    assert_xacro_not_contains!(output, "xmlns:xacro");
 
     // Should be valid XML
     let parsed = xmltree::Element::parse(output.as_bytes());
@@ -54,34 +52,18 @@ fn test_other_namespaces_preserved() {
   </ignition:plugin>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // xacro namespace should be removed
-    assert!(
-        !output.contains("xmlns:xacro"),
-        "xacro namespace should be removed"
-    );
+    assert_xacro_not_contains!(output, "xmlns:xacro");
 
     // Other namespaces should be preserved
-    assert!(
-        output.contains("xmlns:gazebo"),
-        "gazebo namespace should be preserved"
-    );
-    assert!(
-        output.contains("xmlns:ignition"),
-        "ignition namespace should be preserved"
-    );
+    assert_xacro_contains!(output, "xmlns:gazebo");
+    assert_xacro_contains!(output, "xmlns:ignition");
 
     // Elements using those namespaces should be present
-    assert!(
-        output.contains("<gazebo"),
-        "gazebo element should be present"
-    );
-    assert!(
-        output.contains("ignition:plugin"),
-        "ignition:plugin should be present"
-    );
+    assert_xacro_contains!(output, "<gazebo");
+    assert_xacro_contains!(output, "ignition:plugin");
 
     // Should be valid XML
     let parsed = xmltree::Element::parse(output.as_bytes());
@@ -101,24 +83,10 @@ fn test_unimplemented_feature_detection_arg() {
   <link name="base_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "xacro:arg should now work (implemented in Phase 5)"
-    );
-
-    let output = result.unwrap();
+    let output = run_xacro(input);
     // Should have processed successfully and xacro:arg should be removed from output
-    assert!(
-        !output.contains("xacro:arg"),
-        "xacro:arg directive should be consumed"
-    );
-    assert!(
-        output.contains("base_link"),
-        "Output should contain the actual link"
-    );
+    assert_xacro_not_contains!(output, "xacro:arg");
+    assert_xacro_contains!(output, "base_link");
 }
 
 #[test]
@@ -128,9 +96,7 @@ fn test_unimplemented_feature_detection_element() {
   <xacro:element xacro:name="link" name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should error on unimplemented xacro:element"
@@ -151,9 +117,7 @@ fn test_unimplemented_feature_detection_attribute() {
   <link name="base_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should error on unimplemented xacro:attribute"
@@ -181,8 +145,7 @@ fn test_no_invalid_xml_from_unprocessed_elements() {
   <link name="base_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should error, not produce invalid XML
     assert!(result.is_err(), "Should error on unknown xacro element");
@@ -217,29 +180,19 @@ fn test_implemented_features_work_without_macros() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Should process successfully
-    assert!(output.contains("my_link"), "Link should be present");
-    assert!(
-        output.contains("conditional_link"),
-        "Conditional should be processed"
-    );
-    assert!(output.contains("0.5"), "Property should be substituted");
+    assert_xacro_contains!(output, "my_link");
+    assert_xacro_contains!(output, "conditional_link");
+    assert_xacro_contains!(output, "0.5");
 
     // xacro namespace should be removed
-    assert!(
-        !output.contains("xmlns:xacro"),
-        "xacro namespace should be removed"
-    );
+    assert_xacro_not_contains!(output, "xmlns:xacro");
 
     // No xacro:* elements should remain
-    assert!(
-        !output.contains("xacro:property"),
-        "xacro:property should be removed"
-    );
-    assert!(!output.contains("xacro:if"), "xacro:if should be removed");
+    assert_xacro_not_contains!(output, "xacro:property");
+    assert_xacro_not_contains!(output, "xacro:if");
 
     // Verify output is valid XML (consistent with other tests)
     let parsed = xmltree::Element::parse(output.as_bytes());
@@ -276,44 +229,22 @@ fn test_implemented_features_work_with_macros() {
   </gazebo>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Should process successfully with macros
-    assert!(
-        output.contains(r#"name="macro_link""#),
-        "Macro should expand with name parameter"
-    );
-    assert!(
-        output.contains(r#"0.5 0.5 0.5"#),
-        "Macro should expand with size parameter (using global property)"
-    );
+    assert_xacro_contains!(output, r#"name="macro_link""#);
+    assert_xacro_contains!(output, r#"0.5 0.5 0.5"#);
 
     // xacro namespace should be removed
-    assert!(
-        !output.contains("xmlns:xacro"),
-        "xacro namespace should be removed"
-    );
+    assert_xacro_not_contains!(output, "xmlns:xacro");
 
     // Other namespaces should be preserved
-    assert!(
-        output.contains("xmlns:gazebo"),
-        "gazebo namespace should be preserved"
-    );
+    assert_xacro_contains!(output, "xmlns:gazebo");
 
     // No xacro:* elements should remain
-    assert!(
-        !output.contains("xacro:property"),
-        "xacro:property should be removed"
-    );
-    assert!(
-        !output.contains("xacro:macro"),
-        "xacro:macro should be removed"
-    );
-    assert!(
-        !output.contains("xacro:box_link"),
-        "xacro:box_link should be removed"
-    );
+    assert_xacro_not_contains!(output, "xacro:property");
+    assert_xacro_not_contains!(output, "xacro:macro");
+    assert_xacro_not_contains!(output, "xacro:box_link");
 
     // Verify output is valid XML
     let parsed = xmltree::Element::parse(output.as_bytes());
@@ -341,12 +272,11 @@ fn test_nonstandard_prefix_with_known_uri() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Should process successfully
-    assert!(output.contains(r#"name="base""#), "Link should be present");
-    assert!(output.contains("2 3 1"), "Properties should be substituted");
+    assert_xacro_contains!(output, r#"name="base""#);
+    assert_xacro_contains!(output, "2 3 1");
 
     // The xmlns:foo should be removed since we detected it's a xacro namespace
     assert!(
@@ -356,10 +286,7 @@ fn test_nonstandard_prefix_with_known_uri() {
     );
 
     // No foo:property elements should remain
-    assert!(
-        !output.contains("foo:property"),
-        "foo:property should be removed"
-    );
+    assert_xacro_not_contains!(output, "foo:property");
 
     // Verify output is valid XML
     let parsed = xmltree::Element::parse(output.as_bytes());
@@ -384,23 +311,9 @@ fn test_plain_urdf_without_xacro_namespace() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Plain URDF without xacro namespace should process successfully (backward compatible)"
-    );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains(r#"name="base_link""#),
-        "Link should be present"
-    );
-    assert!(
-        output.contains(r#"<box size="1 1 1""#),
-        "Geometry should be preserved"
-    );
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, r#"name="base_link""#);
+    assert_xacro_contains!(output, r#"<box size="1 1 1""#);
 }
 
 #[test]
@@ -412,9 +325,7 @@ fn test_xacro_element_without_namespace_declaration_fails() {
   <link name="base_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(
         result.is_err(),
         "Should fail when xacro elements are used without namespace declaration"
@@ -440,8 +351,7 @@ fn test_invalid_xacro_namespace_uri_with_typo() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
 
     // Should fail - the URI has a typo ("xacr" instead of "xacro")
     assert!(
@@ -465,7 +375,7 @@ fn test_include_different_namespace_prefix() {
     use std::fs;
     use tempfile::TempDir;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("Should create temp directory");
     let temp_path = temp_dir.path();
 
     // Create included file with different namespace prefix (xmlns:x instead of xmlns:xacro)
@@ -478,7 +388,7 @@ fn test_include_different_namespace_prefix() {
 </part>"#;
 
     let included_path = temp_path.join("included.xacro");
-    fs::write(&included_path, included_content).unwrap();
+    fs::write(&included_path, included_content).expect("Should write included file");
 
     // Root file with standard xmlns:xacro prefix
     let root_content = format!(
@@ -493,26 +403,14 @@ fn test_include_different_namespace_prefix() {
         included_path.display()
     );
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(&root_content);
-
-    assert!(
-        result.is_ok(),
-        "Should handle included file with different namespace prefix: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        &root_content,
+        "Should handle included file with different namespace prefix",
     );
-
-    let output = result.unwrap();
     // Verify property from included file was evaluated
-    assert!(
-        output.contains("from_include"),
-        "Property from included file should be evaluated"
-    );
+    assert_xacro_contains!(output, "from_include");
     // Verify property from root file still works
-    assert!(
-        output.contains("from_root"),
-        "Property from root file should be evaluated"
-    );
+    assert_xacro_contains!(output, "from_root");
 }
 
 #[test]
@@ -520,7 +418,7 @@ fn test_include_different_xacro_uri() {
     use std::fs;
     use tempfile::TempDir;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("Should create temp directory");
     let temp_path = temp_dir.path();
 
     // Create included file with different but valid xacro URI
@@ -530,7 +428,7 @@ fn test_include_different_xacro_uri() {
 </part>"#;
 
     let included_path = temp_path.join("different_uri.xacro");
-    fs::write(&included_path, included_content).unwrap();
+    fs::write(&included_path, included_content).expect("Should write included file");
 
     // Root file with standard URI
     let root_content = format!(
@@ -542,20 +440,11 @@ fn test_include_different_xacro_uri() {
         included_path.display()
     );
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(&root_content);
-
-    assert!(
-        result.is_ok(),
-        "Should handle included file with different valid xacro URI: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        &root_content,
+        "Should handle included file with different valid xacro URI",
     );
-
-    let output = result.unwrap();
-    assert!(
-        output.contains("different_uri"),
-        "Property from file with different URI should be evaluated"
-    );
+    assert_xacro_contains!(output, "different_uri");
 }
 
 #[test]
@@ -563,7 +452,7 @@ fn test_nested_includes_namespace_isolation() {
     use std::fs;
     use tempfile::TempDir;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new().expect("Should create temp directory");
     let temp_path = temp_dir.path();
 
     // Create first included file with prefix "x"
@@ -573,7 +462,7 @@ fn test_nested_includes_namespace_isolation() {
   <link name="link_a" value="${from_a}"/>
 </part_a>"#;
     let include_a_path = temp_path.join("include_a.xacro");
-    fs::write(&include_a_path, include_a_content).unwrap();
+    fs::write(&include_a_path, include_a_content).expect("Should write include_a file");
 
     // Create second included file with prefix "y"
     let include_b_content = r#"<?xml version="1.0"?>
@@ -582,7 +471,7 @@ fn test_nested_includes_namespace_isolation() {
   <link name="link_b" value="${from_b}"/>
 </part_b>"#;
     let include_b_path = temp_path.join("include_b.xacro");
-    fs::write(&include_b_path, include_b_content).unwrap();
+    fs::write(&include_b_path, include_b_content).expect("Should write include_b file");
 
     // Root file includes both
     let root_content = format!(
@@ -597,29 +486,14 @@ fn test_nested_includes_namespace_isolation() {
         include_b_path.display()
     );
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(&root_content);
-
-    assert!(
-        result.is_ok(),
-        "Should handle nested includes with different namespace prefixes: {:?}",
-        result.err()
+    let output = run_xacro_expect(
+        &root_content,
+        "Should handle nested includes with different namespace prefixes",
     );
-
-    let output = result.unwrap();
     // Verify all three properties were evaluated correctly
-    assert!(
-        output.contains("value_a"),
-        "Property from include A should be evaluated"
-    );
-    assert!(
-        output.contains("value_b"),
-        "Property from include B should be evaluated"
-    );
-    assert!(
-        output.contains("value_root"),
-        "Property from root should be evaluated"
-    );
+    assert_xacro_contains!(output, "value_a");
+    assert_xacro_contains!(output, "value_b");
+    assert_xacro_contains!(output, "value_root");
 }
 
 #[test]
@@ -641,8 +515,7 @@ fn test_custom_namespace_attribute_prefix_preserved() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Should preserve the tesseract: prefix on the attribute
     assert!(
@@ -664,14 +537,8 @@ fn test_custom_namespace_attribute_prefix_preserved() {
     );
 
     // Should NOT have xacro namespace (it should be removed)
-    assert!(
-        !output.contains("xmlns:xacro"),
-        "xacro namespace should be removed from output"
-    );
+    assert_xacro_not_contains!(output, "xmlns:xacro");
 
     // Property substitution should still work
-    assert!(
-        output.contains("0.5 0.5 0.5"),
-        "Property substitution should work"
-    );
+    assert_xacro_contains!(output, "0.5 0.5 0.5");
 }

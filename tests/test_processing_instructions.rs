@@ -5,7 +5,8 @@
 //! - Preserves comments outside root element
 //! - Only processes xacro-namespaced elements
 
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Category 1: Corpus Reality Tests - Actual patterns from corpus
 
@@ -18,18 +19,17 @@ fn test_xml_model_single_line() {
   <name>test_package</name>
 </package>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Must preserve xml-model PI
-    assert!(
-        output.contains(r#"<?xml-model href="http://download.ros.org/schema/package_format3.xsd"#),
-        "xml-model PI must be preserved, got:\n{}",
-        output
+    let output = run_xacro(input);
+    assert_xacro_contains!(
+        output,
+        r#"<?xml-model href="http://download.ros.org/schema/package_format3.xsd"#,
+        "xml-model PI must be preserved"
     );
-
-    // Content must be unchanged
-    assert!(output.contains(r#"<name>test_package</name>"#));
+    assert_xacro_contains!(
+        output,
+        r#"<name>test_package</name>"#,
+        "Content must be unchanged"
+    );
 }
 
 /// Test 1.2: Multi-line xml-model PI (~5 files in corpus)
@@ -43,9 +43,7 @@ fn test_xml_model_multi_line() {
   <name>test</name>
 </package>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // PI should be preserved (may be reformatted to single line by xmltree)
     assert!(
         output.contains(r#"<?xml-model"#) && output.contains(r#"package_format2.xsd"#),
@@ -63,12 +61,13 @@ fn test_no_processing_instructions() {
   <link name="link_${x}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Should work exactly as before
-    assert!(output.contains(r#"<link name="link_1"/>"#));
-    assert!(!output.contains("xacro:property")); // Xacro processed
+    let output = run_xacro(input);
+    assert_xacro_contains!(
+        output,
+        r#"<link name="link_1"/>"#,
+        "Should work exactly as before"
+    );
+    assert_xacro_not_contains!(output, "xacro:property", "Xacro should be processed");
 }
 
 /// Test 1.4: xml-model + xacro expansion
@@ -81,17 +80,18 @@ fn test_xml_model_with_xacro_expansion() {
   <name>${pkg_name}</name>
 </package>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Both PI preservation AND xacro expansion
-    assert!(
-        output.contains(r#"<?xml-model"#),
-        "PI should be preserved, got:\n{}",
-        output
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, r#"<?xml-model"#, "PI should be preserved");
+    assert_xacro_contains!(
+        output,
+        r#"<name>test_pkg</name>"#,
+        "Xacro expansion should work"
     );
-    assert!(output.contains(r#"<name>test_pkg</name>"#));
-    assert!(!output.contains("xacro:property")); // Should be processed
+    assert_xacro_not_contains!(
+        output,
+        "xacro:property",
+        "xacro:property should be processed"
+    );
 }
 
 /// Test 1.5: Comments outside root (Python xacro preserves)
@@ -103,14 +103,11 @@ fn test_comment_outside_root_preserved() {
   <name>test</name>
 </package>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Python xacro preserves user comments outside root
-    assert!(
-        output.contains("<!-- User comment about this package -->"),
-        "User comments outside root should be preserved, got:\n{}",
-        output
+    let output = run_xacro(input);
+    assert_xacro_contains!(
+        output,
+        "<!-- User comment about this package -->",
+        "User comments outside root should be preserved"
     );
 }
 
@@ -124,22 +121,21 @@ fn test_multiple_processing_instructions() {
 <?xml-model href="schema.xsd"?>
 <robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Both should be preserved in order
-    assert!(
-        output.contains(r#"<?xml-stylesheet"#),
+    let output = run_xacro(input);
+    assert_xacro_contains!(
+        output,
+        r#"<?xml-stylesheet"#,
         "xml-stylesheet PI should be preserved"
     );
-    assert!(
-        output.contains(r#"<?xml-model"#),
-        "xml-model PI should be preserved"
-    );
+    assert_xacro_contains!(output, r#"<?xml-model"#, "xml-model PI should be preserved");
 
     // Verify order (stylesheet appears before xml-model)
-    let stylesheet_pos = output.find("<?xml-stylesheet").unwrap();
-    let model_pos = output.find("<?xml-model").unwrap();
+    let stylesheet_pos = output
+        .find("<?xml-stylesheet")
+        .expect("xml-stylesheet PI should be preserved");
+    let model_pos = output
+        .find("<?xml-model")
+        .expect("xml-model PI should be preserved");
     assert!(stylesheet_pos < model_pos, "PI order must be preserved");
 }
 
@@ -152,8 +148,7 @@ fn test_pi_and_comment_ordering() {
 <!-- Second comment -->
 <robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Find positions
     let comment1_pos = output
@@ -176,14 +171,8 @@ fn test_processing_instruction_no_data() {
 <?target?>
 <robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Should preserve PI even without data
-    assert!(
-        output.contains(r#"<?target?>"#),
-        "Empty PI should be preserved"
-    );
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, r#"<?target?>"#);
 }
 
 /// Test 2.4: PI inside root element (should work, already handled by xmltree)
@@ -195,14 +184,8 @@ fn test_processing_instruction_inside_root() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // PI inside root should be preserved by xmltree
-    assert!(
-        output.contains(r#"<?processing-inside data="yes"?>"#),
-        "PI inside root should be preserved"
-    );
+    let output = run_xacro(input);
+    assert_xacro_contains!(output, r#"<?processing-inside data="yes"?>"#);
 }
 
 /// Category 3: Serialization Tests - Verify output format
@@ -213,10 +196,7 @@ fn test_xml_declaration_present() {
     let input = r#"<?xml version="1.0"?>
 <robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
-    // Should start with XML declaration
+    let output = run_xacro(input);
     assert!(
         output.trim_start().starts_with(r#"<?xml version="1.0""#),
         "Output should start with XML declaration"
@@ -228,9 +208,7 @@ fn test_xml_declaration_present() {
 fn test_xml_declaration_added_when_missing() {
     let input = r#"<robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     assert!(
         output.trim_start().starts_with(r#"<?xml version="1.0""#),
         "Output should start with XML declaration even when input omits it"
@@ -244,8 +222,7 @@ fn test_preamble_position() {
 <?xml-model href="schema.xsd"?>
 <robot name="test"/>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // Find positions
     let decl_pos = output

@@ -3,17 +3,12 @@
 /// These tests verify the critical distinction between:
 /// - *param (regular block): inserts element itself (wrapper + children)
 /// - **param (lazy block): inserts children only (strips wrapper)
-use xacro::XacroProcessor;
-use xmltree::Element;
-
-fn parse_result(xml: &str) -> Element {
-    Element::parse(xml.as_bytes()).expect("Should parse valid XML")
-}
+mod common;
+use crate::common::*;
 
 #[test]
 fn test_single_star_preserves_wrapper() {
     // *param should insert the element itself (wrapper + children)
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="single_star" params="*blk">
@@ -25,13 +20,11 @@ fn test_single_star_preserves_wrapper() {
   </xacro:single_star>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out> element");
-    let wrapper = out
-        .get_child("wrapper")
-        .expect("Should have <wrapper> child (preserved by *param)");
+    let out = find_child(&root, "out");
+    let wrapper = find_child(out, "wrapper");
     assert_eq!(
         wrapper.get_text().as_deref(),
         Some("content"),
@@ -42,7 +35,6 @@ fn test_single_star_preserves_wrapper() {
 #[test]
 fn test_double_star_strips_wrapper() {
     // **param should insert only children (strip wrapper)
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="double_star" params="**blk">
@@ -54,10 +46,10 @@ fn test_double_star_strips_wrapper() {
   </xacro:double_star>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out> element");
+    let out = find_child(&root, "out");
 
     // Should NOT have wrapper element (stripped by **param)
     assert!(
@@ -76,7 +68,6 @@ fn test_double_star_strips_wrapper() {
 #[test]
 fn test_mixed_star_positional() {
     // Mix of *param and **param in same macro
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="mixed" params="*a **b">
@@ -90,18 +81,16 @@ fn test_mixed_star_positional() {
   </xacro:mixed>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
     // First param (*a) should preserve wrapper
-    let res_a = root.get_child("res_a").expect("Should have <res_a>");
-    let wrap_a = res_a
-        .get_child("wrap_a")
-        .expect("Should have <wrap_a> preserved by *a");
+    let res_a = find_child(&root, "res_a");
+    let wrap_a = find_child(res_a, "wrap_a");
     assert_eq!(wrap_a.get_text().as_deref(), Some("A"));
 
     // Second param (**b) should strip wrapper
-    let res_b = root.get_child("res_b").expect("Should have <res_b>");
+    let res_b = find_child(&root, "res_b");
     assert!(
         res_b.get_child("wrap_b").is_none(),
         "Should NOT have <wrap_b> (stripped by **b)"
@@ -116,7 +105,6 @@ fn test_mixed_star_positional() {
 #[test]
 fn test_empty_single_star() {
     // *param with empty element should preserve the empty element
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="empty_single" params="*blk">
@@ -128,20 +116,17 @@ fn test_empty_single_star() {
   </xacro:empty_single>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out>");
-    let void = out
-        .get_child("void")
-        .expect("Should have <void/> preserved by *param");
+    let out = find_child(&root, "out");
+    let void = find_child(out, "void");
     assert!(void.children.is_empty(), "<void> should be empty");
 }
 
 #[test]
 fn test_empty_double_star() {
     // **param with empty element should insert nothing (no children)
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="empty_double" params="**blk">
@@ -153,10 +138,10 @@ fn test_empty_double_star() {
   </xacro:empty_double>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out>");
+    let out = find_child(&root, "out");
 
     // Should NOT have void element (stripped by **param)
     assert!(
@@ -185,7 +170,6 @@ fn test_empty_double_star() {
 #[test]
 fn test_single_star_with_attributes() {
     // *param should preserve wrapper with attributes
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test" params="*blk">
@@ -199,13 +183,11 @@ fn test_single_star_with_attributes() {
   </xacro:test>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out>");
-    let wrapper = out
-        .get_child("wrapper")
-        .expect("Should have <wrapper> preserved by *param");
+    let out = find_child(&root, "out");
+    let wrapper = find_child(out, "wrapper");
 
     // Check attributes preserved
     use xmltree::AttributeName;
@@ -227,16 +209,13 @@ fn test_single_star_with_attributes() {
     );
 
     // Check children preserved
-    let inner = wrapper
-        .get_child("inner")
-        .expect("Should have <inner> child");
+    let inner = find_child(wrapper, "inner");
     assert_eq!(inner.get_text().as_deref(), Some("text"));
 }
 
 #[test]
 fn test_double_star_strips_attributes() {
     // **param should strip wrapper and its attributes, keep only children
-    let processor = XacroProcessor::new();
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test" params="**blk">
@@ -250,10 +229,10 @@ fn test_double_star_strips_attributes() {
   </xacro:test>
 </robot>"#;
 
-    let result = processor.run_from_string(input).unwrap();
-    let root = parse_result(&result);
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
 
-    let out = root.get_child("out").expect("Should have <out>");
+    let out = find_child(&root, "out");
 
     // Should NOT have wrapper (stripped by **param)
     assert!(
@@ -262,8 +241,6 @@ fn test_double_star_strips_attributes() {
     );
 
     // Should have inner element directly (children preserved)
-    let inner = out
-        .get_child("inner")
-        .expect("Should have <inner> child directly (wrapper stripped)");
+    let inner = find_child(out, "inner");
     assert_eq!(inner.get_text().as_deref(), Some("text"));
 }

@@ -5,7 +5,8 @@
 /// - Properties without .0 → output without .0
 /// - Division operations → always output with .0
 /// - Float property used in expressions → propagate float-ness
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 #[test]
 fn test_int_property_alone() {
@@ -16,14 +17,12 @@ fn test_int_property_alone() {
   <test value="${effort}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="100" (no .0)
-    assert!(
-        result.contains(r#"value="100""#),
-        "Int property alone should output without .0. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="100""#,
+        "Int property alone should output without .0"
     );
 }
 
@@ -36,14 +35,12 @@ fn test_float_property_alone() {
   <test value="${effort}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="100.0" (keeps .0)
-    assert!(
-        result.contains(r#"value="100.0""#),
-        "Float property alone should output with .0. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="100.0""#,
+        "Float property alone should output with .0"
     );
 }
 
@@ -56,14 +53,12 @@ fn test_int_prop_times_int() {
   <test value="${x * 2}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="30" (no .0)
-    assert!(
-        result.contains(r#"value="30""#),
-        "Int * int should output without .0. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="30""#,
+        "Int * int should output without .0"
     );
 }
 
@@ -76,14 +71,12 @@ fn test_float_prop_times_int() {
   <test value="${width * 2}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="3.0" (keeps .0)
-    assert!(
-        result.contains(r#"value="3.0""#),
-        "Float * int should output with .0. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="3.0""#,
+        "Float * int should output with .0"
     );
 }
 
@@ -95,15 +88,9 @@ fn test_division_operation() {
   <test value="${255/255}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="1.0" (has .0 because division)
-    assert!(
-        result.contains(r#"value="1.0""#),
-        "Division should output with .0. Got: {}",
-        result
-    );
+    assert_xacro_contains!(output, r#"value="1.0""#, "Division should output with .0");
 }
 
 #[test]
@@ -117,21 +104,19 @@ fn test_float_prop_propagation() {
   <test2 value="${w2}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs:
     // test1 value="1.5"
     // test2 value="3.0" (w2 inherits float-ness from width)
-    assert!(
-        result.contains(r#"value="1.5""#),
-        "Original float property should keep decimal. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="1.5""#,
+        "Original float property should keep decimal"
     );
-    assert!(
-        result.contains(r#"value="3.0""#),
-        "Computed float property should have .0. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="3.0""#,
+        "Propagated float property should keep .0"
     );
 }
 
@@ -144,14 +129,12 @@ fn test_int_division_float_result() {
   <test value="${diameter/2}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="2.0" (division produces float)
-    assert!(
-        result.contains(r#"value="2.0""#),
-        "Int/int should output with .0 (division produces float). Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="2.0""#,
+        "Int/int should output with .0 (division produces float)"
     );
 }
 
@@ -164,14 +147,12 @@ fn test_float_property_with_zero() {
   <test value="${damping}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs: value="0.0" (keeps .0)
-    assert!(
-        result.contains(r#"value="0.0""#),
-        "Float property 0.0 should keep decimal. Got: {}",
-        result
+    assert_xacro_contains!(
+        output,
+        r#"value="0.0""#,
+        "Float property 0.0 should keep decimal"
     );
 }
 
@@ -186,15 +167,13 @@ fn test_complex_expression_with_division() {
   <test value="${(1/12) * mass * (y*y + z*z)}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs with .0 because expression contains division
     // (1/12) * 1 * (1*1 + 1*1) = 2/12 = 0.166666...
     assert!(
-        result.contains(r#"value="0.166"#) || result.contains(r#"value="0.16666"#),
+        output.contains(r#"value="0.166"#) || output.contains(r#"value="0.16666"#),
         "Expression with division should output 0.166... Got: {}",
-        result
+        output
     );
 }
 
@@ -211,35 +190,33 @@ fn test_mixed_int_and_float_properties() {
   <test4 value="${float_val * 2}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
-
+    let output = run_xacro(input);
     // Python xacro outputs:
     // test1: "5" (int)
     // test2: "5.0" (float)
     // test3: "10" (int * int)
     // test4: "10.0" (float * int)
     assert!(
-        result.contains(r#"<test1 value="5"/>"#) || result.contains(r#"<test1 value="5"></test1>"#),
+        output.contains(r#"<test1 value="5"/>"#) || output.contains(r#"<test1 value="5"></test1>"#),
         "Int property should output without .0. Got: {}",
-        result
+        output
     );
     assert!(
-        result.contains(r#"<test2 value="5.0"/>"#)
-            || result.contains(r#"<test2 value="5.0"></test2>"#),
+        output.contains(r#"<test2 value="5.0"/>"#)
+            || output.contains(r#"<test2 value="5.0"></test2>"#),
         "Float property should output with .0. Got: {}",
-        result
+        output
     );
     assert!(
-        result.contains(r#"<test3 value="10"/>"#)
-            || result.contains(r#"<test3 value="10"></test3>"#),
+        output.contains(r#"<test3 value="10"/>"#)
+            || output.contains(r#"<test3 value="10"></test3>"#),
         "Int * 2 should output without .0. Got: {}",
-        result
+        output
     );
     assert!(
-        result.contains(r#"<test4 value="10.0"/>"#)
-            || result.contains(r#"<test4 value="10.0"></test4>"#),
+        output.contains(r#"<test4 value="10.0"/>"#)
+            || output.contains(r#"<test4 value="10.0"></test4>"#),
         "Float * 2 should output with .0. Got: {}",
-        result
+        output
     );
 }

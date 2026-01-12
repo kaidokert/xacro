@@ -9,8 +9,9 @@
 /// 6. Circular dependency detection
 /// 7. Unknown extension types
 /// 8. Invalid extension syntax
+mod common;
+use crate::common::*;
 use std::collections::HashMap;
-use xacro::XacroProcessor;
 
 #[test]
 fn test_arg_basic_with_default() {
@@ -20,12 +21,11 @@ fn test_arg_basic_with_default() {
   <link name="$(arg robot_name)_base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
-    assert!(result.contains(r#"name="my_robot_base"#));
-    assert!(!result.contains("xacro:arg"));
-    assert!(!result.contains("$(arg"));
+    assert_xacro_contains!(output, r#"name="my_robot_base"#);
+    assert_xacro_not_contains!(output, "xacro:arg");
+    assert_xacro_not_contains!(output, "$(arg");
 }
 
 #[test]
@@ -39,12 +39,11 @@ fn test_arg_cli_override() {
     let mut args = HashMap::new();
     args.insert("robot_name".to_string(), "custom_robot".to_string());
 
-    let processor = XacroProcessor::new_with_args(args);
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro_with_args(input, args);
 
     // CLI arg should override default
-    assert!(result.contains(r#"name="custom_robot_base"#));
-    assert!(!result.contains("my_robot"));
+    assert_xacro_contains!(output, r#"name="custom_robot_base"#);
+    assert_xacro_not_contains!(output, "my_robot");
 }
 
 #[test]
@@ -54,13 +53,8 @@ fn test_arg_undefined_error() {
   <link name="$(arg undefined_arg)_base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("Undefined argument"));
-    assert!(err.contains("undefined_arg"));
+    assert_xacro_error!(input, "Undefined argument");
+    assert_xacro_error!(input, "undefined_arg");
 }
 
 #[test]
@@ -72,16 +66,14 @@ fn test_arg_no_default_requires_cli() {
 </robot>"#;
 
     // Without CLI value, should error
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let result = test_xacro(input);
     assert!(result.is_err());
 
     // With CLI value, should work
     let mut args = HashMap::new();
     args.insert("required_arg".to_string(), "provided".to_string());
-    let processor = XacroProcessor::new_with_args(args);
-    let result = processor.run_from_string(input).unwrap();
-    assert!(result.contains(r#"name="provided_base"#));
+    let output = run_xacro_with_args(input, args);
+    assert_xacro_contains!(output, r#"name="provided_base"#);
 }
 
 #[test]
@@ -93,11 +85,10 @@ fn test_arg_transitive_defaults() {
   <link name="$(arg full_name)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // full_name should resolve to "robot_v2"
-    assert!(result.contains(r#"name="robot_v2_link"#));
+    assert_xacro_contains!(output, r#"name="robot_v2_link"#);
 }
 
 #[test]
@@ -115,11 +106,10 @@ fn test_arg_in_expression() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // $(arg scale) = 2.0, property evaluates: ${2.0 * 0.5} = 1.0
-    assert!(result.contains("1.0 0.1 0.1") || result.contains("1 0.1 0.1"));
+    assert!(output.contains("1.0 0.1 0.1") || output.contains("1 0.1 0.1"));
 }
 
 #[test]
@@ -132,13 +122,9 @@ fn test_arg_circular_dependency() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
     // Document-order processing: arg 'a' isn't defined when its default is evaluated
-    assert!(err.contains("Undefined argument") && err.contains("a"));
+    assert_xacro_error!(input, "Undefined argument");
+    assert_xacro_error!(input, "a");
 }
 
 #[test]
@@ -151,13 +137,9 @@ fn test_arg_forward_reference_error() {
   <link name="base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
     // Should get undefined error, not circular dependency
-    assert!(err.contains("Undefined argument") && err.contains("b"));
+    assert_xacro_error!(input, "Undefined argument");
+    assert_xacro_error!(input, "b");
 }
 
 #[test]
@@ -167,13 +149,8 @@ fn test_extension_unknown_type() {
   <link name="$(unknown_ext foo)_base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("Unknown extension type"));
-    assert!(err.contains("unknown_ext"));
+    assert_xacro_error!(input, "Unknown extension type");
+    assert_xacro_error!(input, "unknown_ext");
 }
 
 #[test]
@@ -183,9 +160,7 @@ fn test_extension_invalid_syntax_empty() {
   <link name="$()_base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Invalid extension syntax") || err.contains("empty"));
@@ -198,9 +173,7 @@ fn test_extension_invalid_syntax_no_space() {
   <link name="$(argfoo)_base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Invalid extension syntax") || err.contains("format"));
@@ -222,11 +195,10 @@ fn test_arg_in_attribute_and_text() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
-    assert!(result.contains(r#"name="my_link"#));
-    assert!(result.contains(r#"name="my_material"#));
+    assert_xacro_contains!(output, r#"name="my_link"#);
+    assert_xacro_contains!(output, r#"name="my_material"#);
 }
 
 #[test]
@@ -239,12 +211,11 @@ fn test_arg_multiple_uses() {
   <link name="$(arg base)_link3"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
-    assert!(result.contains(r#"name="robot_link1"#));
-    assert!(result.contains(r#"name="robot_link2"#));
-    assert!(result.contains(r#"name="robot_link3"#));
+    assert_xacro_contains!(output, r#"name="robot_link1"#);
+    assert_xacro_contains!(output, r#"name="robot_link2"#);
+    assert_xacro_contains!(output, r#"name="robot_link3"#);
 }
 
 #[test]
@@ -256,10 +227,9 @@ fn test_arg_with_property() {
   <link name="$(arg prefix)${suffix}"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
-    assert!(result.contains(r#"name="my_link"#));
+    assert_xacro_contains!(output, r#"name="my_link"#);
 }
 
 #[test]
@@ -273,10 +243,9 @@ fn test_arg_cli_only_no_default() {
     let mut args = HashMap::new();
     args.insert("external_arg".to_string(), "from_cli".to_string());
 
-    let processor = XacroProcessor::new_with_args(args);
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro_with_args(input, args);
 
-    assert!(result.contains(r#"name="from_cli_base"#));
+    assert_xacro_contains!(output, r#"name="from_cli_base"#);
 }
 
 #[test]
@@ -288,10 +257,9 @@ fn test_arg_dynamic_name_evaluation() {
   <link name="$(arg my_arg)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
-    assert!(result.contains(r#"name="value_link"#));
+    assert_xacro_contains!(output, r#"name="value_link"#);
 }
 
 #[test]
@@ -310,11 +278,10 @@ fn test_arg_multiple_in_single_expression() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).unwrap();
+    let output = run_xacro(input);
 
     // 2 * 3 = 6
-    assert!(result.contains("6 0.1 0.1"));
+    assert_xacro_contains!(output, "6 0.1 0.1");
 }
 
 #[test]
@@ -324,9 +291,7 @@ fn test_find_extension_unimplemented() {
   <link name="$(find my_package)/base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("$(find") || err.contains("not yet implemented"));
@@ -339,9 +304,7 @@ fn test_env_extension_unimplemented() {
   <link name="$(env HOME)/base"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("$(env") || err.contains("not yet implemented"));
@@ -360,11 +323,10 @@ fn test_extension_multiple_spaces() {
   <link name="$(arg    robot_name)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect("Processing failed");
+    let output = run_xacro(input);
 
-    assert!(result.contains("myrobot_link"));
-    assert!(!result.contains("$(arg"));
+    assert_xacro_contains!(output, "myrobot_link");
+    assert_xacro_not_contains!(output, "$(arg");
 }
 
 #[test]
@@ -376,11 +338,10 @@ fn test_extension_tab_whitespace() {
   <link name="$(arg	robot_name)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect("Processing failed");
+    let output = run_xacro(input);
 
-    assert!(result.contains("myrobot_link"));
-    assert!(!result.contains("$(arg"));
+    assert_xacro_contains!(output, "myrobot_link");
+    assert_xacro_not_contains!(output, "$(arg");
 }
 
 #[test]
@@ -392,10 +353,9 @@ fn test_extension_mixed_whitespace() {
   <link name="link_$(arg 	 	value)"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect("Processing failed");
+    let output = run_xacro(input);
 
-    assert!(result.contains("link_42"));
+    assert_xacro_contains!(output, "link_42");
 }
 
 #[test]
@@ -407,10 +367,9 @@ fn test_extension_leading_trailing_spaces() {
   <link name="$(  arg name  )_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect("Processing failed");
+    let output = run_xacro(input);
 
-    assert!(result.contains("base_link"));
+    assert_xacro_contains!(output, "base_link");
 }
 
 #[test]
@@ -424,12 +383,11 @@ fn test_extension_newline_as_whitespace() {
 val)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input).expect("Processing failed");
+    let output = run_xacro(input);
 
     // Newline is treated as whitespace, so "arg\nval" splits to ["arg", "val"]
-    assert!(result.contains("test_link"));
-    assert!(!result.contains("$(arg"));
+    assert_xacro_contains!(output, "test_link");
+    assert_xacro_not_contains!(output, "$(arg");
 }
 
 #[test]
@@ -440,9 +398,7 @@ fn test_extension_only_whitespace() {
   <link name="$(   )_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("empty") || err.contains("Extension"));
@@ -456,9 +412,7 @@ fn test_extension_three_parts_rejected() {
   <link name="$(arg foo bar)_link"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
+    let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Extra parts") || err.contains("format"));
@@ -475,11 +429,8 @@ fn test_arg_in_conditional_if() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Should resolve $(arg) in xacro:if");
-    assert!(result.contains("lidar"));
+    let output = run_xacro_expect(input, "Should resolve $(arg) in xacro:if");
+    assert_xacro_contains!(output, "lidar");
 }
 
 /// Test that $(arg ...) extensions are resolved in xacro:unless conditionals
@@ -493,12 +444,9 @@ fn test_arg_in_conditional_unless() {
   </xacro:unless>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Should resolve $(arg) in xacro:unless");
+    let output = run_xacro_expect(input, "Should resolve $(arg) in xacro:unless");
     // headless=true, so unless (not true) = false, branch is skipped
-    assert!(!result.contains("scene_broadcaster"));
+    assert_xacro_not_contains!(output, "scene_broadcaster");
 }
 
 /// Test $(arg) in conditional with false value
@@ -512,12 +460,9 @@ fn test_arg_in_conditional_false() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor
-        .run_from_string(input)
-        .expect("Should resolve $(arg) with false value");
+    let output = run_xacro_expect(input, "Should resolve $(arg) with false value");
     // use_camera=false, so branch is skipped
-    assert!(!result.contains("camera"));
+    assert_xacro_not_contains!(output, "camera");
 }
 
 /// Test that $(arg) in conditional propagates undefined argument errors
@@ -531,11 +476,7 @@ fn test_arg_in_conditional_undefined_arg_errors() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
     // Ensure eval_boolean correctly propagates undefined-arg errors
-    assert!(err.contains("Undefined argument") && err.contains("missing_arg"));
+    assert_xacro_error!(input, "Undefined argument");
+    assert_xacro_error!(input, "missing_arg");
 }

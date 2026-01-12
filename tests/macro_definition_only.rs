@@ -1,4 +1,5 @@
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
 
 /// Test that macro definitions (without calls) don't trigger undefined variable errors
 ///
@@ -13,19 +14,11 @@ fn test_macro_definition_without_call() {
   </xacro:macro>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
+    let output = run_xacro_expect(input, "Macro definition should not evaluate parameters");
 
-    assert!(
-        result.is_ok(),
-        "Macro definition should not evaluate parameters. Error: {:?}",
-        result.err()
-    );
-
-    let output = result.unwrap();
     // Output should be empty robot (macro definition removed, no expansion)
-    assert!(!output.contains("link"), "Should not contain any links");
-    assert!(output.contains("<robot"), "Should have robot element");
+    assert_xacro_not_contains!(output, "link", "Should not contain any links");
+    assert_xacro_contains!(output, "<robot", "Should have robot element");
 }
 
 /// Test the actual failing case from PR2 corpus
@@ -45,13 +38,9 @@ fn test_pr2_head_gazebo_macro_only() {
 
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "PR2 head gazebo macro (definition only) should process without error. Error: {:?}",
-        result.err()
+    let _output = run_xacro_expect(
+        input,
+        "PR2 head gazebo macro (definition only) should process without error",
     );
 }
 
@@ -65,13 +54,9 @@ fn test_macro_definition_param_in_attribute() {
   </xacro:macro>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Macro param in attribute should not be evaluated during definition. Error: {:?}",
-        result.err()
+    let _output = run_xacro_expect(
+        input,
+        "Macro param in attribute should not be evaluated during definition",
     );
 }
 
@@ -85,13 +70,9 @@ fn test_macro_definition_param_in_text() {
   </xacro:macro>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Macro param in text node should not be evaluated during definition. Error: {:?}",
-        result.err()
+    let _output = run_xacro_expect(
+        input,
+        "Macro param in text node should not be evaluated during definition",
     );
 }
 
@@ -105,12 +86,8 @@ fn test_macro_definition_param_in_expression() {
   </xacro:macro>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let result = processor.run_from_string(input);
-
-    assert!(
-        result.is_ok(),
-        "Macro param in expression should not be evaluated during definition. Error: {:?}",
-        result.err()
+    let _output = run_xacro_expect(
+        input,
+        "Macro param in expression should not be evaluated during definition",
     );
 }
