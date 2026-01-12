@@ -66,8 +66,16 @@ fn test_macro_with_global_property_full_pipeline() {
         input,
         "Global properties should be accessible inside macros",
     );
-    assert_xacro_contains!(output, r#"name="base_link""#);
-    assert_xacro_contains!(output, r#"0.5 0.5 0.5"#);
+    assert_xacro_contains!(
+        output,
+        r#"name="base_link""#,
+        "Macro should expand with name parameter"
+    );
+    assert_xacro_contains!(
+        output,
+        r#"0.5 0.5 0.5"#,
+        "Global property should be accessible in macro"
+    );
 }
 
 /// Test property defined inside macro that references macro parameter

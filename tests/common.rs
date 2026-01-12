@@ -177,9 +177,10 @@ pub fn find_child<'a>(
     parent: &'a Element,
     name: &str,
 ) -> &'a Element {
-    parent
-        .get_child(name)
-        .expect(&format!("Expected <{}> child element", name))
+    parent.get_child(name).expect(&format!(
+        "Expected <{}> child element in <{}>",
+        name, parent.name
+    ))
 }
 
 /// Find child element by name, returning None if not found.
@@ -209,7 +210,10 @@ pub fn find_child_prefixed<'a>(
             node.as_element()
                 .filter(|elem| elem.name == name && elem.prefix.as_deref() == Some(prefix))
         })
-        .expect(&format!("Expected <{}:{}> element", prefix, name))
+        .expect(&format!(
+            "Expected <{}:{}> element in <{}>",
+            prefix, name, parent.name
+        ))
 }
 
 /// Parse XML string to Element.
@@ -297,7 +301,7 @@ macro_rules! assert_xacro_not_contains {
 #[macro_export]
 macro_rules! assert_xacro_attr {
     ($elem:expr, $name:expr, $expected:expr) => {
-        match $elem.attributes.get($name) {
+        match $crate::common::get_attr_opt($elem, $name) {
             Some(actual) => {
                 if actual != $expected {
                     panic!(
@@ -407,23 +411,6 @@ macro_rules! assert_xacro_error {
 /// Example: `assert_xacro_error_variant!(input, |e| matches!(e, XacroError::MissingNamespace(_)))`
 #[macro_export]
 macro_rules! assert_xacro_error_variant {
-    ($input:expr, $predicate:expr) => {{
-        let result = $crate::common::test_xacro($input);
-        match result {
-            Err(ref e) => {
-                if !$predicate(e) {
-                    panic!(
-                        "\nAssertion failed: error variant mismatch\n\
-                         Actual error: {:?}\n",
-                        e
-                    );
-                }
-            }
-            Ok(_) => {
-                panic!("\nAssertion failed: expected error but processing succeeded\n");
-            }
-        }
-    }};
     ($input:expr, $predicate:expr, $($arg:tt)+) => {{
         let result = $crate::common::test_xacro($input);
         match result {
@@ -442,6 +429,23 @@ macro_rules! assert_xacro_error_variant {
                      Expected error but processing succeeded\n",
                     format_args!($($arg)+)
                 );
+            }
+        }
+    }};
+    ($input:expr, $predicate:expr) => {{
+        let result = $crate::common::test_xacro($input);
+        match result {
+            Err(ref e) => {
+                if !$predicate(e) {
+                    panic!(
+                        "\nAssertion failed: error variant mismatch\n\
+                         Actual error: {:?}\n",
+                        e
+                    );
+                }
+            }
+            Ok(_) => {
+                panic!("\nAssertion failed: expected error but processing succeeded\n");
             }
         }
     }};
