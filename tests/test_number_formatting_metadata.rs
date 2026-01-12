@@ -168,13 +168,11 @@ fn test_complex_expression_with_division() {
 </robot>"#;
 
     let output = run_xacro(input);
-    // Python xacro outputs with .0 because expression contains division
+    let root = parse_xml(&output);
+    let test_elem = find_child(&root, "test");
     // (1/12) * 1 * (1*1 + 1*1) = 2/12 = 0.166666...
-    assert!(
-        output.contains(r#"value="0.166"#) || output.contains(r#"value="0.16666"#),
-        "Expression with division should output 0.166... Got: {}",
-        output
-    );
+    let expected = (1.0 / 12.0) * 1.0 * (1.0 * 1.0 + 1.0 * 1.0);
+    assert_attr_float!(test_elem, "value", expected, 1e-9);
 }
 
 #[test]
@@ -191,32 +189,21 @@ fn test_mixed_int_and_float_properties() {
 </robot>"#;
 
     let output = run_xacro(input);
-    // Python xacro outputs:
-    // test1: "5" (int)
-    // test2: "5.0" (float)
+    let root = parse_xml(&output);
+
+    // test1: "5" (int property)
+    let test1 = find_child(&root, "test1");
+    assert_xacro_attr!(test1, "value", "5");
+
+    // test2: "5.0" (float property)
+    let test2 = find_child(&root, "test2");
+    assert_xacro_attr!(test2, "value", "5.0");
+
     // test3: "10" (int * int)
+    let test3 = find_child(&root, "test3");
+    assert_xacro_attr!(test3, "value", "10");
+
     // test4: "10.0" (float * int)
-    assert!(
-        output.contains(r#"<test1 value="5"/>"#) || output.contains(r#"<test1 value="5"></test1>"#),
-        "Int property should output without .0. Got: {}",
-        output
-    );
-    assert!(
-        output.contains(r#"<test2 value="5.0"/>"#)
-            || output.contains(r#"<test2 value="5.0"></test2>"#),
-        "Float property should output with .0. Got: {}",
-        output
-    );
-    assert!(
-        output.contains(r#"<test3 value="10"/>"#)
-            || output.contains(r#"<test3 value="10"></test3>"#),
-        "Int * 2 should output without .0. Got: {}",
-        output
-    );
-    assert!(
-        output.contains(r#"<test4 value="10.0"/>"#)
-            || output.contains(r#"<test4 value="10.0"></test4>"#),
-        "Float * 2 should output with .0. Got: {}",
-        output
-    );
+    let test4 = find_child(&root, "test4");
+    assert_xacro_attr!(test4, "value", "10.0");
 }

@@ -2217,7 +2217,7 @@ fn test_lazy_block_empty_element_inserts_nothing() {
 </robot>"#;
 
     let result = run_xacro(input);
-    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse valid XML");
+    let root = parse_xml(&result);
 
     // Python xacro: <other></other> positionally captured as "content" block.
     // Since it's empty, insert_block inserts nothing (no children).

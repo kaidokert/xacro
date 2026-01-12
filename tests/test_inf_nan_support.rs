@@ -143,12 +143,19 @@ fn test_property_assignment_with_inf_nan() {
 </robot>"#;
 
     let output = run_xacro_expect(input, "Processing should succeed");
-    assert_xacro_contains!(output, r#"<mass value="inf"#, "Mass should be inf");
-    // ixx should be NaN or nan - keep OR condition as macro doesn't support it
-    assert!(
-        output.contains(r#"ixx="NaN"#) || output.contains(r#"ixx="nan"#),
-        "ixx should be NaN or nan"
-    );
+    let root = parse_xml(&output);
+    let link = find_child(&root, "link");
+    let inertial = find_child(link, "inertial");
+
+    // Mass is an element with value attribute
+    let mass = find_child(inertial, "mass");
+    assert_xacro_attr!(mass, "value", "inf");
+
+    // ixx is an attribute on inertia element
+    let inertia = find_child(inertial, "inertia");
+    let ixx_str = get_attr(inertia, "ixx");
+    let ixx: f64 = ixx_str.parse().unwrap();
+    assert!(ixx.is_nan(), "ixx should be NaN");
 }
 
 /// Test that inf/nan properties can be referenced by other properties

@@ -129,13 +129,10 @@ pub fn test_xacro_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, Xac
 #[allow(dead_code)]
 pub fn run_xacro_file<P: AsRef<std::path::Path>>(path: P) -> String {
     let path_ref = path.as_ref();
-    test_xacro_file(path_ref).unwrap_or_else(|e| {
-        panic!(
-            "Xacro file processing should succeed for {}: {}",
-            path_ref.display(),
-            e
-        )
-    })
+    test_xacro_file(path_ref).expect(&format!(
+        "Xacro file processing should succeed for {}",
+        path_ref.display()
+    ))
 }
 
 // =============================================================================
@@ -300,6 +297,30 @@ macro_rules! assert_xacro_not_contains {
 /// Provides better error message than raw assert_eq!, including element context.
 #[macro_export]
 macro_rules! assert_xacro_attr {
+    ($elem:expr, $name:expr, $expected:expr, $($arg:tt)+) => {
+        match $crate::common::get_attr_opt($elem, $name) {
+            Some(actual) => {
+                if actual != $expected {
+                    panic!(
+                        "\nAssertion failed: {}\n\
+                         Element: <{}>\n\
+                         Attribute: {}\n\
+                         Expected: \"{}\"\n\
+                         Actual: \"{}\"\n",
+                        format_args!($($arg)+), $elem.name, $name, $expected, actual
+                    );
+                }
+            }
+            None => {
+                panic!(
+                    "\nAssertion failed: {}\n\
+                     Element: <{}>\n\
+                     Attribute: {}\n",
+                    format_args!($($arg)+), $elem.name, $name
+                );
+            }
+        }
+    };
     ($elem:expr, $name:expr, $expected:expr) => {
         match $crate::common::get_attr_opt($elem, $name) {
             Some(actual) => {
