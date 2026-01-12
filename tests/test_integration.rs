@@ -2166,7 +2166,7 @@ fn test_macro_simple_expression_evaluation() {
     let result = run_xacro(input);
 
     // Parse output to check attributes robustly
-    let root = xmltree::Element::parse(result.as_bytes()).expect("Should parse output XML");
+    let root = parse_xml(&result);
     let inertial = root
         .get_child("inertial")
         .expect("Should find inertial element");

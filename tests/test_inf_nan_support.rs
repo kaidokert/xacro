@@ -154,7 +154,9 @@ fn test_property_assignment_with_inf_nan() {
     // ixx is an attribute on inertia element
     let inertia = find_child(inertial, "inertia");
     let ixx_str = get_attr(inertia, "ixx");
-    let ixx: f64 = ixx_str.parse().unwrap();
+    let ixx: f64 = ixx_str
+        .parse()
+        .expect(&format!("Failed to parse ixx '{}' as f64", ixx_str));
     assert!(ixx.is_nan(), "ixx should be NaN");
 }
 
