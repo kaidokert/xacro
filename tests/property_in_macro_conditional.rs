@@ -3,7 +3,6 @@ use crate::common::*;
 
 /// Test property defined inside macro body, used in conditional
 ///
-/// This is Sample 2 from UNDEFINED_VAR_SAMPLES.md
 /// Pattern: property inside macro references macro parameter, then used in conditional
 #[test]
 fn test_property_inside_macro_used_in_conditional() {

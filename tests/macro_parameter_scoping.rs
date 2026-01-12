@@ -139,8 +139,6 @@ fn test_macro_params_override_globals_full_pipeline() {
 
 /// Test macro parameter interdependencies (one default referencing another parameter)
 ///
-/// This validates our 2-phase parameter resolution where defaults can reference
-/// previously resolved parameters in the cumulative evaluation context.
 #[test]
 fn test_macro_parameter_dependency() {
     let input = r#"<?xml version="1.0"?>

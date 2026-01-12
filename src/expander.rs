@@ -25,26 +25,8 @@ use xmltree::{Element, XMLNode};
 // Re-export XacroContext from expand module
 pub use crate::expand::XacroContext;
 
-// ============================================================================
-// Directive Validation Constants
-// ============================================================================
-
-/// Single source of truth for all xacro directive names
-///
-/// This ensures that directive lists stay synchronized across the codebase.
-/// Implemented xacro directives (element names without "xacro:" prefix)
-const IMPLEMENTED_DIRECTIVES: &[&str] = &[
-    "property",
-    "macro",
-    "if",
-    "unless",
-    "include",
-    "insert_block",
-    "arg",
-];
-
-/// Unimplemented xacro directives (element names without "xacro:" prefix)
-const UNIMPLEMENTED_DIRECTIVES: &[&str] = &["element", "attribute"];
+// Import directive constants from single source of truth
+use crate::directives::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES};
 
 // ============================================================================
 // RAII Guards for Panic-Safe Stack Management
@@ -302,7 +284,7 @@ fn expand_element(
                 attribute: "name".to_string(),
             })?;
 
-        // CRITICAL: Evaluate name with properties only (no extensions in arg names)
+        // Evaluate name with properties only (no extensions in arg names)
         // This prevents circular dependencies: $(arg ${x}) where x="..."
         let name = ctx.properties.substitute_text(raw_name)?;
 
@@ -310,7 +292,7 @@ fn expand_element(
         if !ctx.args.borrow().contains_key(&name) {
             // Only set default if CLI didn't provide a value
             if let Some(default_value) = elem.get_attribute("default") {
-                // CRITICAL: Evaluate default with FULL substitution (may contain $(arg ...))
+                // Evaluate default with FULL substitution (may contain $(arg ...))
                 // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
                 let default = ctx.properties.substitute_all(default_value)?;
                 ctx.args.borrow_mut().insert(name.clone(), default);
@@ -537,7 +519,7 @@ fn expand_element(
 
     // 7. Macro calls (with re-scan for nested macros)
     if is_macro_call(&elem, &ctx.macros.borrow(), &xacro_ns) {
-        // CRITICAL: Substitute both ${...} and $(...) in macro call attributes BEFORE expansion
+        // Substitute both ${...} and $(...) in macro call attributes BEFORE expansion
         // This allows nested macros to use parameters from outer macro scope:
         // <xacro:macro name="outer" params="prefix">
         //   <xacro:inner prefix="${prefix}"/>  <!-- ${prefix} evaluated here -->
@@ -633,7 +615,7 @@ fn expand_macro_call(
     let (args, blocks) = MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
 
     // Pre-expand blocks in caller's scope before entering macro scope
-    // CRITICAL: Must happen BEFORE pushing macro's parameter scope to ensure
+    // Must happen BEFORE pushing macro's parameter scope to ensure
     // block content is evaluated with caller's properties, not macro's parameters
     let mut expanded_blocks = HashMap::new();
     let mut unexpanded_blocks = blocks;
@@ -656,7 +638,7 @@ fn expand_macro_call(
                 raw_block.name
             );
 
-            // CRITICAL: Behavior depends on * vs ** prefix:
+            // Behavior depends on * vs ** prefix:
             // *param (regular block) → insert the element itself
             // **param (lazy block) → insert only the element's children
             let is_lazy = macro_def.lazy_block_params.contains(param_name);

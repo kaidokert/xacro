@@ -19,7 +19,7 @@ fn get_extension_regex() -> &'static Regex {
 }
 
 fn get_text_regex() -> &'static Regex {
-    // CRITICAL: Must be anchored with ^ to prevent matching at non-zero offsets
+    // Must be anchored with ^ to prevent matching at non-zero offsets
     // This prevents silent data loss when other regexes don't match
     //
     // Pattern breakdown:

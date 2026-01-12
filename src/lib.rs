@@ -3,6 +3,7 @@
 #![warn(clippy::alloc_instead_of_core)]
 #![warn(clippy::std_instead_of_core)]
 
+pub mod directives;
 pub mod error;
 pub mod eval;
 pub mod expand;

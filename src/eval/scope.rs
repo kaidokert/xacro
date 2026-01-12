@@ -1012,7 +1012,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         name: &str,
     ) -> Result<String, XacroError> {
-        // CRITICAL: Skip cache when in macro scope to avoid stale cached values
+        // Skip cache when in macro scope to avoid stale cached values
         // Example bug this prevents:
         //   Global: x=10 (cached)
         //   Push macro scope: x=5
@@ -1138,7 +1138,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// 2. Use regex to find identifiers that look like variables (not in strings/numbers)
     /// 3. Return all found variable names
     ///
-    /// Note: Originally planned to use pyisheval AST parsing (PHASE_X_PLAN.md), but
+    /// Note: Originally planned to use pyisheval AST parsing, but
     /// pyisheval 0.9.0 doesn't expose parser/AST modules publicly. This regex approach
     /// handles the common cases and is simpler. It may over-capture in some edge cases,
     /// but that's safe (we'll get proper errors during evaluation if truly undefined).

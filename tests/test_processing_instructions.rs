@@ -8,9 +8,7 @@
 mod common;
 use crate::common::*;
 
-/// Category 1: Corpus Reality Tests - Actual patterns from corpus
-
-/// Test 1.1: Single xml-model PI (132 files in corpus)
+/// Test 1.1: Single xml-model PI
 #[test]
 fn test_xml_model_single_line() {
     let input = r#"<?xml version="1.0"?>
@@ -32,7 +30,7 @@ fn test_xml_model_single_line() {
     );
 }
 
-/// Test 1.2: Multi-line xml-model PI (~5 files in corpus)
+/// Test 1.2: Multi-line xml-model PI
 #[test]
 fn test_xml_model_multi_line() {
     let input = r#"<?xml version="1.0"?>
@@ -52,7 +50,7 @@ fn test_xml_model_multi_line() {
     );
 }
 
-/// Test 1.3: No PIs (majority of corpus - regression test)
+/// Test 1.3: No PIs
 #[test]
 fn test_no_processing_instructions() {
     let input = r#"<?xml version="1.0"?>
@@ -113,7 +111,7 @@ fn test_comment_outside_root_preserved() {
 
 /// Category 2: Edge Cases - Robustness tests
 
-/// Test 2.1: Multiple PIs (not in corpus, but valid XML)
+/// Test 2.1: Multiple PIs
 #[test]
 fn test_multiple_processing_instructions() {
     let input = r#"<?xml version="1.0"?>
@@ -172,6 +170,7 @@ fn test_processing_instruction_no_data() {
 <robot name="test"/>"#;
 
     let output = run_xacro(input);
+    // Should preserve PI even without data
     assert_xacro_contains!(output, r#"<?target?>"#);
 }
 

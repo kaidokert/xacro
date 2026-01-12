@@ -65,7 +65,7 @@ pub fn extract_xacro_namespace(
     // 2. Otherwise, search for any known xacro URI (supports aliased prefixes)
     //
     // Per guideline: "check against the resolved namespace URI, not the prefix"
-    // But also handle corpus edge cases where multiple prefixes share a URI.
+    // But also handle edge cases where multiple prefixes share a URI.
 
     if let Some(ns) = element.namespaces.as_ref() {
         // Priority 1: If "xacro" prefix exists, use it exclusively

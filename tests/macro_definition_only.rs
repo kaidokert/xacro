@@ -21,7 +21,7 @@ fn test_macro_definition_without_call() {
     assert_xacro_contains!(output, "<robot", "Should have robot element");
 }
 
-/// Test the actual failing case from PR2 corpus
+/// Test the actual failing case from PR2
 #[test]
 fn test_pr2_head_gazebo_macro_only() {
     let input = r#"<?xml version="1.0"?>

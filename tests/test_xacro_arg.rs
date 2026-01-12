@@ -1,4 +1,4 @@
-/// Comprehensive tests for xacro:arg feature (Phase 5)
+/// Comprehensive tests for xacro:arg feature
 ///
 /// Tests cover:
 /// 1. Basic arg with default value

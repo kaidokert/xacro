@@ -561,7 +561,7 @@ pub fn eval_text_with_interpreter(
                 }
             }
             TokenType::Extension => {
-                // $(extension) - handle later (Phase 6)
+                // $(extension) - handle later
                 // For now, just keep the original text
                 result.push(format!("$({})", token_value));
             }
@@ -617,7 +617,7 @@ fn apply_string_truthiness(
 /// - Accepts: Any string convertible to int: "1", "0", "42", "-5"
 /// - REJECTS: "nonsense", empty string, anything else → Error
 ///
-/// CRITICAL: This preserves type information from pyisheval!
+/// Important: This preserves type information from pyisheval.
 /// ${3*0.1} evaluates to float 0.3 (truthy), NOT string "0.3" (would error)
 ///
 /// Examples:
@@ -867,7 +867,7 @@ mod tests {
     fn test_eval_boolean_float_truthiness() {
         let props = HashMap::new();
 
-        // CRITICAL: Float expressions must preserve type
+        // Float expressions must preserve type
         assert_eq!(eval_boolean("${3*0.0}", &props).unwrap(), false); // 0.0
         assert_eq!(eval_boolean("${3*0.1}", &props).unwrap(), true); // 0.3 (non-zero float)
         assert_eq!(eval_boolean("${0.5}", &props).unwrap(), true);
@@ -911,7 +911,7 @@ mod tests {
 
     /// Test that pyisheval returns Value::Number for boolean expressions
     ///
-    /// CRITICAL: This test documents that pyisheval v0.9.0 does NOT have Value::Bool.
+    /// Note: pyisheval v0.9.0 does NOT have Value::Bool.
     /// Boolean comparison expressions like ${1 == 1} return Value::Number(1.0), not Value::Bool(true).
     /// This is similar to Python where bool is a subclass of int (True == 1, False == 0).
     ///
