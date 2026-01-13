@@ -1,4 +1,6 @@
 use clap::Parser;
+use env_logger::{Builder, Env};
+use log::LevelFilter;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -96,9 +98,6 @@ impl Args {
 }
 
 fn init_logging(verbosity: u8) {
-    use env_logger::{Builder, Env};
-    use log::LevelFilter;
-
     // Start from environment configuration (e.g., RUST_LOG)
     let mut builder = Builder::from_env(Env::default());
 

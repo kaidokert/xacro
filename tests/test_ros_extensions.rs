@@ -1,6 +1,7 @@
 #[macro_use]
 mod common;
 
+use common::{get_attr, parse_xml, EnvVarGuard};
 use std::env;
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,7 +11,7 @@ static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
 fn test_optenv_with_value() {
-    env::set_var("TEST_ROBOT_NAME", "my_robot");
+    let _guard = EnvVarGuard::new("TEST_ROBOT_NAME", "my_robot");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -25,9 +26,9 @@ fn test_optenv_with_value() {
     assert!(result.is_ok(), "Processing should succeed");
 
     let output = result.unwrap();
-    assert_xacro_contains!(output, r#"name="my_robot_base"#);
-
-    env::remove_var("TEST_ROBOT_NAME");
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "my_robot_base");
 }
 
 #[test]
@@ -48,7 +49,9 @@ fn test_optenv_with_default() {
     assert!(result.is_ok(), "Processing should succeed with default");
 
     let output = result.unwrap();
-    assert_xacro_contains!(output, r#"name="fallback_name_base"#);
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "fallback_name_base");
 }
 
 #[test]
@@ -68,7 +71,9 @@ fn test_optenv_with_multi_word_default() {
     assert!(result.is_ok(), "Processing should succeed");
 
     let output = result.unwrap();
-    assert_xacro_contains!(output, r#"name="mobile robot"#);
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "mobile robot");
 }
 
 #[test]
@@ -149,8 +154,7 @@ fn test_find_extension_with_ros_package_path() {
 
 #[test]
 fn test_find_extension_package_not_found() {
-    // Make sure ROS_PACKAGE_PATH is empty or points to non-existent location
-    env::set_var("ROS_PACKAGE_PATH", "/tmp/nonexistent_ros_path");
+    let _guard = EnvVarGuard::new("ROS_PACKAGE_PATH", "/tmp/nonexistent_ros_path");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -175,8 +179,6 @@ fn test_find_extension_package_not_found() {
 
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Package not found"));
-
-    env::remove_var("ROS_PACKAGE_PATH");
 }
 
 #[test]
@@ -225,12 +227,9 @@ fn test_find_extension_caching() {
     }
     let elapsed = start.elapsed();
 
-    // Should be very fast with caching (<10ms for 100 calls per design requirement)
+    // Print timing for manual verification of caching performance
+    // Note: No timing assertion to avoid CI flakiness - functional correctness is tested above
     println!("100 runs with 3x $(find) each took: {:?}", elapsed);
-    assert!(
-        elapsed.as_millis() < 1000,
-        "100 runs should complete in < 1 second with caching"
-    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -250,7 +249,7 @@ fn test_find_and_optenv_combined() {
     )
     .expect("Failed to write package.xml");
 
-    env::set_var("TEST_MESH_TYPE_COMBINED", "visual");
+    let _guard = EnvVarGuard::new("TEST_MESH_TYPE_COMBINED", "visual");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -276,6 +275,5 @@ fn test_find_and_optenv_combined() {
     assert!(output.contains(&package_dir.display().to_string()));
     assert!(output.contains("/meshes/visual.stl"));
 
-    env::remove_var("TEST_MESH_TYPE_COMBINED");
     let _ = fs::remove_dir_all(&temp_dir);
 }

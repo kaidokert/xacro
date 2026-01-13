@@ -9,6 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use xmltree::Element;
 
 /// Extension for $(find package_name) - finds ROS package paths
 ///
@@ -59,9 +60,9 @@ impl FindExtension {
         let mut paths = Vec::new();
 
         // 1. Add paths from ROS_PACKAGE_PATH environment variable
+        // Use split_paths for cross-platform support (handles ':' on Unix, ';' on Windows)
         if let Ok(ros_path) = env::var("ROS_PACKAGE_PATH") {
-            for dir in ros_path.split(':') {
-                let path = PathBuf::from(dir);
+            for path in env::split_paths(&ros_path) {
                 if path.exists() {
                     paths.push(path);
                 }
@@ -121,13 +122,13 @@ impl FindExtension {
         // Try package.xml first (ROS 2 / catkin)
         let pkg_xml = path.join("package.xml");
         if pkg_xml.exists() {
-            if let Ok(contents) = fs::read_to_string(&pkg_xml) {
-                // Simple XML parsing - look for <name>...</name>
-                if let Some(start) = contents.find("<name>") {
-                    if let Some(end) = contents[start..].find("</name>") {
-                        let name_start = start + 6; // len("<name>")
-                        let name_end = start + end;
-                        return Some(contents[name_start..name_end].trim().to_string());
+            if let Ok(file) = fs::File::open(&pkg_xml) {
+                if let Ok(root) = Element::parse(file) {
+                    // Look for <name> element
+                    if let Some(name_elem) = root.get_child("name") {
+                        if let Some(text) = name_elem.get_text() {
+                            return Some(text.to_string());
+                        }
                     }
                 }
             }
@@ -136,19 +137,14 @@ impl FindExtension {
         // Try manifest.xml (ROS 1 / rosbuild)
         let manifest_xml = path.join("manifest.xml");
         if manifest_xml.exists() {
-            if let Ok(contents) = fs::read_to_string(&manifest_xml) {
-                // Look for <package> element
-                // Format: <package> or <package name="...">
-                if let Some(start) = contents.find("<package") {
-                    // Check for name attribute: <package name="pkg_name">
-                    if let Some(name_attr) = contents[start..].find("name=\"") {
-                        let attr_start = start + name_attr + 6; // len("name=\"")
-                        if let Some(attr_end) = contents[attr_start..].find('"') {
-                            return Some(
-                                contents[attr_start..attr_start + attr_end]
-                                    .trim()
-                                    .to_string(),
-                            );
+            if let Ok(file) = fs::File::open(&manifest_xml) {
+                if let Ok(root) = Element::parse(file) {
+                    // Check for <package name="..."> attribute
+                    if root.name == "package" {
+                        if let Some(name) =
+                            root.attributes.get(&xmltree::AttributeName::local("name"))
+                        {
+                            return Some(name.clone());
                         }
                     }
                     // If no name attribute, manifest uses directory name
@@ -205,9 +201,14 @@ impl FindExtension {
                 for entry in entries.flatten() {
                     if let Ok(file_type) = entry.file_type() {
                         if file_type.is_dir() {
-                            let pkg_path = entry.path().join(package_name);
-                            if Self::is_ros_package(&pkg_path) {
-                                return Some(pkg_path);
+                            let subdir_path = entry.path();
+                            // Check if this subdirectory itself is the package
+                            if Self::is_ros_package(&subdir_path) {
+                                if let Some(actual_name) = Self::read_package_name(&subdir_path) {
+                                    if actual_name == package_name {
+                                        return Some(subdir_path);
+                                    }
+                                }
                             }
                         }
                     }
