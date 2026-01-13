@@ -187,28 +187,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        use super::interpreter::init_interpreter;
         use crate::extensions::core::default_extensions;
-
-        let interpreter = RefCell::new(init_interpreter());
-
-        // Initialize default extensions (excluding ArgExtension)
-        // Note: $(arg ...) is handled specially in resolve_extension using self.args
         let extensions = Rc::new(default_extensions());
-
-        Self {
-            interpreter,
-            raw_properties: RefCell::new(HashMap::new()),
-            evaluated_cache: RefCell::new(HashMap::new()),
-            resolution_stack: RefCell::new(Vec::new()),
-            scope_stack: RefCell::new(Vec::new()),
-            args,
-            extensions,
-            #[cfg(feature = "compat")]
-            use_python_compat: true, // Enabled by default when compat feature is active
-            #[cfg(feature = "compat")]
-            property_metadata: RefCell::new(HashMap::new()),
-        }
+        Self::new_with_extensions(args, extensions)
     }
 
     /// Create a new EvalContext with custom extensions

@@ -144,7 +144,10 @@ mod tests {
         let ext = CwdExtension;
         // Pure whitespace should be treated as no args
         let result = ext.resolve("cwd", "   ");
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok_and(|r| r.is_some()),
+            "Whitespace-only args should be treated as no args and resolve successfully"
+        );
     }
 
     #[test]
