@@ -261,7 +261,7 @@ impl ExtensionHandler for FindExtension {
 /// If the variable is not set, returns the default (which can contain spaces).
 ///
 /// Examples:
-/// - $(optenv ROBOT_NAME)           → value or error if not set
+/// - $(optenv ROBOT_NAME)           → value or empty string if not set
 /// - $(optenv ROBOT_NAME default)   → value or "default"
 /// - $(optenv ROBOT_NAME my robot)  → value or "my robot" (multi-word default)
 #[derive(Default)]
@@ -331,6 +331,7 @@ mod tests {
 
     #[test]
     fn test_optenv_fallback_single_word() {
+        env::remove_var("NONEXISTENT_VAR");
         let ext = OptEnvExtension::new();
 
         // Use a var that doesn't exist
@@ -341,6 +342,7 @@ mod tests {
 
     #[test]
     fn test_optenv_fallback_multi_word() {
+        env::remove_var("NONEXISTENT_VAR");
         let ext = OptEnvExtension::new();
 
         // Multi-word default should be joined with spaces
@@ -351,6 +353,7 @@ mod tests {
 
     #[test]
     fn test_optenv_no_default_returns_empty() {
+        env::remove_var("NONEXISTENT_VAR");
         let ext = OptEnvExtension::new();
 
         // Should return empty string if var doesn't exist and no default
