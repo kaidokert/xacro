@@ -15,7 +15,7 @@ compat = []  # Python-compatible number formatting (tracks int vs float distinct
 xml = "0.8"
 xmltree = "0.12"
 thiserror = "2.0"
-pyisheval = "0.10"
+pyisheval = "0.11"
 regex = "1.12"
 log = "0.4"
 clap = { version = "4.5", features = ["derive"] }
@@ -32,5 +32,5 @@ name = "xacro"
 path = "src/bin/xacro.rs"
 
 [patch.crates-io]
-pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.10.0_patch1_float_literals" }
+pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.11.0_with_not_operator" }
 xmltree = { git = "https://github.com/kaidokert/xmltree-rs", tag = "v0.12.0_preserve_ns_patch" }
