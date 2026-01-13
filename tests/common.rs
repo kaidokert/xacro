@@ -83,7 +83,10 @@ pub fn test_xacro_with_args(
     input: &str,
     args: HashMap<String, String>,
 ) -> Result<String, XacroError> {
-    XacroProcessor::new_with_args(args).run_from_string(input)
+    XacroProcessor::builder()
+        .with_args(args)
+        .build()
+        .run_from_string(input)
 }
 
 /// Process xacro with custom CLI arguments, expect success.
@@ -101,7 +104,10 @@ pub fn test_xacro_with_compat(
     input: &str,
     compat: CompatMode,
 ) -> Result<String, XacroError> {
-    XacroProcessor::new_with_compat_mode(HashMap::new(), compat).run_from_string(input)
+    XacroProcessor::builder()
+        .with_compat_mode(compat)
+        .build()
+        .run_from_string(input)
 }
 
 /// Process xacro with compatibility mode, expect success.

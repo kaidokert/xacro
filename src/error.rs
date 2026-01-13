@@ -99,21 +99,23 @@ pub enum XacroError {
     )]
     UndefinedArgument { name: String },
 
-    /// Unknown extension type (not arg/find/env)
-    #[error(
-        "Unknown extension type: '$({} ...)'.\n\
-             \n\
-             Supported extensions:\n\
-             - $(arg name)  - Access xacro argument\n\
-             - $(find pkg)  - Not yet implemented\n\
-             - $(env VAR)   - Not yet implemented",
-        ext_type
-    )]
+    /// Unknown extension type
+    ///
+    /// This error occurs when a $(command ...) substitution uses an unrecognized command.
+    /// The set of available extensions depends on how the processor was configured.
+    ///
+    /// Core extensions (always available):
+    /// - $(arg name)  - Access xacro argument
+    /// - $(cwd)       - Get current working directory
+    /// - $(env VAR)   - Get environment variable
+    ///
+    /// Additional extensions may be available if explicitly added via builder pattern.
+    #[error("Unknown extension type: '$({} ...)'", ext_type)]
     UnknownExtension { ext_type: String },
 
-    /// Invalid extension syntax
+    /// Extension resolution failed
     #[error(
-        "Invalid extension syntax: '$({})'.\n\
+        "Failed to resolve extension: '$({})'.\n\
              \n\
              {}",
         content,
