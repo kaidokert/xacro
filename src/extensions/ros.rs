@@ -89,19 +89,13 @@ impl FindExtension {
     ///
     /// Walks upward from the given directory until a workspace marker is found.
     fn find_workspace_root(start_dir: &Path) -> Option<PathBuf> {
-        let mut current = start_dir;
-
-        loop {
-            // Check for workspace markers
-            if current.join(".catkin_workspace").exists()
-                || (current.join("install").exists() && current.join("build").exists())
-            {
-                return Some(current.to_path_buf());
-            }
-
-            // Move up one directory
-            current = current.parent()?;
-        }
+        start_dir
+            .ancestors()
+            .find(|p| {
+                p.join(".catkin_workspace").exists()
+                    || (p.join("install").exists() && p.join("build").exists())
+            })
+            .map(|p| p.to_path_buf())
     }
 
     /// Check if a directory is a ROS package
@@ -122,34 +116,33 @@ impl FindExtension {
         // Try package.xml first (ROS 2 / catkin)
         let pkg_xml = path.join("package.xml");
         if pkg_xml.exists() {
-            if let Ok(file) = fs::File::open(&pkg_xml) {
-                if let Ok(root) = Element::parse(file) {
-                    // Look for <name> element
-                    if let Some(name_elem) = root.get_child("name") {
-                        if let Some(text) = name_elem.get_text() {
-                            return Some(text.to_string());
-                        }
-                    }
-                }
+            let name = (|| {
+                let file = fs::File::open(&pkg_xml).ok()?;
+                let root = Element::parse(file).ok()?;
+                let name_elem = root.get_child("name")?;
+                name_elem.get_text().map(|t| t.trim().to_string())
+            })();
+            if name.is_some() {
+                return name;
             }
         }
 
         // Try manifest.xml (ROS 1 / rosbuild)
         let manifest_xml = path.join("manifest.xml");
         if manifest_xml.exists() {
-            if let Ok(file) = fs::File::open(&manifest_xml) {
-                if let Ok(root) = Element::parse(file) {
-                    // Check for <package name="..."> attribute
-                    if root.name == "package" {
-                        if let Some(name) =
-                            root.attributes.get(&xmltree::AttributeName::local("name"))
-                        {
-                            return Some(name.clone());
-                        }
-                    }
-                    // If no name attribute, manifest uses directory name
-                    // Return None to signal directory name should be used
+            let name = (|| {
+                let file = fs::File::open(&manifest_xml).ok()?;
+                let root = Element::parse(file).ok()?;
+                if root.name == "package" {
+                    root.attributes
+                        .get(&xmltree::AttributeName::local("name"))
+                        .map(|n| n.trim().to_string())
+                } else {
+                    None
                 }
+            })();
+            if name.is_some() {
+                return name;
             }
         }
 
@@ -171,9 +164,9 @@ impl FindExtension {
             // Check if search_path itself is the package (self-match)
             // Accept if directory matches by name OR by package metadata
             if search_path.exists() {
-                // Quick check: directory name matches package name
+                // Quick check: directory name matches package name AND it's a ROS package
                 if let Some(dir_name) = search_path.file_name().and_then(|n| n.to_str()) {
-                    if dir_name == package_name {
+                    if dir_name == package_name && Self::is_ros_package(search_path) {
                         return Some(search_path.clone());
                     }
                 }
@@ -191,12 +184,15 @@ impl FindExtension {
             }
 
             // Direct match: search_path/package_name/
+            // This handles the common case where package name matches directory name
+            // and the package is one level below the search path (typical ROS workspace layout)
             let direct_path = search_path.join(package_name);
             if Self::is_ros_package(&direct_path) {
                 return Some(direct_path);
             }
 
             // Search subdirectories (one level deep for performance)
+            // This handles cases where packages are nested or have mismatched directory names
             if let Ok(entries) = fs::read_dir(search_path) {
                 for entry in entries.flatten() {
                     if let Ok(file_type) = entry.file_type() {
@@ -328,6 +324,9 @@ impl ExtensionHandler for OptEnvExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
     fn test_find_extension_caching() {
@@ -339,17 +338,19 @@ mod tests {
     #[test]
     fn test_optenv_with_default() {
         let ext = OptEnvExtension::new();
+        let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let var_name = format!("TEST_OPTENV_VAR_{}", test_id);
 
-        // Set test env var
-        env::set_var("TEST_OPTENV_VAR", "test_value");
+        // Set test env var with unique name to avoid parallel test conflicts
+        env::set_var(&var_name, "test_value");
 
         // Should return the env var value
-        let result = ext.resolve("optenv", "TEST_OPTENV_VAR fallback");
+        let result = ext.resolve("optenv", &format!("{} fallback", var_name));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some("test_value".to_string()));
 
         // Clean up
-        env::remove_var("TEST_OPTENV_VAR");
+        env::remove_var(&var_name);
     }
 
     #[test]

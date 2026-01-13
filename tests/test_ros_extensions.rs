@@ -141,12 +141,26 @@ fn test_find_extension_with_ros_package_path() {
 
     let result = processor.run_from_string(input);
     let output = result.expect("Processing should succeed");
-    // Should contain the resolved path
+
+    // Parse XML and check mesh filename attribute
+    let root = parse_xml(&output);
+    let mesh = root
+        .get_child("link")
+        .expect("Should have link")
+        .get_child("visual")
+        .expect("Should have visual")
+        .get_child("geometry")
+        .expect("Should have geometry")
+        .get_child("mesh")
+        .expect("Should have mesh");
+    let filename = get_attr(mesh, "filename");
+
+    // Verify resolved path contains package directory and mesh path
     assert!(
-        output.contains(&package_dir.display().to_string()),
-        "Output should contain resolved package path"
+        filename.starts_with(&package_dir.display().to_string()),
+        "Mesh filename should start with package directory"
     );
-    assert!(output.contains("/meshes/base.stl"));
+    assert!(filename.ends_with("/meshes/base.stl"));
 
     // Clean up
     let _ = fs::remove_dir_all(&temp_dir);
@@ -272,8 +286,26 @@ fn test_find_and_optenv_combined() {
 
     let result = processor.run_from_string(input);
     let output = result.expect("Processing with both extensions should succeed");
-    assert!(output.contains(&package_dir.display().to_string()));
-    assert!(output.contains("/meshes/visual.stl"));
+
+    // Parse XML and check mesh filename attribute
+    let root = parse_xml(&output);
+    let mesh = root
+        .get_child("link")
+        .expect("Should have link")
+        .get_child("visual")
+        .expect("Should have visual")
+        .get_child("geometry")
+        .expect("Should have geometry")
+        .get_child("mesh")
+        .expect("Should have mesh");
+    let filename = get_attr(mesh, "filename");
+
+    // Verify resolved path contains package directory and mesh path with optenv expansion
+    assert!(
+        filename.starts_with(&package_dir.display().to_string()),
+        "Mesh filename should start with package directory"
+    );
+    assert!(filename.ends_with("/meshes/visual.stl"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
