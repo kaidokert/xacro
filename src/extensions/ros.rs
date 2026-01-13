@@ -162,22 +162,18 @@ impl FindExtension {
         for search_path in search_paths {
             // Check if search_path itself is the package (self-match)
             // Accept if directory matches by name OR by package metadata
-            if search_path.exists() {
-                // Quick check: directory name matches package name AND it's a ROS package
-                if let Some(dir_name) = search_path.file_name().and_then(|n| n.to_str()) {
-                    if dir_name == package_name && Self::is_ros_package(search_path) {
-                        return Some(search_path.clone());
-                    }
+            if search_path.exists() && Self::is_ros_package(search_path) {
+                // First, check if the directory name itself matches. This is a common and fast path.
+                if search_path.file_name().and_then(|n| n.to_str()) == Some(package_name) {
+                    return Some(search_path.clone());
                 }
 
-                // Robust check: read package.xml/manifest.xml for actual package name
-                // (handles cases like "tams_apriltags-master" directory containing
-                // "tams_apriltags" package)
-                if Self::is_ros_package(search_path) {
-                    if let Some(actual_name) = Self::read_package_name(search_path) {
-                        if actual_name == package_name {
-                            return Some(search_path.clone());
-                        }
+                // If not, fall back to reading the package metadata.
+                // This handles cases where the directory name is different from the package name
+                // (e.g., a directory named "my_package-master" for a package named "my_package").
+                if let Some(actual_name) = Self::read_package_name(search_path) {
+                    if actual_name == package_name {
+                        return Some(search_path.clone());
                     }
                 }
             }
@@ -186,7 +182,9 @@ impl FindExtension {
             // This handles the common case where package name matches directory name
             // and the package is one level below the search path (typical ROS workspace layout)
             let direct_path = search_path.join(package_name);
-            if Self::is_ros_package(&direct_path) {
+            if Self::is_ros_package(&direct_path)
+                && Self::read_package_name(&direct_path).as_deref() == Some(package_name)
+            {
                 return Some(direct_path);
             }
 
