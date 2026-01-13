@@ -78,7 +78,7 @@ fn test_optenv_with_multi_word_default() {
 }
 
 #[test]
-fn test_optenv_no_default_fails() {
+fn test_optenv_no_default_returns_empty() {
     env::remove_var("NONEXISTENT_TEST_VAR");
 
     let input = r#"<?xml version="1.0"?>
@@ -92,12 +92,14 @@ fn test_optenv_no_default_fails() {
 
     let result = processor.run_from_string(input);
     assert!(
-        result.is_err(),
-        "Processing should fail when var not set and no default"
+        result.is_ok(),
+        "Processing should succeed with empty string"
     );
 
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("Environment variable not set"));
+    let output = result.unwrap();
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "");
 }
 
 #[test]

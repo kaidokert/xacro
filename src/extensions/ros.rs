@@ -107,45 +107,43 @@ impl FindExtension {
         path.join("package.xml").exists() || path.join("manifest.xml").exists()
     }
 
+    /// Read package name from package.xml (ROS 2 / catkin format)
+    fn read_name_from_package_xml(path: &Path) -> Option<String> {
+        let pkg_xml = path.join("package.xml");
+        if !pkg_xml.exists() {
+            return None;
+        }
+        let file = fs::File::open(&pkg_xml).ok()?;
+        let root = Element::parse(file).ok()?;
+        root.get_child("name")?
+            .get_text()
+            .map(|t| t.trim().to_string())
+    }
+
+    /// Read package name from manifest.xml (ROS 1 / rosbuild format)
+    fn read_name_from_manifest_xml(path: &Path) -> Option<String> {
+        let manifest_xml = path.join("manifest.xml");
+        if !manifest_xml.exists() {
+            return None;
+        }
+        let file = fs::File::open(&manifest_xml).ok()?;
+        let root = Element::parse(file).ok()?;
+        if root.name == "package" {
+            root.attributes
+                .get(&xmltree::AttributeName::local("name"))
+                .map(|n| n.trim().to_string())
+        } else {
+            None
+        }
+    }
+
     /// Read the package name from package.xml or manifest.xml
     ///
     /// Returns the actual package name as defined in the package metadata,
     /// which may differ from the directory name (e.g., "tams_apriltags"
     /// in a directory named "tams_apriltags-master").
     fn read_package_name(path: &Path) -> Option<String> {
-        // Try package.xml first (ROS 2 / catkin)
-        let pkg_xml = path.join("package.xml");
-        if pkg_xml.exists() {
-            if let Some(name) = (|| {
-                let file = fs::File::open(&pkg_xml).ok()?;
-                let root = Element::parse(file).ok()?;
-                root.get_child("name")?
-                    .get_text()
-                    .map(|t| t.trim().to_string())
-            })() {
-                return Some(name);
-            }
-        }
-
-        // Try manifest.xml (ROS 1 / rosbuild)
-        let manifest_xml = path.join("manifest.xml");
-        if manifest_xml.exists() {
-            if let Some(name) = (|| {
-                let file = fs::File::open(&manifest_xml).ok()?;
-                let root = Element::parse(file).ok()?;
-                if root.name == "package" {
-                    root.attributes
-                        .get(&xmltree::AttributeName::local("name"))
-                        .map(|n| n.trim().to_string())
-                } else {
-                    None
-                }
-            })() {
-                return Some(name);
-            }
-        }
-
-        None
+        Self::read_name_from_package_xml(path).or_else(|| Self::read_name_from_manifest_xml(path))
     }
 
     /// Search for a package in the given search paths
@@ -161,16 +159,11 @@ impl FindExtension {
     ) -> Option<PathBuf> {
         for search_path in search_paths {
             // Check if search_path itself is the package (self-match)
-            // Accept if directory matches by name OR by package metadata
+            // Verify package name from metadata to ensure correctness
             if search_path.exists() && Self::is_ros_package(search_path) {
-                // First, check if the directory name itself matches. This is a common and fast path.
-                if search_path.file_name().and_then(|n| n.to_str()) == Some(package_name) {
-                    return Some(search_path.clone());
-                }
-
-                // If not, fall back to reading the package metadata.
-                // This handles cases where the directory name is different from the package name
-                // (e.g., a directory named "my_package-master" for a package named "my_package").
+                // Always verify package name from package.xml/manifest.xml
+                // This handles both exact directory name matches and mismatched names
+                // (e.g., a directory named "my_package-master" for a package named "my_package")
                 if let Some(actual_name) = Self::read_package_name(search_path) {
                     if actual_name == package_name {
                         return Some(search_path.clone());
@@ -305,8 +298,8 @@ impl ExtensionHandler for OptEnvExtension {
                     let default = args[1..].join(" ");
                     Ok(Some(default))
                 } else {
-                    // No default provided - return error
-                    Err(format!("Environment variable not set: '{}'", var_name).into())
+                    // No default provided - return empty string
+                    Ok(Some("".to_string()))
                 }
             }
         }
@@ -357,12 +350,13 @@ mod tests {
     }
 
     #[test]
-    fn test_optenv_no_default_fails() {
+    fn test_optenv_no_default_returns_empty() {
         let ext = OptEnvExtension::new();
 
-        // Should fail if var doesn't exist and no default
+        // Should return empty string if var doesn't exist and no default
         let result = ext.resolve("optenv", "NONEXISTENT_VAR");
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some("".to_string()));
     }
 
     #[test]
