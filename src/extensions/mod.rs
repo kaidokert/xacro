@@ -5,6 +5,7 @@
 //! will be called in order when a $(...) expression is encountered.
 
 pub mod core;
+pub mod ros;
 
 use ::core::cell::RefCell;
 use std::collections::HashMap;
