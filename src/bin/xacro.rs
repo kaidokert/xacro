@@ -144,10 +144,13 @@ fn main() -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or_default();
 
-    // Build processor with mappings and compat mode using builder pattern
+    // Build processor with mappings, compat mode, and ROS extensions
+    // ROS extensions are enabled by default in CLI for user convenience
     let processor = xacro::XacroProcessor::builder()
         .with_args(mappings)
         .with_compat_mode(compat_mode)
+        .with_extension(Box::new(xacro::extensions::ros::FindExtension::new()))
+        .with_extension(Box::new(xacro::extensions::ros::OptEnvExtension::new()))
         .build();
 
     let result = processor
