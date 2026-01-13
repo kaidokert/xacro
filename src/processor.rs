@@ -1,7 +1,7 @@
 use crate::{
     error::XacroError,
     expander::{expand_node, XacroContext},
-    extensions::{core::*, ExtensionHandler},
+    extensions::ExtensionHandler,
     parse::xml::{extract_xacro_namespace, is_known_xacro_uri},
 };
 use xmltree::XMLNode;
@@ -223,9 +223,9 @@ impl XacroBuilder {
 
     /// Add a custom extension handler.
     ///
-    /// By default, the processor includes CwdExtension, EnvExtension, FindExtension,
-    /// OptEnvExtension, and ArgExtension. This method allows adding additional custom
-    /// extensions without replacing the defaults.
+    /// By default, the processor includes CwdExtension and EnvExtension.
+    /// Note: $(arg ...) is handled specially, not via an extension handler.
+    /// This method allows adding additional custom extensions without replacing the defaults.
     ///
     /// # Example
     /// ```ignore
@@ -253,7 +253,7 @@ impl XacroBuilder {
         handler: Box<dyn ExtensionHandler>,
     ) -> Self {
         self.extensions
-            .get_or_insert_with(|| Self::default_extensions(&self.args))
+            .get_or_insert_with(Self::default_extensions)
             .push(handler);
         self
     }
@@ -279,10 +279,7 @@ impl XacroBuilder {
 
     /// Build the XacroProcessor with the configured settings.
     pub fn build(self) -> XacroProcessor {
-        let extensions = Rc::new(
-            self.extensions
-                .unwrap_or_else(|| Self::default_extensions(&self.args)),
-        );
+        let extensions = Rc::new(self.extensions.unwrap_or_else(Self::default_extensions));
 
         XacroProcessor {
             max_recursion_depth: self.max_recursion_depth,
@@ -294,15 +291,21 @@ impl XacroBuilder {
 
     /// Create default extension handlers (CwdExtension, EnvExtension).
     ///
+    /// This delegates to the centralized `extensions::core::default_extensions()`.
     /// ROS extensions (FindExtension, OptEnvExtension) are NOT included by default.
     /// Library users should explicitly add them via builder pattern if needed.
     /// The CLI binary adds ROS extensions automatically for user convenience.
     ///
-    /// Note: ArgExtension is NOT included here because it needs access to the
-    /// shared args Rc<RefCell<...>> that will be created at expansion time.
-    /// ArgExtension is added separately in run_impl() after creating XacroContext.
-    fn default_extensions(_args: &HashMap<String, String>) -> Vec<Box<dyn ExtensionHandler>> {
-        vec![Box::new(CwdExtension), Box::new(EnvExtension)]
+    /// Note: $(arg ...) is handled specially in `EvalContext::resolve_extension()`
+    /// to ensure correct interaction with the shared arguments map.
+    fn default_extensions() -> Vec<Box<dyn ExtensionHandler>> {
+        crate::extensions::core::default_extensions()
+    }
+}
+
+impl Default for XacroProcessor {
+    fn default() -> Self {
+        Self::builder().build()
     }
 }
 
@@ -340,9 +343,8 @@ impl XacroProcessor {
     /// assert!(output.contains("mass value=\"42\""));
     /// # Ok::<(), xacro::XacroError>(())
     /// ```
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self::builder().build()
+        Self::default()
     }
 
     /// Process xacro content from a file path

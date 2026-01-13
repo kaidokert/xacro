@@ -3,6 +3,18 @@
 use super::{extension_utils, ExtensionHandler};
 use std::error::Error as StdError;
 
+/// Create the default extension handlers (CwdExtension, EnvExtension).
+///
+/// This is the single source of truth for default extensions. ROS extensions
+/// (FindExtension, OptEnvExtension) are NOT included by default and must be
+/// explicitly added via the builder pattern if needed.
+///
+/// Note: $(arg ...) is handled specially in `EvalContext::resolve_extension()`
+/// and is not part of this default set.
+pub fn default_extensions() -> Vec<Box<dyn ExtensionHandler>> {
+    vec![Box::new(CwdExtension), Box::new(EnvExtension)]
+}
+
 /// Handles $(cwd) - returns current working directory.
 ///
 /// # Examples
@@ -69,6 +81,29 @@ impl ExtensionHandler for EnvExtension {
 mod tests {
     use super::*;
 
+    /// RAII guard for environment variables that automatically cleans up on drop.
+    /// This ensures env vars are removed even if tests panic, preventing test pollution.
+    struct EnvVarGuard {
+        name: String,
+    }
+
+    impl EnvVarGuard {
+        fn new(
+            name: impl Into<String>,
+            value: &str,
+        ) -> Self {
+            let name = name.into();
+            std::env::set_var(&name, value);
+            Self { name }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(&self.name);
+        }
+    }
+
     #[test]
     fn test_cwd_extension_success() {
         let ext = CwdExtension;
@@ -116,8 +151,8 @@ mod tests {
     fn test_env_extension_success() {
         let ext = EnvExtension;
 
-        // Set a test environment variable
-        std::env::set_var("XACRO_TEST_VAR", "test_value");
+        // Set a test environment variable with automatic cleanup
+        let _guard = EnvVarGuard::new("XACRO_TEST_VAR", "test_value");
 
         let result = ext.resolve("env", "XACRO_TEST_VAR");
 
@@ -125,9 +160,7 @@ mod tests {
         let resolved = result.unwrap();
         assert!(resolved.is_some());
         assert_eq!(resolved.unwrap(), "test_value");
-
-        // Clean up
-        std::env::remove_var("XACRO_TEST_VAR");
+        // _guard automatically cleans up on drop
     }
 
     #[test]

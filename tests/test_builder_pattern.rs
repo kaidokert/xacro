@@ -17,6 +17,23 @@ impl ExtensionHandler for TestExtension {
     }
 }
 
+/// Test extension that attempts to override the "arg" command
+struct ArgOverrideExtension;
+
+impl ExtensionHandler for ArgOverrideExtension {
+    fn resolve(
+        &self,
+        command: &str,
+        _args_raw: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        if command == "arg" {
+            Ok(Some("OVERRIDDEN_ARG_VALUE".to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 #[test]
 fn test_builder_basic() {
     let processor = XacroProcessor::builder().build();
@@ -139,4 +156,37 @@ fn test_builder_chaining() {
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(output.contains("robot_TEST:custom"));
+}
+
+#[test]
+fn test_arg_cannot_be_overridden_by_custom_extension() {
+    // Register a custom extension that tries to handle "arg" command
+    let processor = XacroProcessor::builder()
+        .with_extension(Box::new(ArgOverrideExtension))
+        .build();
+
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="link_name" default="base"/>
+  <link name="$(arg link_name)"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input);
+    assert!(
+        result.is_ok(),
+        "Processing xacro with arg override extension should succeed"
+    );
+    let output = result.unwrap();
+
+    // Even though we registered an extension handler for "arg", the built-in arg
+    // resolution must still be used, so the default value "base" should appear,
+    // and the extension's override value must not.
+    assert!(
+        output.contains(r#"name="base""#),
+        "Expected built-in arg resolution to be used for $(arg link_name)"
+    );
+    assert!(
+        !output.contains("OVERRIDDEN_ARG_VALUE"),
+        "Custom arg extension must not be able to override $(arg ...)"
+    );
 }

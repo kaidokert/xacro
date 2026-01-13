@@ -13,6 +13,29 @@ mod common;
 use crate::common::*;
 use std::collections::HashMap;
 
+/// RAII guard for environment variables that automatically cleans up on drop.
+/// This ensures env vars are removed even if tests panic, preventing test pollution.
+struct EnvVarGuard {
+    name: String,
+}
+
+impl EnvVarGuard {
+    fn new(
+        name: impl Into<String>,
+        value: &str,
+    ) -> Self {
+        let name = name.into();
+        std::env::set_var(&name, value);
+        Self { name }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(&self.name);
+    }
+}
+
 #[test]
 fn test_arg_basic_with_default() {
     let input = r#"<?xml version="1.0"?>
@@ -304,8 +327,8 @@ fn test_find_extension_unimplemented() {
 
 #[test]
 fn test_env_extension_implemented() {
-    // Set a test environment variable
-    std::env::set_var("XACRO_TEST_VAR", "test_value");
+    // Set a test environment variable with automatic cleanup
+    let _guard = EnvVarGuard::new("XACRO_TEST_VAR", "test_value");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -316,9 +339,7 @@ fn test_env_extension_implemented() {
     assert!(result.is_ok(), "$(env) extension should work");
     let output = result.unwrap();
     assert_xacro_contains!(output, "test_value_base");
-
-    // Clean up
-    std::env::remove_var("XACRO_TEST_VAR");
+    // _guard automatically cleans up on drop
 }
 
 // ============================================================================

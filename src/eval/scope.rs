@@ -4,7 +4,7 @@ use super::interpreter::{
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
-use crate::extensions::{core::*, ExtensionHandler};
+use crate::extensions::ExtensionHandler;
 use core::cell::RefCell;
 use pyisheval::Interpreter;
 use regex::Regex;
@@ -188,15 +188,13 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
         use super::interpreter::init_interpreter;
+        use crate::extensions::core::default_extensions;
 
         let interpreter = RefCell::new(init_interpreter());
 
         // Initialize default extensions (excluding ArgExtension)
         // Note: $(arg ...) is handled specially in resolve_extension using self.args
-        let extensions = Rc::new(vec![
-            Box::new(CwdExtension) as Box<dyn ExtensionHandler>,
-            Box::new(EnvExtension),
-        ]);
+        let extensions = Rc::new(default_extensions());
 
         Self {
             interpreter,
@@ -729,9 +727,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 .borrow()
                 .get(&arg_parts[0])
                 .cloned()
-                .ok_or_else(|| XacroError::InvalidExtension {
-                    content: content.to_string(),
-                    reason: format!("Undefined argument: '{}'", arg_parts[0]),
+                .ok_or_else(|| XacroError::UndefinedArgument {
+                    name: arg_parts[0].clone(),
                 });
         }
 
