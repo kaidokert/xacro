@@ -318,31 +318,10 @@ impl ExtensionHandler for OptEnvExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::EnvVarGuard;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    /// RAII guard for environment variables that automatically cleans up on drop
-    struct EnvVarGuard {
-        name: String,
-    }
-
-    impl EnvVarGuard {
-        fn new(
-            name: impl Into<String>,
-            value: &str,
-        ) -> Self {
-            let name = name.into();
-            env::set_var(&name, value);
-            Self { name }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            env::remove_var(&self.name);
-        }
-    }
 
     #[test]
     fn test_optenv_with_value_present() {

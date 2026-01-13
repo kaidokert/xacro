@@ -12,6 +12,9 @@ pub mod extensions;
 pub mod parse;
 pub mod processor;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use error::XacroError;
 pub use processor::{CompatMode, XacroBuilder, XacroProcessor};
 

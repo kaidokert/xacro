@@ -221,12 +221,6 @@ fn test_find_extension_caching() {
   <link name="link1">
     <visual><geometry><mesh filename="$(find cached_package)/mesh1.stl"/></geometry></visual>
   </link>
-  <link name="link2">
-    <visual><geometry><mesh filename="$(find cached_package)/mesh2.stl"/></geometry></visual>
-  </link>
-  <link name="link3">
-    <visual><geometry><mesh filename="$(find cached_package)/mesh3.stl"/></geometry></visual>
-  </link>
 </robot>"#;
 
     let processor = XacroProcessor::builder()
@@ -236,20 +230,46 @@ fn test_find_extension_caching() {
         ])))
         .build();
 
-    // Process multiple times to test caching
-    let start = std::time::Instant::now();
-    for _ in 0..100 {
-        let result = processor.run_from_string(input);
-        assert!(
-            result.is_ok(),
-            "All processing runs should succeed with caching"
-        );
-    }
-    let elapsed = start.elapsed();
+    // 1. First run: should find the package and cache its path
+    let result1 = processor.run_from_string(input);
+    assert!(result1.is_ok(), "Initial processing should succeed");
+    let output1 = result1.unwrap();
 
-    // Print timing for manual verification of caching performance
-    // Note: No timing assertion to avoid CI flakiness - functional correctness is tested above
-    println!("100 runs with 3x $(find) each took: {:?}", elapsed);
+    // 2. Remove the package from the filesystem
+    fs::remove_dir_all(&package_dir).expect("Failed to remove package dir");
+
+    // 3. Second run: should still succeed by using the cached path
+    let result2 = processor.run_from_string(input);
+    assert!(
+        result2.is_ok(),
+        "Processing should succeed from cache after source is deleted"
+    );
+    let output2 = result2.unwrap();
+
+    // Verify outputs are identical (cache returns same result)
+    assert_eq!(output1, output2, "Cached result should match original");
+
+    // 4. Create a new processor with fresh cache
+    let new_processor = XacroProcessor::builder()
+        .clear_extensions()
+        .with_extension(Box::new(FindExtension::with_search_paths(vec![
+            temp_dir.clone()
+        ])))
+        .build();
+
+    // 5. With fresh cache and no source package, should fail
+    let result3 = new_processor.run_from_string(input);
+    assert!(
+        result3.is_err(),
+        "Processing should fail with fresh cache and no source package"
+    );
+    assert!(
+        result3
+            .unwrap_err()
+            .to_string()
+            .contains("Package not found"),
+        "Error should indicate package not found"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

@@ -21,6 +21,9 @@ static INIT: Once = Once::new();
 ///
 /// This ensures env vars are removed even if tests panic, preventing test pollution.
 /// Use this when tests need to temporarily set environment variables.
+///
+/// Note: A copy of this exists in src/test_utils.rs for unit tests. Integration tests
+/// (in tests/) use this copy since they can't access #[cfg(test)] modules from the library.
 pub struct EnvVarGuard {
     name: String,
 }

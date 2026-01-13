@@ -80,29 +80,7 @@ impl ExtensionHandler for EnvExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// RAII guard for environment variables that automatically cleans up on drop.
-    /// This ensures env vars are removed even if tests panic, preventing test pollution.
-    struct EnvVarGuard {
-        name: String,
-    }
-
-    impl EnvVarGuard {
-        fn new(
-            name: impl Into<String>,
-            value: &str,
-        ) -> Self {
-            let name = name.into();
-            std::env::set_var(&name, value);
-            Self { name }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            std::env::remove_var(&self.name);
-        }
-    }
+    use crate::test_utils::EnvVarGuard;
 
     #[test]
     fn test_cwd_extension_success() {
