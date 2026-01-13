@@ -26,6 +26,8 @@ pub struct FindExtension {
     cache: RefCell<HashMap<String, PathBuf>>,
     /// Search paths (from ROS_PACKAGE_PATH + workspace discovery)
     search_paths: RefCell<Option<Vec<PathBuf>>>,
+    /// Package map from RUST_XACRO_PACKAGE_MAP environment variable (lazy-loaded)
+    package_map: RefCell<Option<HashMap<String, PathBuf>>>,
 }
 
 impl FindExtension {
@@ -36,6 +38,7 @@ impl FindExtension {
         Self {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(None),
+            package_map: RefCell::new(None),
         }
     }
 
@@ -47,6 +50,7 @@ impl FindExtension {
         Self {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(Some(search_paths)),
+            package_map: RefCell::new(None),
         }
     }
 
@@ -83,6 +87,39 @@ impl FindExtension {
         *self.search_paths.borrow_mut() = Some(paths.clone());
 
         paths
+    }
+
+    /// Load package map from RUST_XACRO_PACKAGE_MAP environment variable (lazy)
+    ///
+    /// Format: `pkg1=/path1:pkg2=/path2:pkg3=/path3`
+    ///
+    /// This is a test infrastructure feature - allows validation scripts to inject
+    /// package mappings when standard ROS discovery (package.xml) fails.
+    fn get_package_map(&self) -> HashMap<String, PathBuf> {
+        // Return cached map if available
+        if let Some(ref map) = *self.package_map.borrow() {
+            return map.clone();
+        }
+
+        let map: HashMap<String, PathBuf> = env::var("RUST_XACRO_PACKAGE_MAP")
+            .unwrap_or_default()
+            .split(':')
+            .filter_map(|entry| {
+                let mut parts = entry.splitn(2, '=');
+                let name = parts.next()?.trim();
+                let path = parts.next()?.trim();
+                if !name.is_empty() && !path.is_empty() {
+                    Some((name.to_string(), PathBuf::from(path)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Cache the map
+        *self.package_map.borrow_mut() = Some(map.clone());
+
+        map
     }
 
     /// Find workspace root by looking for markers (.catkin_workspace, install/, build/)
@@ -200,6 +237,12 @@ impl FindExtension {
                     }
                 }
             }
+        }
+
+        // Last resort: check RUST_XACRO_PACKAGE_MAP (test infrastructure fallback)
+        let package_map = self.get_package_map();
+        if let Some(path) = package_map.get(package_name) {
+            return Some(path.clone());
         }
 
         None
