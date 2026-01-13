@@ -116,21 +116,21 @@ impl FindExtension {
         // Try package.xml first (ROS 2 / catkin)
         let pkg_xml = path.join("package.xml");
         if pkg_xml.exists() {
-            let name = (|| {
+            if let Some(name) = (|| {
                 let file = fs::File::open(&pkg_xml).ok()?;
                 let root = Element::parse(file).ok()?;
-                let name_elem = root.get_child("name")?;
-                name_elem.get_text().map(|t| t.trim().to_string())
-            })();
-            if name.is_some() {
-                return name;
+                root.get_child("name")?
+                    .get_text()
+                    .map(|t| t.trim().to_string())
+            })() {
+                return Some(name);
             }
         }
 
         // Try manifest.xml (ROS 1 / rosbuild)
         let manifest_xml = path.join("manifest.xml");
         if manifest_xml.exists() {
-            let name = (|| {
+            if let Some(name) = (|| {
                 let file = fs::File::open(&manifest_xml).ok()?;
                 let root = Element::parse(file).ok()?;
                 if root.name == "package" {
@@ -140,9 +140,8 @@ impl FindExtension {
                 } else {
                     None
                 }
-            })();
-            if name.is_some() {
-                return name;
+            })() {
+                return Some(name);
             }
         }
 

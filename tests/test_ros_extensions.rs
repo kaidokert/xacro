@@ -157,13 +157,14 @@ fn test_find_extension_with_ros_package_path() {
     let filename = get_attr(mesh, "filename");
 
     // Verify resolved path contains package directory and mesh path
+    let filename_path = Path::new(&filename);
     assert!(
-        filename.starts_with(&package_dir.display().to_string()),
+        filename_path.starts_with(&package_dir),
         "Mesh filename should start with package directory"
     );
     let expected_suffix = Path::new("meshes").join("base.stl");
     assert!(
-        Path::new(&filename).ends_with(&expected_suffix),
+        filename_path.ends_with(&expected_suffix),
         "Mesh filename should end with meshes/base.stl"
     );
 
@@ -306,13 +307,14 @@ fn test_find_and_optenv_combined() {
     let filename = get_attr(mesh, "filename");
 
     // Verify resolved path contains package directory and mesh path with optenv expansion
+    let filename_path = Path::new(&filename);
     assert!(
-        filename.starts_with(&package_dir.display().to_string()),
+        filename_path.starts_with(&package_dir),
         "Mesh filename should start with package directory"
     );
     let expected_suffix = Path::new("meshes").join("visual.stl");
     assert!(
-        Path::new(&filename).ends_with(&expected_suffix),
+        filename_path.ends_with(&expected_suffix),
         "Mesh filename should end with meshes/visual.stl"
     );
 
