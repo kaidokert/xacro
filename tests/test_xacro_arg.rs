@@ -176,7 +176,12 @@ fn test_extension_invalid_syntax_no_space() {
     let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Invalid extension syntax") || err.contains("format"));
+    // With new extension system, "argfoo" is treated as unknown extension
+    assert!(
+        err.contains("Invalid extension syntax")
+            || err.contains("format")
+            || err.contains("Unknown extension")
+    );
 }
 
 #[test]
@@ -298,16 +303,20 @@ fn test_find_extension_unimplemented() {
 }
 
 #[test]
-fn test_env_extension_unimplemented() {
+fn test_env_extension_implemented() {
+    // Set a test environment variable with automatic cleanup
+    let _guard = EnvVarGuard::new("XACRO_TEST_VAR", "test_value");
+
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
-  <link name="$(env HOME)/base"/>
+  <link name="$(env XACRO_TEST_VAR)_base"/>
 </robot>"#;
 
     let result = test_xacro(input);
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("$(env") || err.contains("not yet implemented"));
+    assert!(result.is_ok(), "$(env) extension should work");
+    let output = result.unwrap();
+    assert_xacro_contains!(output, "test_value_base");
+    // _guard automatically cleans up on drop
 }
 
 // ============================================================================
@@ -415,7 +424,10 @@ fn test_extension_three_parts_rejected() {
     let result = test_xacro(input);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("Extra parts") || err.contains("format"));
+    // New error format from extension handler
+    assert!(
+        err.contains("expects 1 argument") || err.contains("Extra parts") || err.contains("format")
+    );
 }
 
 /// Test that $(arg ...) extensions are resolved in xacro:if conditionals

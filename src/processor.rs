@@ -1,12 +1,13 @@
 use crate::{
     error::XacroError,
     expander::{expand_node, XacroContext},
+    extensions::ExtensionHandler,
     parse::xml::{extract_xacro_namespace, is_known_xacro_uri},
 };
 use xmltree::XMLNode;
 
-use core::str::FromStr;
-use std::collections::HashMap;
+use ::core::{cell::RefCell, str::FromStr};
+use std::{collections::HashMap, rc::Rc};
 use thiserror::Error;
 
 /// Error type for invalid compatibility mode strings
@@ -90,19 +91,62 @@ pub struct XacroProcessor {
     args: HashMap<String, String>,
     /// Python xacro compatibility modes
     compat_mode: CompatMode,
+    /// Extension handlers for $(command args...) resolution
+    extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
 }
 
-impl XacroProcessor {
-    /// Create a new xacro processor with default settings
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self::new_with_args(HashMap::new())
+/// Builder for configuring XacroProcessor with custom settings.
+///
+/// Provides a fluent API for setting optional parameters without constructor explosion.
+///
+/// # Example
+/// ```
+/// use xacro::XacroProcessor;
+///
+/// let processor = XacroProcessor::builder()
+///     .with_arg("robot_name", "my_robot")
+///     .with_arg("use_lidar", "true")
+///     .with_max_depth(100)
+///     .build();
+/// ```
+pub struct XacroBuilder {
+    args: HashMap<String, String>,
+    max_recursion_depth: usize,
+    compat_mode: CompatMode,
+    extensions: Option<Vec<Box<dyn ExtensionHandler>>>,
+}
+
+impl XacroBuilder {
+    /// Create a new builder with default settings.
+    fn new() -> Self {
+        Self {
+            args: HashMap::new(),
+            max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
+            compat_mode: CompatMode::none(),
+            extensions: None, // None = use default extensions
+        }
     }
 
-    /// Create a new xacro processor with CLI arguments
+    /// Add a single CLI argument.
     ///
-    /// # Arguments
-    /// * `args` - Map of argument names to values (from CLI key:=value format)
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_arg("scale", "0.5")
+    ///     .build();
+    /// ```
+    pub fn with_arg(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.args.insert(name.into(), value.into());
+        self
+    }
+
+    /// Add multiple CLI arguments from a HashMap.
     ///
     /// # Example
     /// ```
@@ -113,83 +157,194 @@ impl XacroProcessor {
     /// args.insert("scale".to_string(), "0.5".to_string());
     /// args.insert("prefix".to_string(), "robot_".to_string());
     ///
-    /// let processor = XacroProcessor::new_with_args(args);
+    /// let processor = XacroProcessor::builder()
+    ///     .with_args(args)
+    ///     .build();
     /// ```
-    pub fn new_with_args(args: HashMap<String, String>) -> Self {
-        Self::new_with_compat(args, false)
-    }
-
-    /// Create a new xacro processor with custom max recursion depth
-    ///
-    /// # Arguments
-    /// * `max_depth` - Maximum recursion depth before triggering error (recommended: 50-100)
-    ///
-    /// # Example
-    /// ```
-    /// use xacro::XacroProcessor;
-    /// let processor = XacroProcessor::new_with_depth(100);
-    /// ```
-    pub fn new_with_depth(max_depth: usize) -> Self {
-        Self {
-            max_recursion_depth: max_depth,
-            args: HashMap::new(),
-            compat_mode: CompatMode::none(),
-        }
-    }
-
-    /// Create a new xacro processor with CLI arguments and compat mode
-    ///
-    /// # Arguments
-    /// * `args` - Map of argument names to values (from CLI key:=value format)
-    /// * `compat` - Enable Python xacro compatibility mode (accept buggy inputs)
-    ///
-    /// # Example
-    /// ```
-    /// use xacro::XacroProcessor;
-    /// use std::collections::HashMap;
-    ///
-    /// let args = HashMap::new();
-    /// let processor = XacroProcessor::new_with_compat(args, true);
-    /// ```
-    pub fn new_with_compat(
+    pub fn with_args(
+        mut self,
         args: HashMap<String, String>,
-        compat: bool,
     ) -> Self {
-        Self {
-            max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
-            args,
-            compat_mode: if compat {
-                CompatMode::all()
-            } else {
-                CompatMode::none()
-            },
-        }
+        self.args.extend(args);
+        self
     }
 
-    /// Create a new xacro processor with specific compatibility modes
+    /// Set the maximum recursion depth.
     ///
-    /// # Arguments
-    /// * `args` - Map of argument names to values (from CLI key:=value format)
-    /// * `compat_mode` - Compatibility mode configuration
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_max_depth(100)
+    ///     .build();
+    /// ```
+    pub fn with_max_depth(
+        mut self,
+        max_depth: usize,
+    ) -> Self {
+        self.max_recursion_depth = max_depth;
+        self
+    }
+
+    /// Enable all compatibility modes.
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_compat_all()
+    ///     .build();
+    /// ```
+    pub fn with_compat_all(mut self) -> Self {
+        self.compat_mode = CompatMode::all();
+        self
+    }
+
+    /// Set a specific compatibility mode.
     ///
     /// # Example
     /// ```
     /// use xacro::{XacroProcessor, CompatMode};
-    /// use std::collections::HashMap;
     ///
-    /// let args = HashMap::new();
     /// let compat = "namespace,duplicate_params".parse().unwrap();
-    /// let processor = XacroProcessor::new_with_compat_mode(args, compat);
+    /// let processor = XacroProcessor::builder()
+    ///     .with_compat_mode(compat)
+    ///     .build();
     /// ```
-    pub fn new_with_compat_mode(
-        args: HashMap<String, String>,
-        compat_mode: CompatMode,
+    pub fn with_compat_mode(
+        mut self,
+        mode: CompatMode,
     ) -> Self {
-        Self {
-            max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
-            args,
-            compat_mode,
+        self.compat_mode = mode;
+        self
+    }
+
+    /// Add a custom extension handler.
+    ///
+    /// By default, the processor includes CwdExtension and EnvExtension.
+    /// Note: $(arg ...) is handled specially, not via an extension handler.
+    /// This method allows adding additional custom extensions without replacing the defaults.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use xacro::XacroProcessor;
+    /// use xacro::extensions::ExtensionHandler;
+    ///
+    /// struct MyExtension;
+    /// impl ExtensionHandler for MyExtension {
+    ///     fn resolve(&self, command: &str, args_raw: &str)
+    ///         -> Result<Option<String>, Box<dyn std::error::Error>> {
+    ///         if command == "my_ext" {
+    ///             Ok(Some(format!("Custom: {}", args_raw)))
+    ///         } else {
+    ///             Ok(None)
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_extension(Box::new(MyExtension))
+    ///     .build();
+    /// ```
+    pub fn with_extension(
+        mut self,
+        handler: Box<dyn ExtensionHandler>,
+    ) -> Self {
+        self.extensions
+            .get_or_insert_with(Self::default_extensions)
+            .push(handler);
+        self
+    }
+
+    /// Clear all extensions (including defaults).
+    ///
+    /// Use this if you want to provide a completely custom extension list
+    /// without any of the built-in extensions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .clear_extensions()
+    ///     .with_extension(Box::new(MyExtension))
+    ///     .build();
+    /// ```
+    pub fn clear_extensions(mut self) -> Self {
+        self.extensions = Some(Vec::new());
+        self
+    }
+
+    /// Build the XacroProcessor with the configured settings.
+    pub fn build(self) -> XacroProcessor {
+        let extensions = Rc::new(self.extensions.unwrap_or_else(Self::default_extensions));
+
+        XacroProcessor {
+            max_recursion_depth: self.max_recursion_depth,
+            args: self.args,
+            compat_mode: self.compat_mode,
+            extensions,
         }
+    }
+
+    /// Create default extension handlers (CwdExtension, EnvExtension).
+    ///
+    /// This delegates to the centralized `extensions::core::default_extensions()`.
+    /// ROS extensions (FindExtension, OptEnvExtension) are NOT included by default.
+    /// Library users should explicitly add them via builder pattern if needed.
+    /// The CLI binary adds ROS extensions automatically for user convenience.
+    ///
+    /// Note: $(arg ...) is handled specially in `EvalContext::resolve_extension()`
+    /// to ensure correct interaction with the shared arguments map.
+    fn default_extensions() -> Vec<Box<dyn ExtensionHandler>> {
+        crate::extensions::core::default_extensions()
+    }
+}
+
+impl Default for XacroProcessor {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+impl XacroProcessor {
+    /// Create a new builder for configuring the processor.
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_arg("robot_name", "my_robot")
+    ///     .with_max_depth(100)
+    ///     .build();
+    /// ```
+    pub fn builder() -> XacroBuilder {
+        XacroBuilder::new()
+    }
+
+    /// Create a new xacro processor with default settings.
+    ///
+    /// For custom configuration, use [`XacroProcessor::builder()`].
+    ///
+    /// # Example
+    /// ```
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::new();
+    /// let input = r#"<?xml version="1.0"?>
+    /// <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+    ///   <xacro:property name="value" value="42"/>
+    ///   <link name="base"><inertial><mass value="${value}"/></inertial></link>
+    /// </robot>"#;
+    /// let output = processor.run_from_string(input)?;
+    /// assert!(output.contains("mass value=\"42\""));
+    /// # Ok::<(), xacro::XacroError>(())
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Process xacro content from a file path
@@ -239,14 +394,20 @@ impl XacroProcessor {
         // "typo" URIs like xmlns:xacro="...#interface" that Python xacro accepts
         let xacro_ns = extract_xacro_namespace(&doc.root, self.compat_mode.namespace)?;
 
-        // Create expansion context with CLI arguments and compat mode
+        // Create expansion context with CLI arguments, compat mode, and extensions
         // Math constants (pi, e, tau, etc.) are automatically initialized by EvalContext::new()
         // CLI args are passed to the context and take precedence over XML defaults
-        let mut ctx = XacroContext::new_with_compat(
+        //
+        // Note: $(arg ...) is handled specially in resolve_extension using the shared
+        // args map, so ArgExtension is not included in the extensions list
+        let args_rc = Rc::new(RefCell::new(self.args.clone()));
+
+        let mut ctx = XacroContext::new_with_extensions(
             base_path.to_path_buf(),
             xacro_ns.clone(),
-            self.args.clone(),
+            args_rc,
             self.compat_mode,
+            self.extensions.clone(),
         );
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 

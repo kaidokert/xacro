@@ -17,6 +17,31 @@ use xmltree::Element;
 
 static INIT: Once = Once::new();
 
+/// RAII guard for environment variables that automatically cleans up on drop.
+///
+/// This ensures env vars are removed even if tests panic, preventing test pollution.
+/// Use this when tests need to temporarily set environment variables.
+pub struct EnvVarGuard {
+    name: String,
+}
+
+impl EnvVarGuard {
+    pub fn new(
+        name: impl Into<String>,
+        value: &str,
+    ) -> Self {
+        let name = name.into();
+        std::env::set_var(&name, value);
+        Self { name }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(&self.name);
+    }
+}
+
 /// Initialize test environment (logging, etc.).
 ///
 /// Call this at the start of tests that need logging output.
@@ -83,7 +108,10 @@ pub fn test_xacro_with_args(
     input: &str,
     args: HashMap<String, String>,
 ) -> Result<String, XacroError> {
-    XacroProcessor::new_with_args(args).run_from_string(input)
+    XacroProcessor::builder()
+        .with_args(args)
+        .build()
+        .run_from_string(input)
 }
 
 /// Process xacro with custom CLI arguments, expect success.
@@ -101,7 +129,10 @@ pub fn test_xacro_with_compat(
     input: &str,
     compat: CompatMode,
 ) -> Result<String, XacroError> {
-    XacroProcessor::new_with_compat_mode(HashMap::new(), compat).run_from_string(input)
+    XacroProcessor::builder()
+        .with_compat_mode(compat)
+        .build()
+        .run_from_string(input)
 }
 
 /// Process xacro with compatibility mode, expect success.

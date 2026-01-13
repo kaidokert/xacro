@@ -144,8 +144,12 @@ fn main() -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or_default();
 
-    // Process file with mappings and compat mode
-    let processor = xacro::XacroProcessor::new_with_compat_mode(mappings, compat_mode);
+    // Build processor with mappings and compat mode using builder pattern
+    let processor = xacro::XacroProcessor::builder()
+        .with_args(mappings)
+        .with_compat_mode(compat_mode)
+        .build();
+
     let result = processor
         .run(&args.input)
         .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;

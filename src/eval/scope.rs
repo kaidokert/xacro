@@ -4,6 +4,7 @@ use super::interpreter::{
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
+use crate::extensions::ExtensionHandler;
 use core::cell::RefCell;
 use pyisheval::Interpreter;
 use regex::Regex;
@@ -80,9 +81,13 @@ pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Each scope is a HashMap of parameter bindings for a macro call
     // Innermost scope is at the end of the vector
     scope_stack: RefCell<Vec<HashMap<String, String>>>,
-    // NEW: Shared reference to arguments map (injected from XacroContext)
+    // Shared reference to arguments map (injected from XacroContext)
     // Args are separate from properties and follow CLI-precedence semantics
     args: Rc<RefCell<HashMap<String, String>>>,
+    // Extension handlers for $(command args...) resolution
+    // Handlers are called in order until one returns Some(result)
+    // Wrapped in Rc for efficient sharing without cloning
+    extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
     // Python-compatible number formatting (compat feature)
     #[cfg(feature = "compat")]
     use_python_compat: bool,
@@ -182,6 +187,23 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
+        use crate::extensions::core::default_extensions;
+        let extensions = Rc::new(default_extensions());
+        Self::new_with_extensions(args, extensions)
+    }
+
+    /// Create a new EvalContext with custom extensions
+    ///
+    /// This constructor allows providing custom extension handlers,
+    /// which is used when XacroProcessor is configured with custom extensions.
+    ///
+    /// # Arguments
+    /// * `args` - Shared reference to the arguments map (CLI + XML args)
+    /// * `extensions` - Custom extension handlers (wrapped in Rc for sharing)
+    pub fn new_with_extensions(
+        args: Rc<RefCell<HashMap<String, String>>>,
+        extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+    ) -> Self {
         use super::interpreter::init_interpreter;
 
         let interpreter = RefCell::new(init_interpreter());
@@ -193,6 +215,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             resolution_stack: RefCell::new(Vec::new()),
             scope_stack: RefCell::new(Vec::new()),
             args,
+            extensions,
             #[cfg(feature = "compat")]
             use_python_compat: true, // Enabled by default when compat feature is active
             #[cfg(feature = "compat")]
@@ -648,78 +671,67 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        // Simple whitespace-based parser for extension arguments
-        // This is sufficient for `arg`, `find`, and `env` which expect single-token arguments
-        // Note: Does not support quoted arguments with spaces (unlike shlex.split)
+        // Parse extension command and args
+        // Format: "command arg1 arg2 ..."
         let mut parts_iter = content.split_whitespace();
 
-        // Extract extension type (required)
-        let ext_type = parts_iter
+        // Extract extension command (required)
+        let command = parts_iter
             .next()
             .ok_or_else(|| XacroError::InvalidExtension {
                 content: content.to_string(),
                 reason: "Extension cannot be empty: $()".to_string(),
             })?;
 
-        // Handle extensions that don't require arguments
-        match ext_type {
-            "cwd" => {
-                // $(cwd) returns the current working directory
-                // Matches Python xacro: os.path.abspath(root_dir) where root_dir defaults to os.curdir
-                if parts_iter.next().is_some() {
-                    return Err(XacroError::InvalidExtension {
-                        content: content.to_string(),
-                        reason: "$(cwd) extension does not take arguments".to_string(),
-                    });
-                }
-                return std::env::current_dir()
-                    .map(|p| p.display().to_string())
-                    .map_err(XacroError::from);
-            }
-            _ => {
-                // All other extensions require an argument
-            }
-        }
+        // Collect remaining parts as raw args string
+        let args_raw = parts_iter.collect::<Vec<_>>().join(" ");
 
-        // Extract argument name (required for remaining extensions)
-        let arg_name = parts_iter
-            .next()
-            .ok_or_else(|| XacroError::InvalidExtension {
-                content: content.to_string(),
-                reason: format!("Extension '{}' requires an argument.", ext_type),
+        // Handle $(arg ...) specially using self.args directly
+        // This ensures arg resolution uses the shared args map that gets modified
+        // by xacro:arg directives during expansion.
+        //
+        // IMPORTANT: This check runs BEFORE the extension handler chain, which means
+        // $(arg ...) cannot be overridden by custom extensions. This is intentional
+        // to guarantee correctness of argument handling and prevent shadowing of this
+        // core feature. See notes/EXTENSION_IMPL_ACTUAL.md for rationale.
+        if command == "arg" {
+            use crate::extensions::extension_utils;
+            let arg_parts = extension_utils::expect_args(&args_raw, "arg", 1).map_err(|e| {
+                XacroError::InvalidExtension {
+                    content: content.to_string(),
+                    reason: e.to_string(),
+                }
             })?;
 
-        // Validate no extra parts (rejects multi-word arguments like "foo bar")
-        if parts_iter.next().is_some() {
-            return Err(XacroError::InvalidExtension {
-                content: content.to_string(),
-                reason: "Extensions must have format: $(type arg). Extra parts found.".to_string(),
-            });
+            return self
+                .args
+                .borrow()
+                .get(&arg_parts[0])
+                .cloned()
+                .ok_or_else(|| XacroError::UndefinedArgument {
+                    name: arg_parts[0].clone(),
+                });
         }
 
-        match ext_type {
-            "arg" => {
-                // Lookup in args map
-                // Note: Circular dependencies are prevented by document-order eager evaluation.
-                // If arg A's default references arg B, B must be defined earlier in the document.
-                // Self-references like <xacro:arg name="a" default="$(arg a)"/> naturally fail
-                // with UndefinedArgument because 'a' doesn't exist yet when its default is evaluated.
-                self.args.borrow().get(arg_name).cloned().ok_or_else(|| {
-                    XacroError::UndefinedArgument {
-                        name: arg_name.to_string(),
-                    }
-                })
+        // Try each extension handler in order
+        for handler in self.extensions.iter() {
+            match handler.resolve(command, &args_raw) {
+                Ok(Some(result)) => return Ok(result),
+                Ok(None) => continue, // Try next handler
+                Err(e) => {
+                    // Handler recognized the command but resolution failed
+                    return Err(XacroError::InvalidExtension {
+                        content: content.to_string(),
+                        reason: e.to_string(),
+                    });
+                }
             }
-            "find" => Err(XacroError::UnimplementedFeature(
-                "$(find ...) extension not yet implemented".to_string(),
-            )),
-            "env" => Err(XacroError::UnimplementedFeature(
-                "$(env ...) extension not yet implemented".to_string(),
-            )),
-            _ => Err(XacroError::UnknownExtension {
-                ext_type: ext_type.to_string(),
-            }),
         }
+
+        // No handler recognized the command
+        Err(XacroError::UnknownExtension {
+            ext_type: command.to_string(),
+        })
     }
 
     /// Resolve only extensions `$(...)`, preserving expressions `${...}`

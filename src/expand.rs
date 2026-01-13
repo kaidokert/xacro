@@ -1,7 +1,8 @@
 //! Expansion state and context management
 
 use crate::{
-    error::XacroError, eval::EvalContext, parse::macro_def::MacroDefinition, processor::CompatMode,
+    error::XacroError, eval::EvalContext, extensions::ExtensionHandler,
+    parse::macro_def::MacroDefinition, processor::CompatMode,
 };
 use core::cell::RefCell;
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
@@ -47,40 +48,50 @@ impl XacroContext {
     /// Set conservatively to prevent stack overflow before the check triggers
     pub const DEFAULT_MAX_DEPTH: usize = 50;
 
-    /// Create a new context with the given base path
+    /// Create a new context with the given base path (for testing).
+    ///
+    /// This is a minimal constructor used by unit tests. Production code should use
+    /// `new_with_extensions()` which properly integrates with the extension system.
     pub fn new(
         base_path: PathBuf,
         xacro_ns: String,
     ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, HashMap::new(), CompatMode::none())
-    }
-
-    /// Create a new context with CLI arguments
-    ///
-    /// The args parameter is shared with the EvalContext for $(arg) resolution.
-    pub fn new_with_args(
-        base_path: PathBuf,
-        xacro_ns: String,
-        args: HashMap<String, String>,
-    ) -> Self {
-        Self::new_with_compat(base_path, xacro_ns, args, CompatMode::none())
-    }
-
-    /// Create a new context with compatibility mode
-    ///
-    /// The compat_mode parameter enables Python xacro compatibility features.
-    /// The args parameter is shared with the EvalContext for $(arg) resolution.
-    pub fn new_with_compat(
-        base_path: PathBuf,
-        xacro_ns: String,
-        args: HashMap<String, String>,
-        compat_mode: CompatMode,
-    ) -> Self {
-        // Wrap args in Rc<RefCell<...>> for shared mutable access
-        let args = Rc::new(RefCell::new(args));
+        let args = Rc::new(RefCell::new(HashMap::new()));
+        let extensions = Rc::new(Vec::new()); // Empty extensions for tests
 
         XacroContext {
-            properties: EvalContext::new_with_args(args.clone()),
+            properties: EvalContext::new_with_extensions(args.clone(), extensions),
+            macros: RefCell::new(HashMap::new()),
+            args,
+            include_stack: RefCell::new(Vec::new()),
+            namespace_stack: RefCell::new(vec![(base_path.clone(), xacro_ns)]),
+            block_stack: RefCell::new(Vec::new()),
+            base_path: RefCell::new(base_path),
+            recursion_depth: RefCell::new(0),
+            max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
+            compat_mode: CompatMode::none(),
+        }
+    }
+
+    /// Create a new context with custom extensions
+    ///
+    /// This constructor allows providing custom extension handlers.
+    ///
+    /// # Arguments
+    /// * `base_path` - Base path for resolving relative includes
+    /// * `xacro_ns` - Xacro namespace prefix
+    /// * `args` - Shared reference to CLI arguments (wrapped in Rc<RefCell<...>>)
+    /// * `compat_mode` - Compatibility mode
+    /// * `extensions` - Custom extension handlers (wrapped in Rc for sharing)
+    pub fn new_with_extensions(
+        base_path: PathBuf,
+        xacro_ns: String,
+        args: Rc<RefCell<HashMap<String, String>>>,
+        compat_mode: CompatMode,
+        extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+    ) -> Self {
+        XacroContext {
+            properties: EvalContext::new_with_extensions(args.clone(), extensions),
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),

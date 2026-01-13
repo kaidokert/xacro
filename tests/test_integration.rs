@@ -620,7 +620,7 @@ fn test_insert_block_undefined_name() {
 #[test]
 fn test_custom_max_recursion_depth() {
     // Create processor with very low depth limit
-    let processor = XacroProcessor::new_with_depth(5);
+    let processor = XacroProcessor::builder().with_max_depth(5).build();
 
     // Create deeply nested macro calls that exceed depth of 5
     let input = r#"<?xml version="1.0"?>
