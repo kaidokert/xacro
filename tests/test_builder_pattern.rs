@@ -1,3 +1,5 @@
+mod common;
+use common::*;
 use xacro::{extensions::ExtensionHandler, XacroProcessor};
 
 /// Test extension that returns a fixed value
@@ -60,7 +62,9 @@ fn test_builder_with_arg() {
     let result = processor.run_from_string(input);
     assert!(result.is_ok());
     let output = result.unwrap();
-    assert!(output.contains("my_robot_base"));
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "my_robot_base");
 }
 
 #[test]
@@ -99,7 +103,9 @@ fn test_builder_with_custom_extension() {
     let result = processor.run_from_string(input);
     assert!(result.is_ok());
     let output = result.unwrap();
-    assert!(output.contains("TEST:foo bar_link"));
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "TEST:foo bar_link");
 }
 
 #[test]
@@ -117,7 +123,9 @@ fn test_builder_clear_extensions_and_add_custom() {
     let result = processor.run_from_string(input);
     assert!(result.is_ok());
     let output = result.unwrap();
-    assert!(output.contains("TEST:hello world_link"));
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "TEST:hello world_link");
 }
 
 #[test]
@@ -155,7 +163,9 @@ fn test_builder_chaining() {
     let result = processor.run_from_string(input);
     assert!(result.is_ok());
     let output = result.unwrap();
-    assert!(output.contains("robot_TEST:custom"));
+    let root = parse_xml(&output);
+    let link = root.get_child("link").expect("Should have a link element");
+    assert_eq!(get_attr(link, "name"), "robot_TEST:custom");
 }
 
 #[test]
