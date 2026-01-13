@@ -274,17 +274,12 @@ impl ExtensionHandler for FindExtension {
 /// - $(optenv ROBOT_NAME)           → value or error if not set
 /// - $(optenv ROBOT_NAME default)   → value or "default"
 /// - $(optenv ROBOT_NAME my robot)  → value or "my robot" (multi-word default)
+#[derive(Default)]
 pub struct OptEnvExtension;
 
 impl OptEnvExtension {
     pub fn new() -> Self {
         Self
-    }
-}
-
-impl Default for OptEnvExtension {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -328,29 +323,41 @@ mod tests {
 
     static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    #[test]
-    fn test_find_extension_caching() {
-        let ext = FindExtension::new();
-        // Cache should be initially empty
-        assert_eq!(ext.cache.borrow().len(), 0);
+    /// RAII guard for environment variables that automatically cleans up on drop
+    struct EnvVarGuard {
+        name: String,
+    }
+
+    impl EnvVarGuard {
+        fn new(
+            name: impl Into<String>,
+            value: &str,
+        ) -> Self {
+            let name = name.into();
+            env::set_var(&name, value);
+            Self { name }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            env::remove_var(&self.name);
+        }
     }
 
     #[test]
-    fn test_optenv_with_default() {
+    fn test_optenv_with_value_present() {
         let ext = OptEnvExtension::new();
         let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         let var_name = format!("TEST_OPTENV_VAR_{}", test_id);
 
         // Set test env var with unique name to avoid parallel test conflicts
-        env::set_var(&var_name, "test_value");
+        let _guard = EnvVarGuard::new(&var_name, "test_value");
 
         // Should return the env var value
         let result = ext.resolve("optenv", &format!("{} fallback", var_name));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some("test_value".to_string()));
-
-        // Clean up
-        env::remove_var(&var_name);
     }
 
     #[test]

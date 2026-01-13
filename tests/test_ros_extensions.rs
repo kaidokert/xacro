@@ -4,6 +4,7 @@ mod common;
 use common::{get_attr, parse_xml, EnvVarGuard};
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use xacro::{extensions::ros::*, XacroProcessor};
 
@@ -160,7 +161,11 @@ fn test_find_extension_with_ros_package_path() {
         filename.starts_with(&package_dir.display().to_string()),
         "Mesh filename should start with package directory"
     );
-    assert!(filename.ends_with("/meshes/base.stl"));
+    let expected_suffix = Path::new("meshes").join("base.stl");
+    assert!(
+        Path::new(&filename).ends_with(&expected_suffix),
+        "Mesh filename should end with meshes/base.stl"
+    );
 
     // Clean up
     let _ = fs::remove_dir_all(&temp_dir);
@@ -305,7 +310,11 @@ fn test_find_and_optenv_combined() {
         filename.starts_with(&package_dir.display().to_string()),
         "Mesh filename should start with package directory"
     );
-    assert!(filename.ends_with("/meshes/visual.stl"));
+    let expected_suffix = Path::new("meshes").join("visual.stl");
+    assert!(
+        Path::new(&filename).ends_with(&expected_suffix),
+        "Mesh filename should end with meshes/visual.stl"
+    );
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
