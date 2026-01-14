@@ -218,17 +218,11 @@ impl FindExtension {
         search_paths: &[PathBuf],
     ) -> Option<PathBuf> {
         // FIRST: Check explicit package map (override semantics for hermetic builds)
+        // Trust the explicit mapping without validation - if user says this is the package path, accept it
         if let Some(path) = self.get_package_from_map(package_name) {
-            // Validate path exists and is a ROS package
-            if path.exists() && Self::is_ros_package(&path) {
-                // Verify package name matches (prevents misconfiguration)
-                if let Some(actual_name) = Self::read_package_name(&path) {
-                    if actual_name == package_name {
-                        return Some(path);
-                    }
-                }
+            if path.exists() {
+                return Some(path);
             }
-            // Path invalid or package name mismatch - fall through to normal discovery
         }
 
         // THEN: Standard ROS discovery (ROS_PACKAGE_PATH, etc.)
