@@ -5,6 +5,63 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+/// Evaluate string literal to appropriate type (Python xacro compatibility)
+///
+/// Implements Python xacro's `Table._eval_literal()` type coercion logic
+/// (ref/xacro/src/xacro/__init__.py:333-349).
+///
+/// Conversion order (same as Python xacro):
+/// 1. Strip surrounding single quotes from quoted strings (e.g., "'hello'" → "hello")
+/// 2. Skip strings with underscores (likely variable names, not literals)
+/// 3. Try numeric parsing (e.g., "123" → 123.0, "3.14" → 3.14)
+/// 4. Try boolean parsing (e.g., "True" → 1.0, "False" → 0.0)
+/// 5. Fall back to string
+///
+/// # Arguments
+/// * `value` - String value to convert
+///
+/// # Returns
+/// Converted value as pyisheval::Value
+///
+/// # Examples
+/// ```text
+/// eval_literal("123") → Value::Number(123.0)
+/// eval_literal("3.14") → Value::Number(3.14)
+/// eval_literal("True") → Value::Number(1.0)
+/// eval_literal("False") → Value::Number(0.0)
+/// eval_literal("hello") → Value::StringLit("hello")
+/// eval_literal("'quoted'") → Value::StringLit("quoted")  // strip quotes
+/// ```
+fn eval_literal(value: &str) -> Value {
+    let value = value.trim();
+
+    // Strip surrounding single quotes from quoted strings
+    if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
+        return Value::StringLit(value[1..value.len() - 1].to_string());
+    }
+
+    // Skip strings with underscores (likely variable names, not literals)
+    if value.contains('_') {
+        return Value::StringLit(value.to_string());
+    }
+
+    // Try float parsing (handles both integers and floats)
+    if let Ok(f) = value.parse::<f64>() {
+        return Value::Number(f);
+    }
+
+    // Try boolean (matches Python xacro's get_boolean_value logic)
+    if value == "True" || value == "true" {
+        return Value::Number(1.0);
+    }
+    if value == "False" || value == "false" {
+        return Value::Number(0.0);
+    }
+
+    // Fall back to string
+    Value::StringLit(value.to_string())
+}
+
 /// Find matching closing parenthesis, handling nested parentheses
 ///
 /// # Arguments
@@ -343,50 +400,59 @@ pub fn build_pyisheval_context(
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
-            // Load both numeric and string properties into interpreter
-            if let Ok(num) = value.parse::<f64>() {
-                // Special handling for inf/nan so lambdas can reference them
-                if num.is_infinite() {
-                    // Use 10**400 to create infinity (pyisheval can't parse "inf" literal)
-                    let sign = if num.is_sign_negative() { "-" } else { "" };
-                    let expr = format!("{} = {}10 ** 400", name, sign);
+            // Apply Python xacro's type coercion logic
+            match eval_literal(value) {
+                Value::Number(num) => {
+                    // Special handling for inf/nan so lambdas can reference them
+                    if num.is_infinite() {
+                        // Use 10**400 to create infinity (pyisheval can't parse "inf" literal)
+                        let sign = if num.is_sign_negative() { "-" } else { "" };
+                        let expr = format!("{} = {}10 ** 400", name, sign);
+                        interp
+                            .eval(&expr)
+                            .map_err(|e| EvalError::PyishEval { expr, source: e })?;
+                        continue;
+                    }
+                    if num.is_nan() {
+                        // LIMITATION: Cannot create NaN in pyisheval (0.0/0.0 triggers DivisionByZero)
+                        // Lambdas that reference NaN properties will fail with "undefined variable"
+                        log::warn!(
+                            "Property '{}' has NaN value, which cannot be loaded into interpreter. \
+                             Lambda expressions referencing this property will fail.",
+                            name
+                        );
+                        continue;
+                    }
+                    // Numeric property (including boolean True=1.0, False=0.0): load as number
+                    interp.eval(&format!("{} = {}", name, num)).map_err(|e| {
+                        EvalError::PyishEval {
+                            expr: format!("{} = {}", name, num),
+                            source: e,
+                        }
+                    })?;
+                }
+                Value::StringLit(s) if !s.is_empty() => {
+                    // String property: load as quoted string literal
+                    // Skip empty strings as pyisheval can't parse ''
+                    // Escape backslashes first, then single quotes (order matters!)
+                    // This handles Windows paths (C:\Users), regex patterns, etc.
+                    let escaped_value = s.replace('\\', "\\\\").replace('\'', "\\'");
                     interp
-                        .eval(&expr)
-                        .map_err(|e| EvalError::PyishEval { expr, source: e })?;
-                    continue;
+                        .eval(&format!("{} = '{}'", name, escaped_value))
+                        .map_err(|e| EvalError::PyishEval {
+                            expr: format!("{} = '{}'", name, escaped_value),
+                            source: e,
+                        })?;
                 }
-                if num.is_nan() {
-                    // LIMITATION: Cannot create NaN in pyisheval (0.0/0.0 triggers DivisionByZero)
-                    // Lambdas that reference NaN properties will fail with "undefined variable"
-                    log::warn!(
-                        "Property '{}' has NaN value, which cannot be loaded into interpreter. \
-                         Lambda expressions referencing this property will fail.",
-                        name
-                    );
-                    continue;
+                Value::StringLit(_) => {
+                    // Empty string - skip in first pass (pyisheval can't handle '')
+                    // Will be stored as Value::StringLit("") in the second pass
                 }
-                // Numeric property: load as number
-                interp
-                    .eval(&format!("{} = {}", name, num))
-                    .map_err(|e| EvalError::PyishEval {
-                        expr: format!("{} = {}", name, num),
-                        source: e,
-                    })?;
-            } else if !value.is_empty() {
-                // String property: load as quoted string literal
-                // Skip empty strings as pyisheval can't parse ''
-                // Escape backslashes first, then single quotes (order matters!)
-                // This handles Windows paths (C:\Users), regex patterns, etc.
-                let escaped_value = value.replace('\\', "\\\\").replace('\'', "\\'");
-                interp
-                    .eval(&format!("{} = '{}'", name, escaped_value))
-                    .map_err(|e| EvalError::PyishEval {
-                        expr: format!("{} = '{}'", name, escaped_value),
-                        source: e,
-                    })?;
+                _ => {
+                    // Other value types (shouldn't happen with eval_literal, but be safe)
+                    log::warn!("Unexpected value type for property '{}': {:?}", name, value);
+                }
             }
-            // Empty strings are skipped in first pass (pyisheval can't handle '')
-            // They'll be stored as Value::StringLit("") in the second pass
         }
     }
 
@@ -394,12 +460,7 @@ pub fn build_pyisheval_context(
     let mut context: HashMap<String, Value> = properties
         .iter()
         .map(|(name, value)| -> Result<(String, Value), EvalError> {
-            // Try to parse as number first
-            if let Ok(num) = value.parse::<f64>() {
-                return Ok((name.clone(), Value::Number(num)));
-            }
-
-            // Check if it's a lambda expression
+            // Check if it's a lambda expression (check before eval_literal to avoid treating it as string)
             let trimmed = value.trim();
             if trimmed.starts_with("lambda ") {
                 // Evaluate and assign the lambda expression to the variable name
@@ -452,8 +513,8 @@ pub fn build_pyisheval_context(
                     }
                 }
             } else {
-                // Value doesn't look like a Python literal, treat as string
-                Ok((name.clone(), Value::StringLit(value.clone())))
+                // Apply Python xacro's type coercion for literals (int/float/boolean)
+                Ok((name.clone(), eval_literal(value)))
             }
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
@@ -1426,5 +1487,152 @@ mod tests {
             Some(Value::Number(142.0)),
             "Should be able to use min and max in expressions"
         );
+    }
+
+    // TEST: Type coercion for True/False constants
+    #[test]
+    fn test_eval_literal_boolean_true() {
+        let result = eval_literal("True");
+        assert!(
+            matches!(result, Value::Number(n) if (n - 1.0).abs() < 1e-10),
+            "True should convert to 1.0, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_boolean_false() {
+        let result = eval_literal("False");
+        assert!(
+            matches!(result, Value::Number(n) if n.abs() < 1e-10),
+            "False should convert to 0.0, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_boolean_lowercase_true() {
+        let result = eval_literal("true");
+        assert!(
+            matches!(result, Value::Number(n) if (n - 1.0).abs() < 1e-10),
+            "true should convert to 1.0, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_boolean_lowercase_false() {
+        let result = eval_literal("false");
+        assert!(
+            matches!(result, Value::Number(n) if n.abs() < 1e-10),
+            "false should convert to 0.0, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_int() {
+        let result = eval_literal("123");
+        assert!(
+            matches!(result, Value::Number(n) if (n - 123.0).abs() < 1e-10),
+            "Integer string should convert to float, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_float() {
+        let result = eval_literal("3.14");
+        assert!(
+            matches!(result, Value::Number(n) if (n - 3.14).abs() < 1e-10),
+            "Float string should convert to float, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_quoted_string() {
+        let result = eval_literal("'hello'");
+        assert_eq!(
+            result,
+            Value::StringLit("hello".to_string()),
+            "Quoted string should strip quotes"
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_underscore_string() {
+        let result = eval_literal("foo_bar");
+        assert_eq!(
+            result,
+            Value::StringLit("foo_bar".to_string()),
+            "String with underscore should remain string (likely variable name)"
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_unparseable_string() {
+        let result = eval_literal("hello");
+        assert_eq!(
+            result,
+            Value::StringLit("hello".to_string()),
+            "Unparseable string should remain string"
+        );
+    }
+
+    #[test]
+    fn test_eval_literal_empty_string() {
+        let result = eval_literal("");
+        assert_eq!(
+            result,
+            Value::StringLit("".to_string()),
+            "Empty string should remain empty string"
+        );
+    }
+
+    // Integration test: True/False in properties
+    #[test]
+    fn test_true_false_in_properties() {
+        let mut props = HashMap::new();
+        props.insert("flag".to_string(), "True".to_string());
+        props.insert("disabled".to_string(), "False".to_string());
+
+        // Test that properties are converted to numbers
+        let result = eval_text("${flag}", &props).unwrap();
+        assert_eq!(result, "1", "True converts to 1");
+
+        let result = eval_text("${disabled}", &props).unwrap();
+        assert_eq!(result, "0", "False converts to 0");
+
+        // Test numeric comparisons (True=1.0, False=0.0)
+        let result = eval_text("${flag == 1}", &props).unwrap();
+        assert_eq!(result, "1", "True should equal 1 (returns 1 for true)");
+
+        let result = eval_text("${disabled == 0}", &props).unwrap();
+        assert_eq!(result, "1", "False should equal 0 (returns 1 for true)");
+
+        // Test boolean in conditional
+        let result = eval_text("${1 if flag else 0}", &props).unwrap();
+        assert_eq!(result, "1", "True (1.0) should evaluate as truthy");
+
+        let result = eval_text("${1 if disabled else 0}", &props).unwrap();
+        assert_eq!(result, "0", "False (0.0) should evaluate as falsy");
+    }
+
+    // Integration test: Comparing boolean properties
+    #[test]
+    fn test_true_false_property_comparison() {
+        let mut props = HashMap::new();
+        props.insert("enabled".to_string(), "True".to_string());
+        props.insert("also_enabled".to_string(), "True".to_string());
+        props.insert("disabled".to_string(), "False".to_string());
+
+        // Compare two properties with same value (returns 1 for true comparison)
+        let result = eval_text("${enabled == also_enabled}", &props).unwrap();
+        assert_eq!(result, "1", "1.0 should equal 1.0");
+
+        // Compare properties with different values (returns 0 for false comparison)
+        let result = eval_text("${enabled == disabled}", &props).unwrap();
+        assert_eq!(result, "0", "1.0 should not equal 0.0");
     }
 }
