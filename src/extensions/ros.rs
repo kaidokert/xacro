@@ -11,6 +11,12 @@ use std::{
 };
 use xmltree::Element;
 
+// Platform-specific path separator for RUST_XACRO_PACKAGE_MAP
+#[cfg(windows)]
+const PATH_LIST_SEPARATOR: char = ';';
+#[cfg(not(windows))]
+const PATH_LIST_SEPARATOR: char = ':';
+
 /// Extension for $(find package_name) - finds ROS package paths
 ///
 /// Resolution strategy:
@@ -26,6 +32,8 @@ pub struct FindExtension {
     cache: RefCell<HashMap<String, PathBuf>>,
     /// Search paths (from ROS_PACKAGE_PATH + workspace discovery)
     search_paths: RefCell<Option<Vec<PathBuf>>>,
+    /// Package map from RUST_XACRO_PACKAGE_MAP environment variable (lazy-loaded)
+    package_map: RefCell<Option<HashMap<String, PathBuf>>>,
 }
 
 impl FindExtension {
@@ -36,6 +44,7 @@ impl FindExtension {
         Self {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(None),
+            package_map: RefCell::new(None),
         }
     }
 
@@ -47,6 +56,7 @@ impl FindExtension {
         Self {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(Some(search_paths)),
+            package_map: RefCell::new(None),
         }
     }
 
@@ -83,6 +93,53 @@ impl FindExtension {
         *self.search_paths.borrow_mut() = Some(paths.clone());
 
         paths
+    }
+
+    /// Get package path from explicit package map (if configured).
+    ///
+    /// Format: `pkg1=/path1<SEP>pkg2=/path2` where `<SEP>` is:
+    /// - `:` on Unix/Linux/macOS
+    /// - `;` on Windows (platform-specific PATH separator)
+    ///
+    /// This provides hermetic package resolution by explicitly mapping
+    /// package names to filesystem paths. When a package is found in this map,
+    /// it overrides automatic ROS discovery mechanisms.
+    ///
+    /// Note: Package names cannot contain `=`. Paths can contain `=`, as only
+    /// the first `=` in an entry is used as a separator. This is acceptable
+    /// because ROS package names follow Python identifier rules (`[a-z0-9_]`).
+    fn get_package_from_map(
+        &self,
+        package_name: &str,
+    ) -> Option<PathBuf> {
+        // Check cache first
+        {
+            let map_ref = self.package_map.borrow();
+            if let Some(ref map) = *map_ref {
+                return map.get(package_name).cloned();
+            }
+        }
+
+        // Parse environment variable and cache
+        let map: HashMap<String, PathBuf> = env::var("RUST_XACRO_PACKAGE_MAP")
+            .unwrap_or_default()
+            .split(PATH_LIST_SEPARATOR) // Cross-platform: ':' on Unix, ';' on Windows
+            .filter_map(|entry| {
+                entry.split_once('=').and_then(|(name, path)| {
+                    let name = name.trim();
+                    let path = path.trim();
+                    if name.is_empty() || path.is_empty() {
+                        None
+                    } else {
+                        Some((name.to_string(), PathBuf::from(path)))
+                    }
+                })
+            })
+            .collect();
+
+        let result = map.get(package_name).cloned();
+        *self.package_map.borrow_mut() = Some(map);
+        result
     }
 
     /// Find workspace root by looking for markers (.catkin_workspace, install/, build/)
@@ -148,7 +205,10 @@ impl FindExtension {
 
     /// Search for a package in the given search paths
     ///
-    /// A ROS package is normally identified by package.xml or manifest.xml.
+    /// Resolution order:
+    /// 1. Check RUST_XACRO_PACKAGE_MAP for a valid override; fall through if invalid
+    /// 2. Search ROS_PACKAGE_PATH directories for package.xml/manifest.xml
+    ///
     /// When ROS_PACKAGE_PATH contains direct package directories, we check
     /// the package metadata to get the actual package name (since directory
     /// names may differ, e.g., "tams_apriltags-master" for "tams_apriltags").
@@ -157,6 +217,21 @@ impl FindExtension {
         package_name: &str,
         search_paths: &[PathBuf],
     ) -> Option<PathBuf> {
+        // FIRST: Check explicit package map (override semantics for hermetic builds)
+        if let Some(path) = self.get_package_from_map(package_name) {
+            // Validate path exists and is a ROS package
+            if path.exists() && Self::is_ros_package(&path) {
+                // Verify package name matches (prevents misconfiguration)
+                if let Some(actual_name) = Self::read_package_name(&path) {
+                    if actual_name == package_name {
+                        return Some(path);
+                    }
+                }
+            }
+            // Path invalid or package name mismatch - fall through to normal discovery
+        }
+
+        // THEN: Standard ROS discovery (ROS_PACKAGE_PATH, etc.)
         for search_path in search_paths {
             // Check if search_path itself is the package (self-match)
             // Verify package name from metadata to ensure correctness
