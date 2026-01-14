@@ -2375,3 +2375,51 @@ fn test_cwd_iterative_substitution() {
         "All placeholders should be fully expanded"
     );
 }
+
+#[test]
+fn test_multiline_attribute_whitespace_normalization() {
+    // Regression test for bug found in Tier 2 corpus validation:
+    // testdata/crossref/205f44300b7d740d_8ebb958f/delta.c14n.diff
+    //
+    // When attribute values contain literal newlines (from multiline expressions),
+    // Python xacro normalizes ALL whitespace to single spaces per XML spec.
+    // Rust xacro now does the same (fixed by normalize_attribute_whitespace).
+    //
+    // Before fix: xyz="-0.59055 &#10; 0 &#10; 0.079375" (escaped newlines)
+    // After fix:  xyz="-0.59055 0 0.079375" (normalized, matches Python xacro)
+    //
+    // XML spec: Whitespace in attribute values should be normalized before serialization.
+    // Fix location: src/expander.rs (normalize_attribute_whitespace function)
+
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="x" value="-0.59055"/>
+  <xacro:property name="y" value="0"/>
+  <xacro:property name="z" value="0.079375"/>
+
+  <link name="test">
+    <!-- Multiline attribute value (literal newlines in input) -->
+    <visual>
+      <origin xyz="${x}
+                   ${y}
+                   ${z}" rpy="0 0 0"/>
+    </visual>
+  </link>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse XML and verify attribute value directly
+    let root = parse_xml(&result);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let origin = find_child(visual, "origin");
+
+    // Should have normalized whitespace (multiple spaces/newlines -> single space)
+    assert_xacro_attr!(
+        origin,
+        "xyz",
+        "-0.59055 0 0.079375",
+        "Attribute whitespace should be normalized to single spaces"
+    );
+}

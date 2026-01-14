@@ -28,6 +28,19 @@ pub use crate::expand::XacroContext;
 // Import directive constants from single source of truth
 use crate::directives::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES};
 
+/// Normalize whitespace in attribute values per XML specification.
+///
+/// XML attributes should have whitespace normalized:
+/// - All whitespace characters (space, tab, newline, carriage return) → single space
+/// - Multiple consecutive spaces → single space
+/// - Leading/trailing whitespace is trimmed
+///
+/// This matches Python xacro behavior and ensures multiline attribute values
+/// (from expressions spanning multiple lines) are properly normalized.
+fn normalize_attribute_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 // ============================================================================
 // RAII Guards for Panic-Safe Stack Management
 // ============================================================================
@@ -525,7 +538,8 @@ fn expand_element(
         //   <xacro:inner prefix="${prefix}"/>  <!-- ${prefix} evaluated here -->
         // </xacro:macro>
         for attr_value in elem.attributes.values_mut() {
-            *attr_value = ctx.properties.substitute_all(attr_value)?;
+            let substituted = ctx.properties.substitute_all(attr_value)?;
+            *attr_value = normalize_attribute_whitespace(&substituted);
         }
 
         let expanded_nodes = expand_macro_call(&elem, ctx)?;
@@ -535,8 +549,10 @@ fn expand_element(
 
     // 8. Regular elements: Substitute attributes and recurse to children
     // Substitute both ${...} expressions and $(...) extensions in all attributes
+    // and normalize whitespace per XML spec (newlines/tabs -> spaces)
     for attr_value in elem.attributes.values_mut() {
-        *attr_value = ctx.properties.substitute_all(attr_value)?;
+        let substituted = ctx.properties.substitute_all(attr_value)?;
+        *attr_value = normalize_attribute_whitespace(&substituted);
     }
 
     // Recursively expand children
