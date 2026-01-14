@@ -218,17 +218,21 @@ impl FindExtension {
         search_paths: &[PathBuf],
     ) -> Option<PathBuf> {
         // FIRST: Check explicit package map (override semantics for hermetic builds)
+        // Trust the explicit mapping without ROS package validation.
+        // Accepts any existing directory, including:
+        // - Data-only directories (no package.xml)
+        // - Custom hermetic build layouts
+        // - Test fixtures
         if let Some(path) = self.get_package_from_map(package_name) {
-            // Validate path exists and is a ROS package
-            if path.exists() && Self::is_ros_package(&path) {
-                // Verify package name matches (prevents misconfiguration)
-                if let Some(actual_name) = Self::read_package_name(&path) {
-                    if actual_name == package_name {
-                        return Some(path);
-                    }
-                }
+            if path.is_dir() {
+                return Some(path);
             }
-            // Path invalid or package name mismatch - fall through to normal discovery
+            // Warn on misconfiguration: mapped path doesn't exist or isn't a directory
+            log::warn!(
+                "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
+                package_name,
+                path.display()
+            );
         }
 
         // THEN: Standard ROS discovery (ROS_PACKAGE_PATH, etc.)
