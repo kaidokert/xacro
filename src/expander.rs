@@ -33,18 +33,12 @@ use crate::directives::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES};
 /// XML attributes should have whitespace normalized:
 /// - All whitespace characters (space, tab, newline, carriage return) → single space
 /// - Multiple consecutive spaces → single space
-/// - Leading/trailing whitespace preserved (not trimmed)
+/// - Leading/trailing whitespace is trimmed
 ///
 /// This matches Python xacro behavior and ensures multiline attribute values
 /// (from expressions spanning multiple lines) are properly normalized.
 fn normalize_attribute_whitespace(value: &str) -> String {
-    value
-        .chars()
-        .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 // ============================================================================

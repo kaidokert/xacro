@@ -2385,14 +2385,11 @@ fn test_multiline_attribute_whitespace_normalization() {
     // Python xacro normalizes ALL whitespace to single spaces per XML spec.
     // Rust xacro now does the same (fixed by normalize_attribute_whitespace).
     //
-    // Expected behavior (Python xacro):
-    //   xyz="-0.59055 0 0.079375"  (spaces only)
-    //
-    // Current behavior (Rust xacro):
-    //   xyz="-0.59055 &#10; 0 &#10; 0.079375"  (escaped newlines)
+    // Before fix: xyz="-0.59055 &#10; 0 &#10; 0.079375" (escaped newlines)
+    // After fix:  xyz="-0.59055 0 0.079375" (normalized, matches Python xacro)
     //
     // XML spec: Whitespace in attribute values should be normalized before serialization.
-    // Fix location: src/parse/document.rs (XML serialization)
+    // Fix location: src/expander.rs (normalize_attribute_whitespace function)
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -2412,15 +2409,17 @@ fn test_multiline_attribute_whitespace_normalization() {
 
     let result = run_xacro(input);
 
-    // Should normalize whitespace to single spaces
-    assert!(
-        !result.contains("&#10;") && !result.contains("&#xA;"),
-        "Attribute values should not contain escaped newlines"
-    );
+    // Parse XML and verify attribute value directly
+    let root = parse_xml(&result);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let origin = find_child(visual, "origin");
 
     // Should have normalized whitespace (multiple spaces/newlines -> single space)
-    assert!(
-        result.contains(r#"xyz="-0.59055 0 0.079375""#),
+    assert_xacro_attr!(
+        origin,
+        "xyz",
+        "-0.59055 0 0.079375",
         "Attribute whitespace should be normalized to single spaces"
     );
 }
