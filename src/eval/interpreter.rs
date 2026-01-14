@@ -36,8 +36,8 @@ fn eval_literal(value: &str) -> Value {
     let value = value.trim();
 
     // Strip surrounding single quotes from quoted strings
-    if value.len() >= 2 && value.starts_with('\'') && value.ends_with('\'') {
-        return Value::StringLit(value[1..value.len() - 1].to_string());
+    if let Some(unquoted) = value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        return Value::StringLit(unquoted.to_string());
     }
 
     // Skip strings with underscores (likely variable names, not literals)
@@ -51,15 +51,11 @@ fn eval_literal(value: &str) -> Value {
     }
 
     // Try boolean (matches Python xacro's get_boolean_value logic)
-    if value == "True" || value == "true" {
-        return Value::Number(1.0);
+    match value {
+        "True" | "true" => Value::Number(1.0),
+        "False" | "false" => Value::Number(0.0),
+        _ => Value::StringLit(value.to_string()),
     }
-    if value == "False" || value == "false" {
-        return Value::Number(0.0);
-    }
-
-    // Fall back to string
-    Value::StringLit(value.to_string())
 }
 
 /// Find matching closing parenthesis, handling nested parentheses

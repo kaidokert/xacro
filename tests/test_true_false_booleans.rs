@@ -76,12 +76,15 @@ fn test_lowercase_true_false() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let root = run_xacro_to_xml(input);
 
-    assert_xacro_contains!(output, r#"<link name="enabled""#);
+    // Should have <link name="enabled">
+    let enabled = root
+        .children
+        .iter()
+        .filter_map(|n| n.as_element())
+        .find(|e| e.name == "link" && get_attr_opt(e, "name") == Some("enabled"));
+    assert!(enabled.is_some(), "Should contain <link name=\"enabled\">");
 }
 
 /// Test True/False in conditionals
@@ -195,12 +198,18 @@ fn test_true_false_macro_parameters() {
   <xacro:test_macro enabled="True"/>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let root = run_xacro_to_xml(input);
 
-    assert_xacro_contains!(output, r#"<link name="macro_enabled""#);
+    // Should have <link name="macro_enabled">
+    let macro_enabled = root
+        .children
+        .iter()
+        .filter_map(|n| n.as_element())
+        .find(|e| e.name == "link" && get_attr_opt(e, "name") == Some("macro_enabled"));
+    assert!(
+        macro_enabled.is_some(),
+        "Should contain <link name=\"macro_enabled\">"
+    );
 }
 
 /// Test True/False with NOT operator
@@ -215,12 +224,18 @@ fn test_true_false_with_not() {
   </xacro:if>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let root = run_xacro_to_xml(input);
 
-    assert_xacro_contains!(output, r#"<link name="enabled_by_not""#);
+    // Should have <link name="enabled_by_not">
+    let link = root
+        .children
+        .iter()
+        .filter_map(|n| n.as_element())
+        .find(|e| e.name == "link" && get_attr_opt(e, "name") == Some("enabled_by_not"));
+    assert!(
+        link.is_some(),
+        "Should contain <link name=\"enabled_by_not\">"
+    );
 }
 
 /// Test mixed case True/False (should remain strings)
@@ -241,12 +256,19 @@ fn test_mixed_case_true_false() {
   </link>
 </robot>"#;
 
-    let processor = XacroProcessor::new();
-    let output = processor
-        .run_from_string(input)
-        .expect("Processing should succeed");
+    let root = run_xacro_to_xml(input);
 
-    // Mixed case should not be converted to booleans
-    assert_xacro_contains!(output, "TRUE");
-    assert_xacro_contains!(output, "TrUe");
+    // Navigate to box element
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let geometry = find_child(visual, "geometry");
+    let box_elem = find_child(geometry, "box");
+
+    // Mixed case should not be converted to booleans - should remain as literal strings
+    let size = get_attr(box_elem, "size");
+    assert!(
+        size.contains("TRUE") && size.contains("TrUe"),
+        "Mixed case TRUE and TrUe should remain as strings, got: {}",
+        size
+    );
 }
