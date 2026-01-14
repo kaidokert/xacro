@@ -105,9 +105,9 @@ impl FindExtension {
     /// package names to filesystem paths. When a package is found in this map,
     /// it overrides automatic ROS discovery mechanisms.
     ///
-    /// Note: Package names and paths cannot contain `=`. This is acceptable
-    /// because ROS package names follow Python identifier rules (`[a-z0-9_]`)
-    /// and `=` is extremely rare in filesystem paths.
+    /// Note: Package names cannot contain `=`. Paths can contain `=`, as only
+    /// the first `=` in an entry is used as a separator. This is acceptable
+    /// because ROS package names follow Python identifier rules (`[a-z0-9_]`).
     fn get_package_from_map(
         &self,
         package_name: &str,
@@ -125,14 +125,15 @@ impl FindExtension {
             .unwrap_or_default()
             .split(PATH_LIST_SEPARATOR) // Cross-platform: ':' on Unix, ';' on Windows
             .filter_map(|entry| {
-                let mut parts = entry.splitn(2, '=');
-                let name = parts.next()?.trim();
-                let path = parts.next()?.trim();
-                if !name.is_empty() && !path.is_empty() {
-                    Some((name.to_string(), PathBuf::from(path)))
-                } else {
-                    None
-                }
+                entry.split_once('=').and_then(|(name, path)| {
+                    let name = name.trim();
+                    let path = path.trim();
+                    if name.is_empty() || path.is_empty() {
+                        None
+                    } else {
+                        Some((name.to_string(), PathBuf::from(path)))
+                    }
+                })
             })
             .collect();
 
@@ -205,7 +206,7 @@ impl FindExtension {
     /// Search for a package in the given search paths
     ///
     /// Resolution order:
-    /// 1. Check RUST_XACRO_PACKAGE_MAP for explicit overrides (hermetic builds)
+    /// 1. Check RUST_XACRO_PACKAGE_MAP for a valid override; fall through if invalid
     /// 2. Search ROS_PACKAGE_PATH directories for package.xml/manifest.xml
     ///
     /// When ROS_PACKAGE_PATH contains direct package directories, we check
