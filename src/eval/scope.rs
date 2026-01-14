@@ -95,6 +95,84 @@ pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     property_metadata: RefCell<HashMap<String, PropertyMetadata>>,
 }
 
+/// Extract identifiers from an expression, skipping those inside string literals
+///
+/// This function parses the expression and extracts only identifiers that
+/// are NOT inside single or double quoted strings. This prevents false positives
+/// in circular dependency detection when dictionary keys match property names.
+///
+/// Example: `load_yaml(file)['initial_positions']` should NOT extract 'initial_positions'
+/// as a property reference since it's a string literal used as a dictionary key.
+///
+/// # Arguments
+/// * `expr` - The expression to parse
+///
+/// # Returns
+/// Set of identifier names found outside of string literals
+fn extract_identifiers_outside_strings(expr: &str) -> HashSet<String> {
+    let mut refs = HashSet::new();
+    let var_regex = VAR_REGEX
+        .get_or_init(|| Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").expect("Valid regex pattern"));
+
+    // Track string literal boundaries to skip identifiers inside strings
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+    let chars: Vec<(usize, char)> = expr.char_indices().collect();
+
+    // Build a mask of which characters are inside strings
+    let mut inside_string = vec![false; expr.len()];
+    for &(idx, ch) in &chars {
+        if escaped {
+            escaped = false;
+            if in_single_quote || in_double_quote {
+                inside_string[idx] = true;
+            }
+            continue;
+        }
+
+        match ch {
+            '\\' => {
+                escaped = true;
+                if in_single_quote || in_double_quote {
+                    inside_string[idx] = true;
+                }
+            }
+            '\'' if !in_double_quote => {
+                inside_string[idx] = true; // Include the quote itself
+                in_single_quote = !in_single_quote;
+            }
+            '"' if !in_single_quote => {
+                inside_string[idx] = true; // Include the quote itself
+                in_double_quote = !in_double_quote;
+            }
+            _ => {
+                if in_single_quote || in_double_quote {
+                    inside_string[idx] = true;
+                }
+            }
+        }
+    }
+
+    // Extract identifiers, but only those outside of strings
+    for cap in var_regex.captures_iter(expr) {
+        if let Some(name_match) = cap.get(1) {
+            let name = name_match.as_str();
+            let start_pos = name_match.start();
+
+            // Check if this identifier is inside a string
+            if start_pos < inside_string.len()
+                && !inside_string[start_pos]
+                && !is_python_keyword(name)
+            {
+                refs.insert(name.to_string());
+            }
+        }
+    }
+
+    refs
+}
+
 /// Check if a name is a lambda parameter in the given lambda expression
 ///
 /// Example: in "lambda x: x + 1", "x" is a parameter
@@ -1143,43 +1221,41 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         Ok(context)
     }
 
+    /// Extract identifiers from an expression, skipping those inside string literals
+    ///
+    /// This helper function uses the standalone version to maintain consistency.
+    fn extract_identifiers_outside_strings(
+        &self,
+        expr: &str,
+    ) -> HashSet<String> {
+        extract_identifiers_outside_strings(expr)
+    }
+
     /// Extract property names referenced in a value string using lexical scanning
     ///
     /// Strategy:
     /// 1. Use our Lexer to find ${...} blocks in the raw string
-    /// 2. Use regex to find identifiers that look like variables (not in strings/numbers)
+    /// 2. Use extract_identifiers_outside_strings to find identifiers not in string literals
     /// 3. Return all found variable names
     ///
-    /// Note: Originally planned to use pyisheval AST parsing, but
-    /// pyisheval 0.9.0 doesn't expose parser/AST modules publicly. This regex approach
-    /// handles the common cases and is simpler. It may over-capture in some edge cases,
-    /// but that's safe (we'll get proper errors during evaluation if truly undefined).
+    /// This method properly handles dictionary key access like `data['key']` where 'key'
+    /// should NOT be treated as a property reference.
     fn extract_property_references(
         &self,
         value: &str,
     ) -> HashSet<String> {
         let mut refs = HashSet::new();
 
-        // Get cached regex (compiled once on first use)
-        // Matches: variable names (letters/underscore followed by letters/digits/underscore)
-        // But NOT when preceded by a dot (e.g., obj.method) or inside strings
-        let var_regex = VAR_REGEX.get_or_init(|| {
-            Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b").expect("Valid regex pattern")
-        });
-
         // Special case: if value is a lambda expression (no ${...} wrapper),
         // extract variables directly from the lambda body
         let trimmed = value.trim();
         if trimmed.starts_with("lambda ") {
-            // Extract variables from lambda body
-            for cap in var_regex.captures_iter(trimmed) {
-                if let Some(name_match) = cap.get(1) {
-                    let name = name_match.as_str();
-                    // Filter out Python keywords, built-in functions, and lambda parameter names
-                    // For lambda parameter detection, we look for "lambda <param>:" pattern
-                    if !is_python_keyword(name) && !is_lambda_parameter(trimmed, name) {
-                        refs.insert(name.to_string());
-                    }
+            // Extract variables from lambda body, skipping string literals
+            let extracted = self.extract_identifiers_outside_strings(trimmed);
+            for name in extracted {
+                // Filter out lambda parameter names
+                if !is_lambda_parameter(trimmed, &name) {
+                    refs.insert(name);
                 }
             }
             return refs;
@@ -1189,24 +1265,205 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let lexer = Lexer::new(value);
         for (token_type, token_value) in lexer {
             if token_type == TokenType::Expr {
-                // Extract all identifier-like tokens from the expression
-                for cap in var_regex.captures_iter(&token_value) {
-                    if let Some(name_match) = cap.get(1) {
-                        let name = name_match.as_str();
-
-                        // Note: We DO include function calls (identifier followed by '(')
-                        // because lambdas stored as properties need to be in the context.
-                        // Over-capturing is safe (undefined properties are skipped in build_eval_context)
-
-                        // Filter out Python keywords and built-in functions only
-                        if !is_python_keyword(name) {
-                            refs.insert(name.to_string());
-                        }
-                    }
-                }
+                // Extract all identifier-like tokens from the expression,
+                // but skip those inside string literals
+                let extracted = self.extract_identifiers_outside_strings(&token_value);
+                refs.extend(extracted);
             }
         }
 
         refs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_identifiers_basic() {
+        let expr = "x + y * z";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.contains("z"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_single_quote_string() {
+        let expr = "data['initial_positions']";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("data"));
+        assert!(
+            !ids.contains("initial_positions"),
+            "String literal should be skipped"
+        );
+    }
+
+    #[test]
+    fn test_extract_identifiers_double_quote_string() {
+        let expr = r#"data["key_name"]"#;
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("data"));
+        assert!(
+            !ids.contains("key_name"),
+            "String literal should be skipped"
+        );
+    }
+
+    #[test]
+    fn test_extract_identifiers_escaped_quote_single() {
+        let expr = r"message['can\'t']";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("message"));
+        assert!(!ids.contains("can"));
+        assert!(!ids.contains("t"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_escaped_quote_double() {
+        let expr = r#"data["quote\"inside"]"#;
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("data"));
+        assert!(!ids.contains("quote"));
+        assert!(!ids.contains("inside"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_mixed_quotes() {
+        let expr = r#"func('single') + other("double")"#;
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("func"));
+        assert!(ids.contains("other"));
+        assert!(!ids.contains("single"));
+        assert!(!ids.contains("double"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_quote_inside_different_quote() {
+        // Single quote inside double quotes
+        let expr = r#"data["it's"]"#;
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("data"));
+        assert!(!ids.contains("it"));
+        assert!(!ids.contains("s"));
+
+        // Double quote inside single quotes
+        let expr2 = r#"data['"quoted"']"#;
+        let ids2 = extract_identifiers_outside_strings(expr2);
+        assert_eq!(ids2.len(), 1);
+        assert!(ids2.contains("data"));
+        assert!(!ids2.contains("quoted"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_function_call() {
+        let expr = "load_yaml(filename)";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("load_yaml"));
+        assert!(ids.contains("filename"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_complex_expression() {
+        let expr = "load_yaml(file)['initial_positions']['joint1']";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("load_yaml"));
+        assert!(ids.contains("file"));
+        assert!(
+            !ids.contains("initial_positions"),
+            "String literal in brackets"
+        );
+        assert!(!ids.contains("joint1"), "String literal in brackets");
+    }
+
+    #[test]
+    fn test_extract_identifiers_python_keywords_filtered() {
+        let expr = "if x and y or z";
+        let ids = extract_identifiers_outside_strings(expr);
+        // Keywords (if, and, or) should be filtered out
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.contains("z"));
+        assert!(!ids.contains("if"));
+        assert!(!ids.contains("and"));
+        assert!(!ids.contains("or"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_empty_string() {
+        let expr = "";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_identifiers_only_strings() {
+        let expr = "'hello' + \"world\"";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 0, "Only string literals, no identifiers");
+    }
+
+    #[test]
+    fn test_extract_identifiers_multiple_occurrences() {
+        let expr = "x + x * x";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 1, "Set should deduplicate");
+        assert!(ids.contains("x"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_underscore_names() {
+        let expr = "_private + __dunder__ + normal_name";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains("_private"));
+        assert!(ids.contains("__dunder__"));
+        assert!(ids.contains("normal_name"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_numbers_excluded() {
+        let expr = "x + 123 + y";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        // Numbers should not be captured by the identifier regex
+    }
+
+    #[test]
+    fn test_extract_identifiers_empty_quotes() {
+        let expr = "data[''] + other[\"\"]";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("data"));
+        assert!(ids.contains("other"));
+    }
+
+    #[test]
+    fn test_extract_identifiers_adjacent_strings() {
+        let expr = "'first''second'";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert_eq!(ids.len(), 0, "Adjacent string literals");
+    }
+
+    #[test]
+    fn test_extract_identifiers_backslash_at_end_of_string() {
+        let expr = r"data['path\\'] + x";
+        let ids = extract_identifiers_outside_strings(expr);
+        assert!(ids.contains("data"));
+        assert!(ids.contains("x"));
+        assert!(!ids.contains("path"));
     }
 }
