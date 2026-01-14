@@ -12,10 +12,10 @@ use std::{
 use xmltree::Element;
 
 // Platform-specific path separator for RUST_XACRO_PACKAGE_MAP
-#[cfg(unix)]
-const PATH_LIST_SEPARATOR: char = ':';
 #[cfg(windows)]
 const PATH_LIST_SEPARATOR: char = ';';
+#[cfg(not(windows))]
+const PATH_LIST_SEPARATOR: char = ':';
 
 /// Extension for $(find package_name) - finds ROS package paths
 ///
