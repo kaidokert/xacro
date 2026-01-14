@@ -1,5 +1,3 @@
-use xacro::XacroProcessor;
-
 mod common;
 use common::*;
 
@@ -266,8 +264,8 @@ fn test_mixed_case_true_false() {
 
     // Mixed case should not be converted to booleans - should remain as literal strings
     let size = get_attr(box_elem, "size");
-    assert!(
-        size.contains("TRUE") && size.contains("TrUe"),
+    assert_eq!(
+        size, "TRUE TrUe 1",
         "Mixed case TRUE and TrUe should remain as strings, got: {}",
         size
     );

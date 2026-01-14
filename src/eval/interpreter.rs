@@ -445,8 +445,12 @@ pub fn build_pyisheval_context(
                     // Will be stored as Value::StringLit("") in the second pass
                 }
                 _ => {
-                    // Other value types (shouldn't happen with eval_literal, but be safe)
-                    log::warn!("Unexpected value type for property '{}': {:?}", name, value);
+                    // eval_literal only returns Value::Number or Value::StringLit
+                    // Any other variant indicates a logic error
+                    unreachable!(
+                        "eval_literal returned unexpected value type for property '{}': {:?}",
+                        name, value
+                    );
                 }
             }
         }
