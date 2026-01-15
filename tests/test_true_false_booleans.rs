@@ -24,7 +24,7 @@ fn test_true_false_property_values() {
     let geometry = find_child(visual, "geometry");
     let box_elem = find_child(geometry, "box");
 
-    assert_eq!(get_attr(box_elem, "size"), "1 0 1");
+    assert_eq!(get_attr(box_elem, "size"), "True False 1");
 }
 
 /// Test True/False in boolean comparisons

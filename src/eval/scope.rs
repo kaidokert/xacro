@@ -65,6 +65,13 @@ struct PropertyMetadata {
     /// - Property comes from division expression (e.g., "${255/255}")
     /// - Property references a float property (e.g., "${float_prop * 2}")
     is_float: bool,
+    /// Whether this property originated from a boolean literal "True" or "False"
+    /// True if:
+    /// - Property value is exactly "True" or "False" (case-sensitive)
+    /// - Property references a pseudo-boolean property
+    ///
+    /// When true, numeric values 1.0/0.0 should be formatted as "True"/"False"
+    is_pseudo_boolean: bool,
 }
 
 pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
@@ -378,6 +385,39 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         metadata.get(var).map(|m| m.is_float).unwrap_or(false)
     }
 
+    /// Check if a variable is marked as pseudo-boolean (originated from True/False literal)
+    ///
+    /// Used during formatting to determine if 1.0/0.0 should be formatted as "True"/"False".
+    /// Checks scoped metadata first (depth:name), then falls back to global metadata.
+    ///
+    /// # Arguments
+    /// * `var` - The variable name to look up
+    ///
+    /// # Returns
+    /// `true` if the variable has boolean metadata, `false` otherwise
+    #[cfg(feature = "compat")]
+    fn is_var_boolean(
+        &self,
+        var: &str,
+    ) -> bool {
+        let metadata = self.property_metadata.borrow();
+        let scope_depth = self.scope_stack.borrow().len();
+
+        // Try scoped metadata first (current scope down to global)
+        for depth in (1..=scope_depth).rev() {
+            let scoped_key = format!("{}:{}", depth, var);
+            if let Some(meta) = metadata.get(&scoped_key) {
+                return meta.is_pseudo_boolean;
+            }
+        }
+
+        // Fall back to checking global (no scope prefix)
+        metadata
+            .get(var)
+            .map(|m| m.is_pseudo_boolean)
+            .unwrap_or(false)
+    }
+
     /// Compute float metadata for a property value (compat feature only)
     ///
     /// Determines if a property should be formatted as float (with .0 for whole numbers)
@@ -421,6 +461,54 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         false
     }
 
+    /// Compute boolean metadata for a property value (compat feature only)
+    ///
+    /// Determines if a property originated from a boolean literal and should
+    /// format 1.0/0.0 as "True"/"False" in output.
+    ///
+    /// Detection rules:
+    /// 1. Value is "True"/"False" (Python literals) or "true"/"false" (XML/xacro convention)
+    /// 2. Value references a pseudo-boolean property (propagation)
+    ///
+    /// Limitation: Only works for literal definitions, not boolean expressions
+    /// like `${x == y}` which return 1.0/0.0 without type information.
+    #[cfg(feature = "compat")]
+    fn compute_boolean_metadata(
+        &self,
+        value: &str,
+    ) -> bool {
+        if !self.use_python_compat {
+            return false;
+        }
+
+        let trimmed = value.trim();
+
+        // Check for boolean literals (both Python and XML/xacro conventions)
+        // Python xacro's _eval_literal() accepts both "True" and "true" (case-insensitive)
+        // and formats both as "True" in output
+        match trimmed {
+            "True" | "False" | "true" | "false" => return true,
+            _ => {}
+        }
+
+        // Check if expression references any boolean properties
+        if trimmed.contains("${") {
+            let refs = self.extract_property_references(trimmed);
+            refs.iter().any(|r| self.is_var_boolean(r))
+        } else {
+            false
+        }
+    }
+
+    #[cfg(not(feature = "compat"))]
+    #[allow(dead_code)]
+    fn compute_boolean_metadata(
+        &self,
+        _value: &str,
+    ) -> bool {
+        false
+    }
+
     /// Add a property to the current (top) scope
     ///
     /// This is used for incrementally building macro parameter scopes
@@ -433,15 +521,20 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         name: String,
         value: String,
     ) {
-        // Compat feature: Track float metadata for scoped properties
+        // Compat feature: Track float and boolean metadata for scoped properties
         #[cfg(feature = "compat")]
         {
             let is_float = self.compute_float_metadata(&value);
+            let is_pseudo_boolean = self.compute_boolean_metadata(&value);
             let scope_depth = self.scope_stack.borrow().len();
             let scoped_key = format!("{}:{}", scope_depth, name);
-            self.property_metadata
-                .borrow_mut()
-                .insert(scoped_key, PropertyMetadata { is_float });
+            self.property_metadata.borrow_mut().insert(
+                scoped_key,
+                PropertyMetadata {
+                    is_float,
+                    is_pseudo_boolean,
+                },
+            );
         }
 
         self.scope_stack
@@ -472,13 +565,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             );
         }
 
-        // Compat feature: Track float metadata for properties
+        // Compat feature: Track float and boolean metadata for properties
         #[cfg(feature = "compat")]
         {
             let is_float = self.compute_float_metadata(&value);
-            self.property_metadata
-                .borrow_mut()
-                .insert(name.clone(), PropertyMetadata { is_float });
+            let is_pseudo_boolean = self.compute_boolean_metadata(&value);
+            self.property_metadata.borrow_mut().insert(
+                name.clone(),
+                PropertyMetadata {
+                    is_float,
+                    is_pseudo_boolean,
+                },
+            );
         }
 
         self.raw_properties.borrow_mut().insert(name.clone(), value);
@@ -560,6 +658,56 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         false
     }
 
+    /// Check if an expression result should be formatted as boolean ("True"/"False")
+    ///
+    /// Returns true if:
+    /// - Result value is exactly 1.0 or 0.0 (boolean numeric values), AND
+    /// - Expression is a simple variable reference with boolean metadata
+    ///
+    /// Note: Complex expressions (like `1 if flag else 0`) are NOT formatted as boolean,
+    /// even if they reference boolean properties, because the result type is determined
+    /// by the expression itself, not by the properties it references.
+    ///
+    /// # Arguments
+    /// * `expr` - The expression that was evaluated
+    /// * `result_value` - The pyisheval Value result
+    ///
+    /// # Returns
+    /// `true` if the result should be formatted as "True"/"False", `false` otherwise
+    #[cfg(feature = "compat")]
+    fn should_format_as_boolean(
+        &self,
+        expr: &str,
+        result_value: &pyisheval::Value,
+    ) -> bool {
+        // Only boolean values (1.0 or 0.0) can be formatted as boolean
+        if let pyisheval::Value::Number(n) = result_value {
+            if *n != 1.0 && *n != 0.0 {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Only format as boolean for simple variable references
+        // Complex expressions determine their own output type
+        let trimmed = expr.trim();
+
+        // Check if it's a simple identifier (no operators, no function calls, no indexing)
+        let is_simple_identifier = !is_python_keyword(trimmed)
+            && trimmed.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && trimmed
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_');
+
+        if is_simple_identifier {
+            return self.is_var_boolean(trimmed);
+        }
+
+        false
+    }
+
     /// Format an evaluation result with Python-compatible number formatting
     ///
     /// When compat feature is enabled, uses metadata to decide whether to format
@@ -583,8 +731,22 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             #[cfg(feature = "compat")]
             {
                 if self.use_python_compat {
-                    let force_float = self.should_format_as_float(expr, value);
-                    format_value_python_style(value, force_float)
+                    // Check for boolean formatting first (1.0/0.0 with boolean metadata)
+                    if self.should_format_as_boolean(expr, value) {
+                        match value {
+                            pyisheval::Value::Number(n) if *n == 1.0 => "True".to_string(),
+                            pyisheval::Value::Number(n) if *n == 0.0 => "False".to_string(),
+                            _ => {
+                                // Fallback to float formatting
+                                let force_float = self.should_format_as_float(expr, value);
+                                format_value_python_style(value, force_float)
+                            }
+                        }
+                    } else {
+                        // Not a boolean, use float metadata
+                        let force_float = self.should_format_as_float(expr, value);
+                        format_value_python_style(value, force_float)
+                    }
                 } else {
                     // Preserve old behavior: always format with .0 for whole numbers
                     format_value_python_style(value, true)
@@ -1149,6 +1311,22 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // This allows property values to contain $(arg ...) references
         // Example: <xacro:property name="size" value="${$(arg scale) * 2}"/>
         let value_with_extensions_resolved = self.substitute_extensions_only(&raw_value)?;
+
+        // Recompute metadata after extension resolution (fixes boolean arg tracking)
+        // Example: value="$(arg namespace)" with namespace:=true
+        // After resolution, value_with_extensions_resolved = "true"
+        // We need to mark this as a boolean for correct formatting
+        #[cfg(feature = "compat")]
+        if self.use_python_compat && value_with_extensions_resolved != raw_value {
+            let is_boolean = self.compute_boolean_metadata(&value_with_extensions_resolved);
+            if is_boolean {
+                // Update metadata to mark this property as boolean
+                let mut metadata_map = self.property_metadata.borrow_mut();
+                if let Some(meta) = metadata_map.get_mut(name) {
+                    meta.is_pseudo_boolean = true;
+                }
+            }
+        }
 
         // Parse expression to find all variable references, then recursively resolve them
         let eval_context = self.build_eval_context(&value_with_extensions_resolved)?;
