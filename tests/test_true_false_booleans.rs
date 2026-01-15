@@ -247,7 +247,7 @@ fn test_mixed_case_true_false() {
   <link name="test">
     <visual>
       <geometry>
-        <!-- These should remain as strings since they're not exact matches -->
+        <!-- Mixed case booleans should be formatted as True/False (case-insensitive) -->
         <box size="${val1} ${val2} 1"/>
       </geometry>
     </visual>
@@ -262,11 +262,11 @@ fn test_mixed_case_true_false() {
     let geometry = find_child(visual, "geometry");
     let box_elem = find_child(geometry, "box");
 
-    // Mixed case should not be converted to booleans - should remain as literal strings
+    // Mixed case booleans should be formatted as "True" (case-insensitive matching)
     let size = get_attr(box_elem, "size");
     assert_eq!(
-        size, "TRUE TrUe 1",
-        "Mixed case TRUE and TrUe should remain as strings, got: {}",
+        size, "True True 1",
+        "Mixed case TRUE and TrUe should be formatted as True, got: {}",
         size
     );
 }
