@@ -105,7 +105,7 @@ impl MacroProcessor {
             let (param_name_str, is_block, is_lazy, default_value_str) = if token.starts_with('*') {
                 // Block parameter (**param or *param)
                 // Block parameters CANNOT have defaults
-                if token.contains(":=") {
+                if token.contains(":=") || token.contains('=') {
                     return Err(XacroError::BlockParameterWithDefault {
                         param: token.clone(),
                     });
@@ -130,8 +130,13 @@ impl MacroProcessor {
                 }
 
                 (stripped.to_string(), true, is_lazy, None)
-            } else if let Some((name, value)) = token.split_once(":=") {
-                // Regular parameter with default value
+            } else if let Some((name, value)) =
+                token.split_once(":=").or_else(|| token.split_once('='))
+            {
+                // Regular parameter with default value (supports := or =)
+                // Python xacro supports both syntaxes:
+                //   params="width:=5"  (preferred)
+                //   params="width=5"   (also valid)
                 // Strip surrounding quotes from default value if present
                 // Using strip_prefix/strip_suffix is safe and handles edge cases like single-char strings
                 let unquoted_value = if let Some(s) =
