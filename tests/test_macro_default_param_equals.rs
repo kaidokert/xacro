@@ -1,5 +1,16 @@
 mod common;
 use common::*;
+use xacro::error::XacroError;
+
+/// Helper function to extract box size attribute from processed xacro
+fn get_box_size(input: &str) -> String {
+    let root = run_xacro_to_xml(input);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let geometry = find_child(visual, "geometry");
+    let box_elem = find_child(geometry, "box");
+    get_attr(box_elem, "size").to_string()
+}
 
 /// Test that macro parameters can use = or := for default values
 #[test]
@@ -21,14 +32,7 @@ fn test_macro_default_param_with_equals() {
   <xacro:test_box length="1.0"/>
 </robot>"#;
 
-    let root = run_xacro_to_xml(input);
-    let link = find_child(&root, "link");
-    let visual = find_child(link, "visual");
-    let geometry = find_child(visual, "geometry");
-    let box_elem = find_child(geometry, "box");
-
-    // Default width should be used
-    assert_eq!(get_attr(box_elem, "size"), "1.0 0.5 0.1");
+    assert_eq!(get_box_size(input), "1.0 0.5 0.1");
 }
 
 /// Test that := syntax also works (original syntax)
@@ -51,14 +55,7 @@ fn test_macro_default_param_with_colon_equals() {
   <xacro:test_box length="1.0"/>
 </robot>"#;
 
-    let root = run_xacro_to_xml(input);
-    let link = find_child(&root, "link");
-    let visual = find_child(link, "visual");
-    let geometry = find_child(visual, "geometry");
-    let box_elem = find_child(geometry, "box");
-
-    // Default width should be used
-    assert_eq!(get_attr(box_elem, "size"), "1.0 0.5 0.1");
+    assert_eq!(get_box_size(input), "1.0 0.5 0.1");
 }
 
 /// Test overriding default parameter
@@ -81,12 +78,41 @@ fn test_macro_default_param_override() {
   <xacro:test_box length="1.0" width="2.0"/>
 </robot>"#;
 
-    let root = run_xacro_to_xml(input);
-    let link = find_child(&root, "link");
-    let visual = find_child(link, "visual");
-    let geometry = find_child(visual, "geometry");
-    let box_elem = find_child(geometry, "box");
+    assert_eq!(get_box_size(input), "1.0 2.0 0.1");
+}
 
-    // Explicit width should override default
-    assert_eq!(get_attr(box_elem, "size"), "1.0 2.0 0.1");
+/// Test that block parameters cannot have default values with =
+#[test]
+fn test_block_param_with_equals_rejected() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="*block=default">
+    <link name="test"/>
+  </xacro:macro>
+</robot>"#;
+
+    let result = test_xacro(input);
+    assert!(
+        matches!(result, Err(ref e) if matches!(e, XacroError::BlockParameterWithDefault { .. })),
+        "Expected BlockParameterWithDefault error, got: {:?}",
+        result
+    );
+}
+
+/// Test that block parameters cannot have default values with :=
+#[test]
+fn test_block_param_with_colon_equals_rejected() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="*block:=default">
+    <link name="test"/>
+  </xacro:macro>
+</robot>"#;
+
+    let result = test_xacro(input);
+    assert!(
+        matches!(result, Err(ref e) if matches!(e, XacroError::BlockParameterWithDefault { .. })),
+        "Expected BlockParameterWithDefault error, got: {:?}",
+        result
+    );
 }
