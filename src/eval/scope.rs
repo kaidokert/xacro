@@ -244,8 +244,8 @@ fn is_python_keyword(name: &str) -> bool {
             | "assert"
             | "del"
             // Math functions that are preprocessed (cannot be shadowed due to preprocessing)
-            // See preprocess_math_functions() in src/utils/eval.rs
-            | "abs" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+            // See preprocess_math_functions() in src/eval/interpreter.rs
+            | "abs" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
             | "sqrt" | "floor" | "ceil" // NOTE: radians() and degrees() are NOT filtered here because they are
                                         // implemented as lambda functions in pyisheval, so they CAN be shadowed.
                                         // NOTE: len, min, max, sum, range, int, float, str, bool, list, tuple, dict

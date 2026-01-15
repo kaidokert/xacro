@@ -193,11 +193,10 @@ fn preprocess_math_functions(
             if func_name == "atan2" {
                 // Split arguments on comma (simple split, assuming no nested commas in expressions)
                 // For more complex cases with nested expressions, we'd need a proper parser
-                let parts: Vec<&str> = arg.split(',').collect();
-                if parts.len() == 2 {
+                if let Some((y_str, x_str)) = arg.split_once(',') {
                     // Try to evaluate both arguments
                     if let (Ok(Value::Number(y)), Ok(Value::Number(x))) =
-                        (interp.eval(parts[0].trim()), interp.eval(parts[1].trim()))
+                        (interp.eval(y_str.trim()), interp.eval(x_str.trim()))
                     {
                         let computed = y.atan2(x);
                         let replacement = format!("{}", computed);
