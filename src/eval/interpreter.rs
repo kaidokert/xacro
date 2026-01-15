@@ -106,7 +106,7 @@ fn find_matching_paren(
 /// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
 /// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
 pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
-    "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+    "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
 ];
 
 /// Regex pattern for matching math function calls with word boundaries
@@ -129,7 +129,7 @@ fn get_math_funcs_regex() -> &'static Regex {
 /// This function finds math function calls, evaluates them using Rust's f64 methods,
 /// and substitutes the results back into the expression.
 ///
-/// Supported functions: cos, sin, tan, acos, asin, atan, sqrt, abs, floor, ceil
+/// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil
 ///
 /// # Limitations
 /// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
@@ -188,6 +188,26 @@ fn preprocess_math_functions(
             };
 
             let arg = &result[paren_pos + 1..close_pos];
+
+            // Special handling for atan2 which takes two arguments
+            if func_name == "atan2" {
+                // Split arguments on comma (simple split, assuming no nested commas in expressions)
+                // For more complex cases with nested expressions, we'd need a proper parser
+                if let Some((y_str, x_str)) = arg.split_once(',') {
+                    // Try to evaluate both arguments
+                    if let (Ok(Value::Number(y)), Ok(Value::Number(x))) =
+                        (interp.eval(y_str.trim()), interp.eval(x_str.trim()))
+                    {
+                        let computed = y.atan2(x);
+                        let replacement = format!("{}", computed);
+                        result.replace_range(whole_match.start()..=close_pos, &replacement);
+                        made_replacement = true;
+                        break;
+                    }
+                }
+                // If parsing/evaluation failed, continue to next match
+                continue;
+            }
 
             // Try to evaluate the argument - only replace if successful
             if let Ok(Value::Number(n)) = interp.eval(arg) {
@@ -1416,7 +1436,12 @@ mod tests {
 
         // Test each function in SUPPORTED_MATH_FUNCS to ensure it's implemented
         for func in SUPPORTED_MATH_FUNCS {
-            let expr = format!("${{{}(0)}}", func);
+            // atan2 requires two arguments, others require one
+            let expr = if *func == "atan2" {
+                format!("${{{}(0, 1)}}", func)
+            } else {
+                format!("${{{}(0)}}", func)
+            };
             let result = eval_text(&expr, &props);
 
             // Ensure evaluation succeeds - unreachable!() would panic if function is missing
