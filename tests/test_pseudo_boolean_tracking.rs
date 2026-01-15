@@ -198,6 +198,35 @@ fn test_lowercase_boolean_tracking() {
     assert_eq!(get_attr(box_elem, "size"), "True False 1");
 }
 
+/// Test uppercase boolean literals (case-insensitive evaluation)
+#[test]
+fn test_uppercase_boolean_tracking() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="enabled" value="TRUE"/>
+  <xacro:property name="disabled" value="FALSE"/>
+  <xacro:property name="mixed" value="TrUe"/>
+
+  <link name="test">
+    <visual>
+      <geometry>
+        <!-- Uppercase/mixed case booleans should be formatted as True/False -->
+        <box size="${enabled} ${disabled} ${mixed}"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>"#;
+
+    let root = run_xacro_to_xml(input);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let geometry = find_child(visual, "geometry");
+    let box_elem = find_child(geometry, "box");
+
+    // Any casing of "true"/"false" should be formatted as "True"/"False"
+    assert_eq!(get_attr(box_elem, "size"), "True False True");
+}
+
 /// Test the pelican.xacro case: namespace:=true from command line
 /// This test verifies that boolean metadata is recomputed after extension resolution
 #[test]

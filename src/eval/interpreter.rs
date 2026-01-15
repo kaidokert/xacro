@@ -51,10 +51,13 @@ fn eval_literal(value: &str) -> Value {
     }
 
     // Try boolean (matches Python xacro's get_boolean_value logic)
-    match value {
-        "True" | "true" => Value::Number(1.0),
-        "False" | "false" => Value::Number(0.0),
-        _ => Value::StringLit(value.to_string()),
+    // Case-insensitive matching to handle true, True, TRUE, etc.
+    if value.eq_ignore_ascii_case("true") {
+        Value::Number(1.0)
+    } else if value.eq_ignore_ascii_case("false") {
+        Value::Number(0.0)
+    } else {
+        Value::StringLit(value.to_string())
     }
 }
 
