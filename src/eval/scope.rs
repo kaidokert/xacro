@@ -118,11 +118,10 @@ fn extract_identifiers_outside_strings(expr: &str) -> HashSet<String> {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
     let mut escaped = false;
-    let chars: Vec<(usize, char)> = expr.char_indices().collect();
 
     // Build a mask of which characters are inside strings
     let mut inside_string = vec![false; expr.len()];
-    for &(idx, ch) in &chars {
+    for (idx, ch) in expr.char_indices() {
         if escaped {
             escaped = false;
             if in_single_quote || in_double_quote {
@@ -1221,16 +1220,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         Ok(context)
     }
 
-    /// Extract identifiers from an expression, skipping those inside string literals
-    ///
-    /// This helper function uses the standalone version to maintain consistency.
-    fn extract_identifiers_outside_strings(
-        &self,
-        expr: &str,
-    ) -> HashSet<String> {
-        extract_identifiers_outside_strings(expr)
-    }
-
     /// Extract property names referenced in a value string using lexical scanning
     ///
     /// Strategy:
@@ -1251,7 +1240,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let trimmed = value.trim();
         if trimmed.starts_with("lambda ") {
             // Extract variables from lambda body, skipping string literals
-            let extracted = self.extract_identifiers_outside_strings(trimmed);
+            let extracted = extract_identifiers_outside_strings(trimmed);
             for name in extracted {
                 // Filter out lambda parameter names
                 if !is_lambda_parameter(trimmed, &name) {
@@ -1267,7 +1256,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             if token_type == TokenType::Expr {
                 // Extract all identifier-like tokens from the expression,
                 // but skip those inside string literals
-                let extracted = self.extract_identifiers_outside_strings(&token_value);
+                let extracted = extract_identifiers_outside_strings(&token_value);
                 refs.extend(extracted);
             }
         }
