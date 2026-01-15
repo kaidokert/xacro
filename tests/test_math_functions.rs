@@ -391,3 +391,76 @@ fn test_asin_nan_domain() {
     // Should fail - NaN fails domain check, function call remains unresolved
     assert!(result.is_err(), "Should error for asin(NaN)");
 }
+
+#[test]
+fn test_atan2_function() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${atan2(0, 1)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // atan2(0, 1) = 0.0
+    run_angle_test(input, 0.0, 1e-9, "Should process atan2() function");
+}
+
+#[test]
+fn test_atan2_with_negative_values() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${atan2(1, -1)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // atan2(1, -1) = 3*pi/4 ≈ 2.356194490192345
+    run_angle_test(
+        input,
+        2.356194490192345,
+        1e-9,
+        "Should process atan2() with negative x value",
+    );
+}
+
+#[test]
+fn test_atan2_with_expressions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="y" value="1"/>
+  <xacro:property name="x" value="1"/>
+  <xacro:property name="angle" value="${atan2(y, x)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // atan2(1, 1) = pi/4 ≈ 0.7853981633974483
+    run_angle_test(
+        input,
+        std::f64::consts::FRAC_PI_4,
+        1e-9,
+        "Should process atan2() with property variables",
+    );
+}
+
+#[test]
+fn test_atan2_with_nested_expressions() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="angle" value="${atan2(sqrt(3), 1)}"/>
+  <link name="test">
+    <joint angle="${angle}"/>
+  </link>
+</robot>"#;
+
+    // atan2(sqrt(3), 1) = pi/3 ≈ 1.0471975511965979
+    run_angle_test(
+        input,
+        std::f64::consts::FRAC_PI_3,
+        1e-9,
+        "Should process atan2() with nested math functions",
+    );
+}
