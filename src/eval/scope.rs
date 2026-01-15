@@ -707,11 +707,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         result_value: &pyisheval::Value,
     ) -> bool {
         // Only boolean values (1.0 or 0.0) can be formatted as boolean
-        if let pyisheval::Value::Number(n) = result_value {
-            if *n != 1.0 && *n != 0.0 {
-                return false;
-            }
-        } else {
+        if !matches!(result_value, pyisheval::Value::Number(n) if *n == 1.0 || *n == 0.0) {
             return false;
         }
 
@@ -1340,11 +1336,31 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             let new_is_boolean = self.compute_boolean_metadata(&value_with_extensions_resolved);
             let new_is_float = self.compute_float_metadata(&value_with_extensions_resolved);
 
-            // Update metadata to reflect the resolved value (update both fields unconditionally)
+            // Find the correct metadata key (scoped or global)
             let mut metadata_map = self.property_metadata.borrow_mut();
-            if let Some(meta) = metadata_map.get_mut(name) {
-                meta.is_pseudo_boolean = new_is_boolean;
-                meta.is_float = new_is_float;
+            let mut key_to_update = None;
+
+            // Search scopes for the property to find its scoped metadata key
+            let scopes = self.scope_stack.borrow();
+            for (i, scope) in scopes.iter().enumerate().rev() {
+                if scope.contains_key(name) {
+                    let depth = i + 1;
+                    key_to_update = Some(format!("{}:{}", depth, name));
+                    break;
+                }
+            }
+
+            // If not found in scopes, it must be a global property
+            if key_to_update.is_none() && self.raw_properties.borrow().contains_key(name) {
+                key_to_update = Some(name.to_string());
+            }
+
+            // Update metadata using the correct key
+            if let Some(key) = key_to_update {
+                if let Some(meta) = metadata_map.get_mut(&key) {
+                    meta.is_pseudo_boolean = new_is_boolean;
+                    meta.is_float = new_is_float;
+                }
             }
         }
 

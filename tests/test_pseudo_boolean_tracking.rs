@@ -220,3 +220,34 @@ fn test_namespace_arg_lowercase() {
     // The namespace should be formatted as "True", not "1"
     assert_eq!(get_attr(link, "name"), "True/base_link");
 }
+
+/// Test macro parameters receiving boolean values from $(arg ...) extensions
+/// This verifies that metadata is recomputed for scoped properties (macro params)
+#[test]
+fn test_macro_param_with_arg_extension() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="use_namespace" default="true"/>
+
+  <xacro:macro name="test_component" params="enable">
+    <link name="component">
+      <visual>
+        <geometry>
+          <box size="${enable} 1 1"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:macro>
+
+  <xacro:test_component enable="$(arg use_namespace)"/>
+</robot>"#;
+
+    let root = run_xacro_to_xml(input);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let geometry = find_child(visual, "geometry");
+    let box_elem = find_child(geometry, "box");
+
+    // Macro parameter should be formatted as "True" even when resolved from $(arg)
+    assert_eq!(get_attr(box_elem, "size"), "True 1 1");
+}
