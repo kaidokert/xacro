@@ -215,14 +215,7 @@ fn test_namespace_arg_lowercase() {
 </robot>"#;
 
     let root = run_xacro_to_xml(input);
-
-    // Find the link element
-    let link = root
-        .children
-        .iter()
-        .filter_map(|n| n.as_element())
-        .find(|e| e.name == "link")
-        .expect("Should find <link>");
+    let link = find_child(&root, "link");
 
     // The namespace should be formatted as "True", not "1"
     assert_eq!(get_attr(link, "name"), "True/base_link");
