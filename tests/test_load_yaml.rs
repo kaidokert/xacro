@@ -208,6 +208,38 @@ mod load_yaml_tests {
             "should correctly parse load_yaml argument even with potential paren complexity"
         );
     }
+
+    #[test]
+    fn test_load_yaml_null_value() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+        use xacro::eval::interpreter::eval_text;
+
+        let mut temp_file = NamedTempFile::new().expect("create temp file");
+        write!(temp_file, "~").expect("write temp file");
+        let temp_path = temp_file.path().to_str().expect("get temp path");
+
+        let props = HashMap::new();
+        let value = eval_text(&format!("${{load_yaml('{}') + 5}}", temp_path), &props)
+            .expect("load_yaml with null should succeed");
+        assert_eq!(value, "5", "null (None) + 5 should be 5");
+    }
+
+    #[test]
+    fn test_load_yaml_null_in_dict() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+        use xacro::eval::interpreter::eval_text;
+
+        let mut temp_file = NamedTempFile::new().expect("create temp file");
+        write!(temp_file, "value: null\nother: 10").expect("write temp file");
+        let temp_path = temp_file.path().to_str().expect("get temp path");
+
+        let props = HashMap::new();
+        let value = eval_text(&format!("${{load_yaml('{}')['value']}}", temp_path), &props)
+            .expect("load_yaml null value access should succeed");
+        assert_eq!(value, "0", "null value should evaluate to 0 (None)");
+    }
 }
 
 #[cfg(not(feature = "yaml"))]

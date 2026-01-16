@@ -922,6 +922,14 @@ pub fn build_pyisheval_context(
     // This ensures that lambda expressions can reference them during evaluation
     // Note: We skip inf/nan/NaN as they can't be created via arithmetic in pyisheval
     // (10**400 creates inf but 0.0/0.0 fails with DivisionByZero)
+
+    // Add Python built-in constant None (equivalent to 0 in numeric context, False in boolean)
+    // This is needed for load_yaml() which may return None for null YAML values
+    interp.eval("None = 0").map_err(|e| EvalError::PyishEval {
+        expr: "None = 0".to_string(),
+        source: e,
+    })?;
+
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
@@ -1046,12 +1054,16 @@ pub fn build_pyisheval_context(
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
 
-    // Manually inject inf and nan constants (Strategy 3: bypass parsing)
+    // Manually inject inf, nan, and None constants (Strategy 3: bypass parsing)
     // Python xacro provides these via float('inf') and math.inf, but they're also
     // used as bare identifiers in expressions. Pyisheval cannot parse these as
     // literals, so we inject them directly into the context.
+    //
+    // None is needed for load_yaml() which returns None for null YAML values.
+    // In Python, None is falsy (equivalent to 0 in boolean context).
     context.insert("inf".to_string(), Value::Number(f64::INFINITY));
     context.insert("nan".to_string(), Value::Number(f64::NAN));
+    context.insert("None".to_string(), Value::Number(0.0));
 
     Ok(context)
 }
