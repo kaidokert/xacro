@@ -253,34 +253,30 @@ fn expand_element(
         let value_attr = elem.get_attribute("value");
         let default_attr = elem.get_attribute("default");
 
+        // Helper closure to define property with scope-aware evaluation
+        let define_property = |raw_value: String| -> Result<(), XacroError> {
+            if scope == PropertyScope::Local {
+                ctx.properties.add_raw_property(name.clone(), raw_value);
+            } else {
+                // Eagerly evaluate for parent/global scope
+                let evaluated = ctx.properties.substitute_text(&raw_value)?;
+                ctx.properties
+                    .define_property(name.clone(), evaluated, scope);
+            }
+            Ok(())
+        };
+
         // Determine what to do based on attributes
         match (value_attr, default_attr) {
             // value always sets the property
             (Some(value), _) => {
-                // For non-local scopes, use eager evaluation
-                if scope == PropertyScope::Local {
-                    ctx.properties.add_raw_property(name.clone(), value.clone());
-                } else {
-                    // Eagerly evaluate for parent/global scope
-                    let evaluated = ctx.properties.substitute_text(value)?;
-                    ctx.properties
-                        .define_property(name.clone(), evaluated, scope);
-                }
+                define_property(value.clone())?;
             }
             // default only sets if property not already defined
             (None, Some(default_value)) => {
                 // Check if property already exists in target scope
                 if !ctx.properties.has_property_in_scope(&name, scope) {
-                    // For non-local scopes, use eager evaluation
-                    if scope == PropertyScope::Local {
-                        ctx.properties
-                            .add_raw_property(name.clone(), default_value.clone());
-                    } else {
-                        // Eagerly evaluate for parent/global scope
-                        let evaluated = ctx.properties.substitute_text(default_value)?;
-                        ctx.properties
-                            .define_property(name.clone(), evaluated, scope);
-                    }
+                    define_property(default_value.clone())?;
                 }
                 // else: property already defined in target scope, keep existing value
             }
