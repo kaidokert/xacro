@@ -1025,9 +1025,8 @@ mod tests {
         assert_eq!(eval_boolean("${x <= 5}", &props).unwrap(), true);
         assert_eq!(eval_boolean("${y >= 10}", &props).unwrap(), true);
 
-        // NOTE: pyisheval v0.9.0 does NOT support `and`/`or` operators
-        // These would fail: ${1 and 1}, ${x > 3 and y < 15}
-        // Fortunately, real xacro files don't use these - they use simpler expressions
+        // NOTE: `and`/`or` operators are now supported in pyisheval v0.13+
+        // See tests/test_logical_operators.rs for integration tests
 
         // Note: All these comparison expressions are evaluated by pyisheval as Value::Number(1.0) or Value::Number(0.0)
         // Our eval_boolean correctly applies != 0.0 truthiness to convert to bool
