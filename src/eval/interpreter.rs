@@ -1921,3 +1921,293 @@ mod tests {
         assert_eq!(result, "0", "1.0 should not equal 0.0");
     }
 }
+
+#[cfg(all(test, feature = "yaml"))]
+mod yaml_tests {
+    use super::*;
+    use saphyr::{Mapping, Scalar, ScalarStyle, Tag, Yaml};
+
+    /// Test null value conversion
+    #[test]
+    fn test_yaml_to_python_null() {
+        let yaml = Yaml::Value(Scalar::Null);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "None");
+    }
+
+    /// Test boolean true conversion
+    #[test]
+    fn test_yaml_to_python_bool_true() {
+        let yaml = Yaml::Value(Scalar::Boolean(true));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "True");
+    }
+
+    /// Test boolean false conversion
+    #[test]
+    fn test_yaml_to_python_bool_false() {
+        let yaml = Yaml::Value(Scalar::Boolean(false));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "False");
+    }
+
+    /// Test integer conversion
+    #[test]
+    fn test_yaml_to_python_integer() {
+        let yaml = Yaml::Value(Scalar::Integer(42));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "42");
+    }
+
+    /// Test large positive integer (u64 range)
+    #[test]
+    fn test_yaml_to_python_large_integer() {
+        let yaml = Yaml::Value(Scalar::Integer(9223372036854775807)); // i64::MAX
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "9223372036854775807");
+    }
+
+    /// Test negative integer
+    #[test]
+    fn test_yaml_to_python_negative_integer() {
+        let yaml = Yaml::Value(Scalar::Integer(-42));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "-42");
+    }
+
+    /// Test floating point conversion
+    #[test]
+    fn test_yaml_to_python_float() {
+        let yaml = Yaml::Value(Scalar::FloatingPoint(3.14.into()));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "3.14");
+    }
+
+    /// Test scientific notation float
+    #[test]
+    fn test_yaml_to_python_float_scientific() {
+        let yaml = Yaml::Value(Scalar::FloatingPoint(1.23e-4.into()));
+        let result = yaml_to_python_literal(yaml);
+        assert!(result.contains("0.000123") || result.contains("1.23e-4"));
+    }
+
+    /// Test simple string conversion
+    #[test]
+    fn test_yaml_to_python_string_simple() {
+        let yaml = Yaml::Value(Scalar::String("hello".into()));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "'hello'");
+    }
+
+    /// Test string with single quote escaping
+    #[test]
+    fn test_yaml_to_python_string_single_quote() {
+        let yaml = Yaml::Value(Scalar::String("it's".into()));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "'it\\'s'");
+    }
+
+    /// Test string with backslash escaping
+    #[test]
+    fn test_yaml_to_python_string_backslash() {
+        let yaml = Yaml::Value(Scalar::String("path\\to\\file".into()));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "'path\\\\to\\\\file'");
+    }
+
+    /// Test string with both quotes and backslashes
+    #[test]
+    fn test_yaml_to_python_string_complex_escaping() {
+        let yaml = Yaml::Value(Scalar::String("a'b\\c".into()));
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "'a\\'b\\\\c'");
+    }
+
+    /// Test empty sequence (list)
+    #[test]
+    fn test_yaml_to_python_empty_sequence() {
+        let yaml = Yaml::Sequence(vec![]);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "[]");
+    }
+
+    /// Test sequence with integers
+    #[test]
+    fn test_yaml_to_python_sequence_integers() {
+        let yaml = Yaml::Sequence(vec![
+            Yaml::Value(Scalar::Integer(1)),
+            Yaml::Value(Scalar::Integer(2)),
+            Yaml::Value(Scalar::Integer(3)),
+        ]);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "[1, 2, 3]");
+    }
+
+    /// Test sequence with mixed types
+    #[test]
+    fn test_yaml_to_python_sequence_mixed() {
+        let yaml = Yaml::Sequence(vec![
+            Yaml::Value(Scalar::Integer(42)),
+            Yaml::Value(Scalar::String("foo".into())),
+            Yaml::Value(Scalar::Boolean(true)),
+            Yaml::Value(Scalar::Null),
+        ]);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "[42, 'foo', True, None]");
+    }
+
+    /// Test empty mapping (dict)
+    #[test]
+    fn test_yaml_to_python_empty_mapping() {
+        let yaml = Yaml::Mapping(Mapping::new());
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "{}");
+    }
+
+    /// Test mapping with string keys
+    #[test]
+    fn test_yaml_to_python_mapping_string_keys() {
+        let mut map = Mapping::new();
+        map.insert(
+            Yaml::Value(Scalar::String("key1".into())),
+            Yaml::Value(Scalar::Integer(42)),
+        );
+        map.insert(
+            Yaml::Value(Scalar::String("key2".into())),
+            Yaml::Value(Scalar::String("value".into())),
+        );
+        let yaml = Yaml::Mapping(map);
+        let result = yaml_to_python_literal(yaml);
+
+        // Check both possible orderings (HashMap iteration order)
+        let valid1 = "{'key1': 42, 'key2': 'value'}";
+        let valid2 = "{'key2': 'value', 'key1': 42}";
+        assert!(
+            result == valid1 || result == valid2,
+            "Expected one of {:?} or {:?}, got: {}",
+            valid1,
+            valid2,
+            result
+        );
+    }
+
+    /// Test mapping with non-string keys (integer)
+    #[test]
+    fn test_yaml_to_python_mapping_integer_keys() {
+        let mut map = Mapping::new();
+        map.insert(
+            Yaml::Value(Scalar::Integer(1)),
+            Yaml::Value(Scalar::String("one".into())),
+        );
+        map.insert(
+            Yaml::Value(Scalar::Integer(2)),
+            Yaml::Value(Scalar::String("two".into())),
+        );
+        let yaml = Yaml::Mapping(map);
+        let result = yaml_to_python_literal(yaml);
+
+        let valid1 = "{1: 'one', 2: 'two'}";
+        let valid2 = "{2: 'two', 1: 'one'}";
+        assert!(
+            result == valid1 || result == valid2,
+            "Expected one of {:?} or {:?}, got: {}",
+            valid1,
+            valid2,
+            result
+        );
+    }
+
+    /// Test nested mapping
+    #[test]
+    fn test_yaml_to_python_nested_mapping() {
+        let mut inner_map = Mapping::new();
+        inner_map.insert(
+            Yaml::Value(Scalar::String("nested_key".into())),
+            Yaml::Value(Scalar::Integer(123)),
+        );
+
+        let mut outer_map = Mapping::new();
+        outer_map.insert(
+            Yaml::Value(Scalar::String("outer".into())),
+            Yaml::Mapping(inner_map),
+        );
+
+        let yaml = Yaml::Mapping(outer_map);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "{'outer': {'nested_key': 123}}");
+    }
+
+    /// Test tagged value (tags should be ignored)
+    #[test]
+    fn test_yaml_to_python_tagged_value() {
+        use std::borrow::Cow;
+
+        let inner = Yaml::Value(Scalar::Integer(180));
+        let tag = Tag {
+            handle: "!".into(),
+            suffix: "degrees".into(),
+        };
+        let yaml = Yaml::Tagged(Cow::Owned(tag), Box::new(inner));
+
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "180", "Tagged value should extract inner value");
+    }
+
+    /// Test Representation variant (unresolved scalar)
+    #[test]
+    fn test_yaml_to_python_representation() {
+        let yaml = Yaml::Representation("42".into(), ScalarStyle::Plain, None);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "42", "Representation should be parsed as scalar");
+    }
+
+    /// Test Alias variant (returns None)
+    #[test]
+    fn test_yaml_to_python_alias() {
+        let yaml = Yaml::Alias(1);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "None", "Alias should return None (not supported)");
+    }
+
+    /// Test BadValue variant (returns None)
+    #[test]
+    fn test_yaml_to_python_bad_value() {
+        let yaml = Yaml::BadValue;
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(result, "None", "BadValue should return None");
+    }
+
+    /// Test real-world nested structure
+    #[test]
+    fn test_yaml_to_python_complex_structure() {
+        // Simulates: {robot: {chassis: {length: 0.5, width: 0.3}}}
+        let mut chassis = Mapping::new();
+        chassis.insert(
+            Yaml::Value(Scalar::String("length".into())),
+            Yaml::Value(Scalar::FloatingPoint(0.5.into())),
+        );
+        chassis.insert(
+            Yaml::Value(Scalar::String("width".into())),
+            Yaml::Value(Scalar::FloatingPoint(0.3.into())),
+        );
+
+        let mut robot = Mapping::new();
+        robot.insert(
+            Yaml::Value(Scalar::String("chassis".into())),
+            Yaml::Mapping(chassis),
+        );
+
+        let mut root = Mapping::new();
+        root.insert(
+            Yaml::Value(Scalar::String("robot".into())),
+            Yaml::Mapping(robot),
+        );
+
+        let yaml = Yaml::Mapping(root);
+        let result = yaml_to_python_literal(yaml);
+        assert_eq!(
+            result,
+            "{'robot': {'chassis': {'length': 0.5, 'width': 0.3}}}"
+        );
+    }
+}
