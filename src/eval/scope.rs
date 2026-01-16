@@ -74,6 +74,19 @@ struct PropertyMetadata {
     is_pseudo_boolean: bool,
 }
 
+/// Where to define a property
+///
+/// Used by `<xacro:property scope="...">` to control which scope receives the definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyScope {
+    /// Default: Define in current scope (top of stack or global if no stack)
+    Local,
+    /// scope="parent": Define in parent scope (one level up from current)
+    Parent,
+    /// scope="global": Define in global scope (raw_properties)
+    Global,
+}
+
 pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
@@ -585,10 +598,21 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// Used by the single-pass expander to add properties as they are encountered.
     /// The value is stored unevaluated (lazy evaluation).
-    pub fn add_raw_property(
+    /// Add a raw property with pre-computed metadata (private helper)
+    ///
+    /// This is the core implementation used by both `add_raw_property` and `define_property`.
+    /// Accepts pre-computed metadata to avoid redundant computation.
+    ///
+    /// # Arguments
+    /// * `name` - Property name
+    /// * `value` - Property value (raw, unevaluated)
+    /// * `metadata` - Pre-computed metadata (only used if compat feature enabled)
+    #[cfg(feature = "compat")]
+    fn add_raw_property_with_metadata(
         &self,
         name: String,
         value: String,
+        metadata: PropertyMetadata,
     ) {
         // Warn if user is overriding a built-in math constant (only if it's already defined)
         if self.raw_properties.borrow().contains_key(&name)
@@ -602,18 +626,52 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             );
         }
 
-        // Compat feature: Track float and boolean metadata for properties
-        #[cfg(feature = "compat")]
+        self.property_metadata
+            .borrow_mut()
+            .insert(name.clone(), metadata);
+        self.raw_properties.borrow_mut().insert(name.clone(), value);
+        self.evaluated_cache.borrow_mut().remove(&name);
+    }
+
+    /// Add a raw property without pre-computed metadata (private helper, non-compat)
+    #[cfg(not(feature = "compat"))]
+    fn add_raw_property_with_metadata(
+        &self,
+        name: String,
+        value: String,
+        _metadata: (),
+    ) {
+        // Warn if user is overriding a built-in math constant (only if it's already defined)
+        if self.raw_properties.borrow().contains_key(&name)
+            && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
         {
-            let metadata = self.compute_property_metadata(&value);
-            self.property_metadata
-                .borrow_mut()
-                .insert(name.clone(), metadata);
+            log::warn!(
+                "Property '{}' overrides built-in math constant. \
+                 This may cause unexpected behavior. \
+                 Consider using a different name.",
+                name
+            );
         }
 
         self.raw_properties.borrow_mut().insert(name.clone(), value);
-        // Invalidate cache for this property if it exists
         self.evaluated_cache.borrow_mut().remove(&name);
+    }
+
+    pub fn add_raw_property(
+        &self,
+        name: String,
+        value: String,
+    ) {
+        #[cfg(feature = "compat")]
+        {
+            let metadata = self.compute_property_metadata(&value);
+            self.add_raw_property_with_metadata(name, value, metadata);
+        }
+
+        #[cfg(not(feature = "compat"))]
+        {
+            self.add_raw_property_with_metadata(name, value, ());
+        }
     }
 
     /// Check if a property is defined (in scope stack or global properties)
@@ -631,6 +689,218 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         name: &str,
     ) -> bool {
         self.lookup_raw_value(name).is_some()
+    }
+
+    /// Check if property exists in a specific scope
+    ///
+    /// Used for scope-aware default application to avoid shadowing issues.
+    ///
+    /// # Arguments
+    /// * `name` - Property name to check
+    /// * `scope` - Which scope to check
+    ///
+    /// # Returns
+    /// * `true` if property exists in the target scope
+    /// * `false` if property does not exist in the target scope
+    pub fn has_property_in_scope(
+        &self,
+        name: &str,
+        scope: PropertyScope,
+    ) -> bool {
+        match scope {
+            PropertyScope::Local => {
+                // Check current scope (top of stack or global if no stack)
+                let stack = self.scope_stack.borrow();
+                if let Some(top) = stack.last() {
+                    top.contains_key(name)
+                } else {
+                    self.raw_properties.borrow().contains_key(name)
+                }
+            }
+            PropertyScope::Parent => {
+                // Check parent scope (stack[len-2] or global if at first macro)
+                let stack = self.scope_stack.borrow();
+                if stack.len() >= 2 {
+                    let parent_idx = stack.len() - 2;
+                    stack[parent_idx].contains_key(name)
+                } else {
+                    // Parent is global scope
+                    self.raw_properties.borrow().contains_key(name)
+                }
+            }
+            PropertyScope::Global => {
+                // Check global scope only
+                self.raw_properties.borrow().contains_key(name)
+            }
+        }
+    }
+
+    /// Get current scope depth
+    ///
+    /// Returns the number of active macro scopes:
+    /// - 0 = global scope only (no macros running)
+    /// - 1 = inside first macro
+    /// - 2 = inside nested macro, etc.
+    ///
+    /// Used for scope manipulation (^ operator and scope="parent/global")
+    pub fn scope_depth(&self) -> usize {
+        self.scope_stack.borrow().len()
+    }
+
+    /// Look up property starting from a specific depth downwards
+    ///
+    /// Used by `^` operator to search parent scope and below.
+    /// Searches from `depth` down through the scope stack to global.
+    ///
+    /// # Arguments
+    /// * `key` - Property name to look up
+    /// * `depth` - Scope depth to start search from (1-based, where depth 0 = global only)
+    ///
+    /// # Returns
+    /// * `Some(value)` if found in any scope from depth downward
+    /// * `None` if not found anywhere
+    ///
+    /// # Example
+    /// ```ignore
+    /// // scope_stack = [Scope1, Scope2]  (depth = 2)
+    /// // To look up in Scope1 and below:
+    /// ctx.lookup_at_depth("x", 1)  // Searches: Scope1 -> Global
+    /// ```
+    pub fn lookup_at_depth(
+        &self,
+        key: &str,
+        depth: usize,
+    ) -> Option<String> {
+        let stack = self.scope_stack.borrow();
+
+        // Search stack from depth down to 1
+        // depth=1 means scope_stack[0], depth=2 means scope_stack[1], etc.
+        let start_index = depth.min(stack.len()).saturating_sub(1);
+        if depth > 0 {
+            for i in (0..=start_index).rev() {
+                if let Some(value) = stack[i].get(key) {
+                    return Some(value.clone());
+                }
+            }
+        }
+
+        // Fallback to global (depth 0)
+        self.raw_properties.borrow().get(key).cloned()
+    }
+
+    /// Define a property at a specific scope level
+    ///
+    /// Used for implementing `scope="parent"` and `scope="global"` attributes.
+    /// Single unified method for all property definitions.
+    ///
+    /// # Arguments
+    /// * `name` - Property name
+    /// * `value` - Property value (raw, will be stored as-is for lazy eval)
+    /// * `scope` - Where to define the property
+    ///
+    /// # Behavior
+    /// - `Local`: Defines in current scope (top of stack) or global if no stack
+    /// - `Parent`: Defines in parent scope (stack[len-2]) or global if at top level
+    /// - `Global`: Always defines in global scope
+    ///
+    /// # Edge Cases
+    /// - `Parent` at top level (stack.len() == 0): Warns and falls back to global scope
+    /// - `Parent` at first macro (stack.len() == 1): Defines in global (parent of first macro)
+    pub fn define_property(
+        &self,
+        name: String,
+        value: String,
+        scope: PropertyScope,
+    ) {
+        // Compute metadata before acquiring any borrows to avoid RefCell panic
+        #[cfg(feature = "compat")]
+        let metadata = self.compute_property_metadata(&value);
+
+        match scope {
+            PropertyScope::Local => {
+                // Add to current top scope (or global if no stack)
+                let mut stack = self.scope_stack.borrow_mut();
+                let scope_depth = stack.len();
+                if let Some(top) = stack.last_mut() {
+                    // Update metadata for scoped property
+                    #[cfg(feature = "compat")]
+                    {
+                        let scoped_key = format!("{}:{}", scope_depth, name);
+                        self.property_metadata
+                            .borrow_mut()
+                            .insert(scoped_key, metadata);
+                    }
+                    top.insert(name, value);
+                } else {
+                    drop(stack);
+                    #[cfg(feature = "compat")]
+                    {
+                        self.add_raw_property_with_metadata(name, value, metadata);
+                    }
+                    #[cfg(not(feature = "compat"))]
+                    {
+                        self.add_raw_property_with_metadata(name, value, ());
+                    }
+                }
+            }
+
+            PropertyScope::Parent => {
+                let mut stack = self.scope_stack.borrow_mut();
+                if stack.len() >= 2 {
+                    // Parent exists (stack[len-2])
+                    let parent_idx = stack.len() - 2;
+                    let scope_depth = parent_idx + 1; // Convert index to depth
+                                                      // Update metadata for scoped property
+                    #[cfg(feature = "compat")]
+                    {
+                        let scoped_key = format!("{}:{}", scope_depth, name);
+                        self.property_metadata
+                            .borrow_mut()
+                            .insert(scoped_key, metadata);
+                    }
+                    stack[parent_idx].insert(name, value);
+                } else if stack.len() == 1 {
+                    // At first macro level - parent is global (valid case)
+                    drop(stack);
+                    #[cfg(feature = "compat")]
+                    {
+                        self.add_raw_property_with_metadata(name, value, metadata);
+                    }
+                    #[cfg(not(feature = "compat"))]
+                    {
+                        self.add_raw_property_with_metadata(name, value, ());
+                    }
+                } else {
+                    // stack.len() == 0: At global scope, no parent exists
+                    drop(stack);
+                    log::warn!(
+                        "Property '{}': cannot use scope='parent' at global scope (no parent exists), \
+                         falling back to global scope",
+                        name
+                    );
+                    #[cfg(feature = "compat")]
+                    {
+                        self.add_raw_property_with_metadata(name, value, metadata);
+                    }
+                    #[cfg(not(feature = "compat"))]
+                    {
+                        self.add_raw_property_with_metadata(name, value, ());
+                    }
+                }
+            }
+
+            PropertyScope::Global => {
+                // Always add to raw_properties (depth 0)
+                #[cfg(feature = "compat")]
+                {
+                    self.add_raw_property_with_metadata(name, value, metadata);
+                }
+                #[cfg(not(feature = "compat"))]
+                {
+                    self.add_raw_property_with_metadata(name, value, ());
+                }
+            }
+        }
     }
 
     /// Check if an expression result should be formatted as float (keep .0 for whole numbers)

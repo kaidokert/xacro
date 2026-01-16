@@ -14,7 +14,7 @@ use crate::{
     error::XacroError,
     eval::EvalContext,
     parse::{
-        macro_def::{MacroDefinition, MacroProcessor},
+        macro_def::{MacroDefinition, MacroProcessor, ParamDefault},
         xml::{extract_xacro_namespace, is_xacro_element},
     },
 };
@@ -235,25 +235,50 @@ fn expand_element(
                 }
             })?)?;
 
+        // Parse scope attribute (default: local)
+        use crate::PropertyScope;
+        let scope = match elem.get_attribute("scope").map(|s| s.as_str()) {
+            None => PropertyScope::Local, // Default
+            Some("parent") => PropertyScope::Parent,
+            Some("global") => PropertyScope::Global,
+            Some(other) => {
+                return Err(XacroError::InvalidScopeAttribute {
+                    property: name.clone(),
+                    scope: other.to_string(),
+                })
+            }
+        };
+
         // Get value and default attributes
         let value_attr = elem.get_attribute("value");
         let default_attr = elem.get_attribute("default");
+
+        // Helper closure to define property with scope-aware evaluation
+        let define_property = |raw_value: String| -> Result<(), XacroError> {
+            if scope == PropertyScope::Local {
+                ctx.properties.add_raw_property(name.clone(), raw_value);
+            } else {
+                // Eagerly evaluate for parent/global scope
+                let evaluated = ctx.properties.substitute_text(&raw_value)?;
+                ctx.properties
+                    .define_property(name.clone(), evaluated, scope);
+            }
+            Ok(())
+        };
 
         // Determine what to do based on attributes
         match (value_attr, default_attr) {
             // value always sets the property
             (Some(value), _) => {
-                ctx.properties.add_raw_property(name.clone(), value.clone());
+                define_property(value.clone())?;
             }
             // default only sets if property not already defined
             (None, Some(default_value)) => {
-                // Check if property already exists
-                if !ctx.properties.has_property(&name) {
-                    // Property not defined, use default
-                    ctx.properties
-                        .add_raw_property(name.clone(), default_value.clone());
+                // Check if property already exists in target scope
+                if !ctx.properties.has_property_in_scope(&name, scope) {
+                    define_property(default_value.clone())?;
                 }
-                // else: property already defined, keep existing value
+                // else: property already defined in target scope, keep existing value
             }
             // Neither value nor default - check for lazy property (body-based)
             (None, None) => {
@@ -275,11 +300,17 @@ fn expand_element(
                     return Ok(vec![]);
                 }
 
-                // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
-                let content = crate::parse::xml::serialize_nodes(&elem.children)?;
-
-                // Store as lazy property
-                ctx.properties.add_raw_property(name.clone(), content);
+                // For non-local scopes, eagerly expand children before storing
+                if scope == PropertyScope::Local {
+                    // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
+                    let content = crate::parse::xml::serialize_nodes(&elem.children)?;
+                    ctx.properties.add_raw_property(name.clone(), content);
+                } else {
+                    // Eagerly expand children for parent/global scope
+                    let expanded_nodes = expand_children_list(elem.children, ctx)?;
+                    let content = crate::parse::xml::serialize_nodes(&expanded_nodes)?;
+                    ctx.properties.define_property(name.clone(), content, scope);
+                }
             }
         }
 
@@ -542,7 +573,9 @@ fn expand_element(
             *attr_value = normalize_attribute_whitespace(&substituted);
         }
 
-        let expanded_nodes = expand_macro_call(&elem, ctx)?;
+        // Capture parent scope depth BEFORE calling expand_macro_call (RefCell safety)
+        let parent_scope_depth = ctx.properties.scope_depth();
+        let expanded_nodes = expand_macro_call(&elem, ctx, parent_scope_depth)?;
         // Re-scan the expanded result to handle macros that generate macros
         return expand_children_list(expanded_nodes, ctx);
     }
@@ -615,6 +648,7 @@ fn is_macro_call(
 fn expand_macro_call(
     call_elem: &Element,
     ctx: &XacroContext,
+    parent_scope_depth: usize,
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Extract macro name (element name is already the local name without prefix)
     let macro_name = &call_elem.name;
@@ -707,23 +741,53 @@ fn expand_macro_call(
             // Value is already fully evaluated by substitute_all() on macro call attributes
             ctx.properties
                 .add_to_current_scope(param_name.clone(), value.clone());
-        } else if let Some(default_expr) = macro_def
-            .params
-            .get(param_name)
-            .and_then(|opt| opt.as_ref())
-        {
-            // Evaluate default expression with cumulative context
-            // Earlier parameters are already in the current scope, so they're visible
-            let evaluated = ctx.properties.substitute_text(default_expr)?;
+        } else {
+            // Handle parameter default based on type
+            let param_default = macro_def
+                .params
+                .get(param_name)
+                .expect("Internal logic error: parameter in param_order must exist in params map");
+
+            let evaluated = match param_default {
+                ParamDefault::None => {
+                    // No default and not provided -> error
+                    return Err(XacroError::MissingParameter {
+                        macro_name: macro_def.name.clone(),
+                        param: param_name.clone(),
+                    });
+                }
+                ParamDefault::Value(default_expr) => {
+                    // Evaluate default expression with cumulative context
+                    // Earlier parameters are already in the current scope, so they're visible
+                    ctx.properties.substitute_text(default_expr)?
+                }
+                ParamDefault::ForwardRequired(forward_name) => {
+                    // Forward from parent scope (required)
+                    ctx.properties
+                        .lookup_at_depth(forward_name, parent_scope_depth)
+                        .ok_or_else(|| XacroError::UndefinedPropertyToForward {
+                            macro_name: macro_def.name.clone(),
+                            param: param_name.clone(),
+                            forward_name: forward_name.clone(),
+                        })?
+                }
+                ParamDefault::ForwardWithDefault(forward_name, maybe_default) => {
+                    // Try parent scope first, then fall back to default
+                    if let Some(parent_value) = ctx
+                        .properties
+                        .lookup_at_depth(forward_name, parent_scope_depth)
+                    {
+                        parent_value
+                    } else if let Some(default_expr) = maybe_default.as_ref() {
+                        ctx.properties.substitute_text(default_expr)?
+                    } else {
+                        String::new()
+                    }
+                }
+            };
+
             ctx.properties
                 .add_to_current_scope(param_name.clone(), evaluated);
-        } else {
-            // No default and not provided -> error
-            // Guard will clean up the scope
-            return Err(XacroError::MissingParameter {
-                macro_name: macro_def.name.clone(),
-                param: param_name.clone(),
-            });
         }
     }
 
