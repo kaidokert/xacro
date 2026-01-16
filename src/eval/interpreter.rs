@@ -5,6 +5,9 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+#[cfg(feature = "yaml")]
+use serde_yaml;
+
 /// Evaluate string literal to appropriate type (Python xacro compatibility)
 ///
 /// Implements Python xacro's `Table._eval_literal()` type coercion logic
@@ -256,6 +259,246 @@ fn preprocess_math_functions(
     }
 
     Ok(result)
+}
+
+// ===== YAML Loading Functions (feature-gated) =====
+
+#[cfg(feature = "yaml")]
+/// Convert a serde_yaml::Value to a Python literal string
+///
+/// Recursively converts YAML structures to Python dict/list literals that can be
+/// evaluated by pyisheval. This matches Python xacro's YamlDictWrapper/YamlListWrapper
+/// behavior but generates static literals instead of wrapper objects.
+///
+/// # Examples
+/// ```text
+/// {key: value} → "{'key': 'value'}"
+/// [1, 2, 3] → "[1, 2, 3]"
+/// true → "True"
+/// null → "None"
+/// ```
+fn yaml_to_python_literal(value: serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::Null => "None".to_string(),
+        serde_yaml::Value::Bool(b) => {
+            if b {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
+        }
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                i.to_string()
+            } else if let Some(u) = n.as_u64() {
+                u.to_string()
+            } else if let Some(f) = n.as_f64() {
+                f.to_string()
+            } else {
+                "None".to_string() // Fallback for unparseable numbers
+            }
+        }
+        serde_yaml::Value::String(s) => {
+            // Escape backslashes first, then single quotes (order matters!)
+            let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+            format!("'{}'", escaped)
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            let elements: Vec<String> = seq.into_iter().map(yaml_to_python_literal).collect();
+            format!("[{}]", elements.join(", "))
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let entries: Vec<String> = map
+                .into_iter()
+                .map(|(k, v)| {
+                    let key_str = match k {
+                        serde_yaml::Value::String(s) => {
+                            let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+                            format!("'{}'", escaped)
+                        }
+                        _ => yaml_to_python_literal(k), // Non-string keys
+                    };
+                    let value_str = yaml_to_python_literal(v);
+                    format!("{}: {}", key_str, value_str)
+                })
+                .collect();
+            format!("{{{}}}", entries.join(", "))
+        }
+        serde_yaml::Value::Tagged(tagged) => {
+            // Handle YAML tags (e.g., !degrees, !radians)
+            // For now, just extract the value and ignore the tag
+            // TODO: Implement unit conversions if corpus needs them
+            yaml_to_python_literal(tagged.value)
+        }
+    }
+}
+
+#[cfg(feature = "yaml")]
+/// Load a YAML file and convert it to a Python dict literal string
+///
+/// # Arguments
+/// * `path` - Absolute or relative file path
+///
+/// # Returns
+/// Python dict/list literal string that can be evaluated by pyisheval
+///
+/// # Errors
+/// Returns error if file cannot be read or YAML is invalid
+fn load_yaml_file(path: &str) -> Result<String, EvalError> {
+    // Read file contents
+    let contents = std::fs::read_to_string(path).map_err(|e| EvalError::PyishEval {
+        expr: format!("load_yaml('{}')", path),
+        source: pyisheval::EvalError::ParseError(format!(
+            "Failed to load YAML file '{}': {}",
+            path, e
+        )),
+    })?;
+
+    // Parse YAML
+    let yaml_value: serde_yaml::Value =
+        serde_yaml::from_str(&contents).map_err(|e| EvalError::PyishEval {
+            expr: format!("load_yaml('{}')", path),
+            source: pyisheval::EvalError::ParseError(format!(
+                "Failed to parse YAML file '{}': {}",
+                path, e
+            )),
+        })?;
+
+    // Convert to Python literal
+    Ok(yaml_to_python_literal(yaml_value))
+}
+
+#[cfg(feature = "yaml")]
+/// Regex pattern for matching load_yaml() calls
+static LOAD_YAML_REGEX: OnceLock<Regex> = OnceLock::new();
+
+#[cfg(feature = "yaml")]
+/// Get the load_yaml regex, initializing it on first access
+fn get_load_yaml_regex() -> &'static Regex {
+    LOAD_YAML_REGEX.get_or_init(|| {
+        // Pattern: (xacro\.)?load_yaml\s*\(\s*['"]?([^'"()]+)['"]?\s*\)
+        // Matches: xacro.load_yaml('file.yaml') or load_yaml('file.yaml')
+        // Group 1: optional "xacro."
+        // Group 2: filename (with or without quotes)
+        Regex::new(r"(?:xacro\.)?load_yaml\s*\(\s*([^()]+?)\s*\)")
+            .expect("load_yaml regex should be valid")
+    })
+}
+
+#[cfg(feature = "yaml")]
+/// Preprocess an expression to evaluate load_yaml() calls
+///
+/// Finds load_yaml() calls (with or without xacro. prefix), loads the YAML files,
+/// and replaces the calls with Python dict literals.
+///
+/// # Limitations
+/// - Does not distinguish function calls inside string literals
+/// - File paths are relative to current working directory (not current file)
+///
+/// # Arguments
+/// * `expr` - Expression that may contain load_yaml() calls
+/// * `interp` - Interpreter for evaluating filename variables
+/// * `context` - Context for evaluating filename variables
+///
+/// # Returns
+/// Expression with load_yaml() calls replaced by dict literals
+fn preprocess_load_yaml(
+    expr: &str,
+    interp: &mut Interpreter,
+    context: &HashMap<String, Value>,
+) -> Result<String, EvalError> {
+    let regex = get_load_yaml_regex();
+    let mut result = expr.to_string();
+    let mut iteration = 0;
+    const MAX_ITERATIONS: usize = 100;
+
+    loop {
+        iteration += 1;
+        if iteration > MAX_ITERATIONS {
+            return Err(EvalError::PyishEval {
+                expr: expr.to_string(),
+                source: pyisheval::EvalError::ParseError(
+                    "Too many nested load_yaml() calls (possible infinite loop)".to_string(),
+                ),
+            });
+        }
+
+        // Find all load_yaml() matches
+        let captures: Vec<_> = regex.captures_iter(&result).collect();
+        if captures.is_empty() {
+            break;
+        }
+
+        let mut made_replacement = false;
+        // Process from right to left (innermost first)
+        for caps in captures.iter().rev() {
+            let whole_match = match caps.get(0) {
+                Some(m) => m,
+                None => continue,
+            };
+            let filename_arg = match caps.get(1) {
+                Some(m) => m.as_str().trim(),
+                None => continue,
+            };
+
+            // Evaluate filename argument (could be a variable or string literal)
+            let filename = if filename_arg.starts_with('\'') || filename_arg.starts_with('"') {
+                // String literal - strip quotes
+                filename_arg
+                    .trim_matches(|c| c == '\'' || c == '"')
+                    .to_string()
+            } else {
+                // Variable or expression - evaluate it
+                match interp.eval_with_context(filename_arg, context) {
+                    Ok(Value::StringLit(s)) => s,
+                    Ok(_other) => {
+                        return Err(EvalError::PyishEval {
+                            expr: format!("load_yaml({})", filename_arg),
+                            source: pyisheval::EvalError::TypeError,
+                        });
+                    }
+                    Err(e) => {
+                        return Err(EvalError::PyishEval {
+                            expr: format!("load_yaml({})", filename_arg),
+                            source: e,
+                        });
+                    }
+                }
+            };
+
+            // Load YAML and convert to Python literal
+            let python_literal = load_yaml_file(&filename)?;
+
+            // Replace load_yaml(...) with dict literal
+            result.replace_range(whole_match.range(), &python_literal);
+            made_replacement = true;
+            break; // Restart loop to rescan
+        }
+
+        if !made_replacement {
+            break;
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(not(feature = "yaml"))]
+/// Stub function when yaml feature is disabled
+///
+/// Checks if load_yaml is used and returns a helpful error message
+fn preprocess_load_yaml(expr: &str) -> Result<String, EvalError> {
+    if expr.contains("load_yaml") {
+        return Err(EvalError::PyishEval {
+            expr: expr.to_string(),
+            source: pyisheval::EvalError::ParseError(
+                "load_yaml() requires 'yaml' feature. \
+                 Rebuild with --features yaml"
+                    .to_string(),
+            ),
+        });
+    }
+    Ok(expr.to_string())
 }
 
 /// Initialize an Interpreter with builtin constants and math functions
@@ -588,6 +831,21 @@ pub fn evaluate_expression(
     // This converts native math calls into computed values since pyisheval
     // doesn't support calling native Rust functions
     let preprocessed = preprocess_math_functions(expr, interp).map_err(|e| match e {
+        EvalError::PyishEval { source, .. } => source,
+        _ => pyisheval::EvalError::ParseError(e.to_string()),
+    })?;
+
+    // Preprocess load_yaml() calls (if yaml feature is enabled)
+    // This loads YAML files and replaces load_yaml() with dict literals
+    #[cfg(feature = "yaml")]
+    let preprocessed =
+        preprocess_load_yaml(&preprocessed, interp, context).map_err(|e| match e {
+            EvalError::PyishEval { source, .. } => source,
+            _ => pyisheval::EvalError::ParseError(e.to_string()),
+        })?;
+
+    #[cfg(not(feature = "yaml"))]
+    let preprocessed = preprocess_load_yaml(&preprocessed).map_err(|e| match e {
         EvalError::PyishEval { source, .. } => source,
         _ => pyisheval::EvalError::ParseError(e.to_string()),
     })?;
