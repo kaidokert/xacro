@@ -32,10 +32,10 @@ fn test_and_operator_in_conditionals() {
     assert_xacro_contains!(&output, r#"<link name="both_true""#);
 
     // Should NOT include link when one is false
-    assert!(!output.contains(r#"<link name="one_false""#));
+    assert_xacro_not_contains!(&output, r#"<link name="one_false""#);
 
     // Should NOT include link when both are false
-    assert!(!output.contains(r#"<link name="both_false""#));
+    assert_xacro_not_contains!(&output, r#"<link name="both_false""#);
 }
 
 // Test 'or' operator in xacro conditionals and property resolution
@@ -72,7 +72,7 @@ fn test_or_operator_in_conditionals() {
     assert_xacro_contains!(&output, r#"<link name="one_true""#);
 
     // Should NOT include link when both are false
-    assert!(!output.contains(r#"<link name="both_false""#));
+    assert_xacro_not_contains!(&output, r#"<link name="both_false""#);
 }
 
 // Test 'and'/'or' combined with comparison operators
@@ -175,8 +175,14 @@ fn test_property_evaluation_with_logical_operators() {
 </robot>"#;
 
     let output = run_xacro(input);
-    // False evaluates to 0 or False, True evaluates to 1 or True
-    assert_xacro_contains!(&output, r#"<box size="False True True""#);
+    let root = parse_xml(&output);
+    let link = find_child(&root, "link");
+    let visual = find_child(link, "visual");
+    let geometry = find_child(visual, "geometry");
+    let box_elem = find_child(geometry, "box");
+
+    // pyisheval v0.13 outputs True/False for boolean results
+    assert_xacro_attr!(box_elem, "size", "False True True");
 }
 
 // Test chained logical operators
