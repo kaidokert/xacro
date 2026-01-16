@@ -1175,6 +1175,75 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         Ok(result)
     }
 
+    /// Evaluate only ${...} expressions in args, leaving extensions unevaluated
+    ///
+    /// This is used to resolve property references in extension arguments before
+    /// passing them to handlers. For example: `$(find ${package_name})` evaluates
+    /// the `${package_name}` part but doesn't recursively evaluate nested extensions.
+    ///
+    /// # Arguments
+    /// * `args` - The argument string that may contain ${...} expressions
+    ///
+    /// # Returns
+    /// The args string with ${...} expressions evaluated
+    fn evaluate_args_expressions(
+        &self,
+        args: &str,
+    ) -> Result<String, XacroError> {
+        use super::interpreter::build_pyisheval_context;
+
+        // Quick path: if no ${...}, return as-is
+        if !args.contains("${") {
+            return Ok(args.to_string());
+        }
+
+        // Build context for properties referenced in args
+        let properties = self.build_eval_context(args)?;
+        let context = build_pyisheval_context(&properties, &mut self.interpreter.borrow_mut())
+            .map_err(|e| XacroError::EvalError {
+                expr: args.to_string(),
+                source: e,
+            })?;
+
+        // Tokenize and evaluate only Expr tokens
+        let lexer = Lexer::new(args);
+        let mut result = String::new();
+
+        for (token_type, token_value) in lexer {
+            match token_type {
+                TokenType::Expr => {
+                    // Evaluate expression
+                    let value_opt = evaluate_expression(
+                        &mut self.interpreter.borrow_mut(),
+                        &token_value,
+                        &context,
+                    )
+                    .map_err(|e| XacroError::EvalError {
+                        expr: token_value.clone(),
+                        source: crate::eval::EvalError::PyishEval {
+                            expr: token_value.clone(),
+                            source: e,
+                        },
+                    })?;
+
+                    match value_opt {
+                        Some(value) => {
+                            let formatted = self.format_evaluation_result(&value, &token_value);
+                            result.push_str(&formatted);
+                        }
+                        None => continue,
+                    }
+                }
+                TokenType::Text | TokenType::Extension | TokenType::DollarDollarBrace => {
+                    // Keep as-is (don't recursively evaluate extensions)
+                    result.push_str(&token_value);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
     ///
     /// Extensions are distinct from expressions - they provide external data sources.
@@ -1210,6 +1279,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Collect remaining parts as raw args string
         let args_raw = parts_iter.collect::<Vec<_>>().join(" ");
 
+        // Evaluate ${...} expressions in args before passing to handlers
+        // This allows patterns like: $(find ${package_name})
+        // We only evaluate expressions, not nested extensions, to avoid recursion
+        let args_evaluated = self.evaluate_args_expressions(&args_raw)?;
+
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
         // by xacro:arg directives during expansion.
@@ -1220,12 +1294,13 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // core feature. See notes/EXTENSION_IMPL_ACTUAL.md for rationale.
         if command == "arg" {
             use crate::extensions::extension_utils;
-            let arg_parts = extension_utils::expect_args(&args_raw, "arg", 1).map_err(|e| {
-                XacroError::InvalidExtension {
-                    content: content.to_string(),
-                    reason: e.to_string(),
-                }
-            })?;
+            let arg_parts =
+                extension_utils::expect_args(&args_evaluated, "arg", 1).map_err(|e| {
+                    XacroError::InvalidExtension {
+                        content: content.to_string(),
+                        reason: e.to_string(),
+                    }
+                })?;
 
             return self
                 .args
@@ -1239,7 +1314,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
 
         // Try each extension handler in order
         for handler in self.extensions.iter() {
-            match handler.resolve(command, &args_raw) {
+            match handler.resolve(command, &args_evaluated) {
                 Ok(Some(result)) => return Ok(result),
                 Ok(None) => continue, // Try next handler
                 Err(e) => {
