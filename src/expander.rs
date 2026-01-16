@@ -747,14 +747,10 @@ fn expand_macro_call(
                 .add_to_current_scope(param_name.clone(), value.clone());
         } else {
             // Handle parameter default based on type
-            let param_default =
-                macro_def
-                    .params
-                    .get(param_name)
-                    .ok_or_else(|| XacroError::MissingParameter {
-                        macro_name: macro_def.name.clone(),
-                        param: param_name.clone(),
-                    })?;
+            let param_default = macro_def
+                .params
+                .get(param_name)
+                .expect("Internal logic error: parameter in param_order must exist in params map");
 
             let evaluated = match param_default {
                 ParamDefault::None => {

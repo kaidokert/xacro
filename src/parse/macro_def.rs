@@ -42,14 +42,12 @@ pub struct MacroProcessor;
 
 impl MacroProcessor {
     /// Helper to unquote a value (removes surrounding quotes if present)
-    fn unquote_value(value: &str) -> String {
-        if let Some(s) = value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-            s.to_string()
-        } else if let Some(s) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-            s.to_string()
-        } else {
-            value.to_string()
-        }
+    fn unquote_value(value: &str) -> &str {
+        value
+            .strip_prefix('\'')
+            .and_then(|s| s.strip_suffix('\''))
+            .or_else(|| value.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
+            .unwrap_or(value)
     }
 
     /// Split a parameter string on whitespace, respecting quoted sections.
@@ -168,7 +166,7 @@ impl MacroProcessor {
                 let param_default = if let Some(remainder) = value.strip_prefix('^') {
                     if let Some(default_str) = remainder.strip_prefix('|') {
                         // ^|default syntax - forward with default
-                        let unquoted = Self::unquote_value(default_str);
+                        let unquoted = Self::unquote_value(default_str).to_string();
                         if unquoted.is_empty() {
                             ParamDefault::ForwardWithDefault(name.to_string(), None)
                         } else {
@@ -187,7 +185,7 @@ impl MacroProcessor {
                     }
                 } else {
                     // Regular default value
-                    ParamDefault::Value(Self::unquote_value(value))
+                    ParamDefault::Value(Self::unquote_value(value).to_string())
                 };
 
                 (name.to_string(), false, false, param_default)

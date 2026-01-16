@@ -723,16 +723,19 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         value: String,
         scope: PropertyScope,
     ) {
+        // Compute metadata before acquiring any borrows to avoid RefCell panic
+        #[cfg(feature = "compat")]
+        let metadata = self.compute_property_metadata(&value);
+
         match scope {
             PropertyScope::Local => {
                 // Add to current top scope (or global if no stack)
                 let mut stack = self.scope_stack.borrow_mut();
-                let scope_depth = stack.len(); // Capture depth before mutable borrow
+                let scope_depth = stack.len();
                 if let Some(top) = stack.last_mut() {
                     // Update metadata for scoped property
                     #[cfg(feature = "compat")]
                     {
-                        let metadata = self.compute_property_metadata(&value);
                         let scoped_key = format!("{}:{}", scope_depth, name);
                         self.property_metadata
                             .borrow_mut()
@@ -750,11 +753,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 if stack.len() >= 2 {
                     // Parent exists (stack[len-2])
                     let parent_idx = stack.len() - 2;
-                    // Update metadata for scoped property
+                    let scope_depth = parent_idx + 1; // Convert index to depth
+                                                      // Update metadata for scoped property
                     #[cfg(feature = "compat")]
                     {
-                        let metadata = self.compute_property_metadata(&value);
-                        let scope_depth = parent_idx + 1; // Convert index to depth
                         let scoped_key = format!("{}:{}", scope_depth, name);
                         self.property_metadata
                             .borrow_mut()
