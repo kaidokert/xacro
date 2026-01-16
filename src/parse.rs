@@ -98,7 +98,7 @@ mod macro_tests {
         // Test that namespaced attributes are REJECTED on macro calls
         // (Python xacro behavior: "Invalid parameter 'foo:x'")
         let mut params = HashMap::new();
-        params.insert("x".to_string(), None);
+        params.insert("x".to_string(), ParamDefault::None);
 
         let param_order = vec!["x".to_string()];
         let block_params = HashSet::new();
@@ -360,9 +360,15 @@ mod macro_tests {
 
         // Check params map
         assert_eq!(params.len(), 3);
-        assert_eq!(params.get("x"), Some(&Some("1".to_string())));
-        assert_eq!(params.get("y"), Some(&Some("2.5".to_string())));
-        assert_eq!(params.get("z"), Some(&Some("foo".to_string())));
+        assert_eq!(params.get("x"), Some(&ParamDefault::Value("1".to_string())));
+        assert_eq!(
+            params.get("y"),
+            Some(&ParamDefault::Value("2.5".to_string()))
+        );
+        assert_eq!(
+            params.get("z"),
+            Some(&ParamDefault::Value("foo".to_string()))
+        );
 
         // Check param order preservation
         assert_eq!(param_order, vec!["x", "y", "z"]);
@@ -383,9 +389,9 @@ mod macro_tests {
 
         // Check params map (None = no default)
         assert_eq!(params.len(), 3);
-        assert_eq!(params.get("a"), Some(&None));
-        assert_eq!(params.get("b"), Some(&None));
-        assert_eq!(params.get("c"), Some(&None));
+        assert_eq!(params.get("a"), Some(&ParamDefault::None));
+        assert_eq!(params.get("b"), Some(&ParamDefault::None));
+        assert_eq!(params.get("c"), Some(&ParamDefault::None));
 
         // Check param order
         assert_eq!(param_order, vec!["a", "b", "c"]);
@@ -403,8 +409,8 @@ mod macro_tests {
 
         // Check params map (block params have None value)
         assert_eq!(params.len(), 2);
-        assert_eq!(params.get("origin"), Some(&None));
-        assert_eq!(params.get("geometry"), Some(&None));
+        assert_eq!(params.get("origin"), Some(&ParamDefault::None));
+        assert_eq!(params.get("geometry"), Some(&ParamDefault::None));
 
         // Check param order
         assert_eq!(param_order, vec!["origin", "geometry"]);
@@ -424,9 +430,12 @@ mod macro_tests {
 
         // Check all params present
         assert_eq!(params.len(), 3);
-        assert_eq!(params.get("prefix"), Some(&None));
-        assert_eq!(params.get("origin"), Some(&None));
-        assert_eq!(params.get("suffix"), Some(&Some("default".to_string())));
+        assert_eq!(params.get("prefix"), Some(&ParamDefault::None));
+        assert_eq!(params.get("origin"), Some(&ParamDefault::None));
+        assert_eq!(
+            params.get("suffix"),
+            Some(&ParamDefault::Value("default".to_string()))
+        );
 
         // Check param order preservation
         assert_eq!(param_order, vec!["prefix", "origin", "suffix"]);
@@ -444,8 +453,14 @@ mod macro_tests {
         let (params, _param_order, _block_params, _lazy_block_params) = result.unwrap();
 
         // Parser doesn't evaluate, just stores the raw string
-        assert_eq!(params.get("angle"), Some(&Some("${pi/2}".to_string())));
-        assert_eq!(params.get("scale"), Some(&Some("${2*base}".to_string())));
+        assert_eq!(
+            params.get("angle"),
+            Some(&ParamDefault::Value("${pi/2}".to_string()))
+        );
+        assert_eq!(
+            params.get("scale"),
+            Some(&ParamDefault::Value("${2*base}".to_string()))
+        );
     }
 
     // ========== Additional Unit Tests for collect_macro_args ==========
@@ -676,7 +691,10 @@ mod macro_tests {
         assert_eq!(params.len(), 1);
         assert_eq!(order.len(), 1);
         assert_eq!(blocks.len(), 0);
-        assert_eq!(params.get("name"), Some(&Some("value".to_string())));
+        assert_eq!(
+            params.get("name"),
+            Some(&ParamDefault::Value("value".to_string()))
+        );
     }
 
     /// Test parsing params with single-quoted default value containing spaces
@@ -689,7 +707,10 @@ mod macro_tests {
         assert_eq!(params.len(), 1);
         assert_eq!(order.len(), 1);
         assert_eq!(blocks.len(), 0);
-        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
+        assert_eq!(
+            params.get("rpy"),
+            Some(&ParamDefault::Value("0 0 0".to_string()))
+        );
     }
 
     /// Test parsing params with double-quoted default value containing spaces
@@ -703,7 +724,10 @@ mod macro_tests {
 
         let (params, _order, _blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 1);
-        assert_eq!(params.get("xyz"), Some(&Some("1 2 3".to_string())));
+        assert_eq!(
+            params.get("xyz"),
+            Some(&ParamDefault::Value("1 2 3".to_string()))
+        );
     }
 
     /// Test parsing multiple params with quoted defaults (real Franka example)
@@ -723,11 +747,23 @@ mod macro_tests {
         assert_eq!(order.len(), 5);
         assert_eq!(blocks.len(), 0);
 
-        assert_eq!(params.get("connected_to"), Some(&Some("".to_string())));
-        assert_eq!(params.get("ns"), Some(&Some("".to_string())));
-        assert_eq!(params.get("rpy"), Some(&Some("0 0 0".to_string())));
-        assert_eq!(params.get("xyz"), Some(&Some("0 0 0".to_string())));
-        assert_eq!(params.get("safety_distance"), Some(&Some("0".to_string())));
+        assert_eq!(
+            params.get("connected_to"),
+            Some(&ParamDefault::Value("".to_string()))
+        );
+        assert_eq!(params.get("ns"), Some(&ParamDefault::Value("".to_string())));
+        assert_eq!(
+            params.get("rpy"),
+            Some(&ParamDefault::Value("0 0 0".to_string()))
+        );
+        assert_eq!(
+            params.get("xyz"),
+            Some(&ParamDefault::Value("0 0 0".to_string()))
+        );
+        assert_eq!(
+            params.get("safety_distance"),
+            Some(&ParamDefault::Value("0".to_string()))
+        );
     }
 
     /// Test parsing mixed params: quoted defaults, unquoted defaults, and block params
@@ -763,10 +799,19 @@ mod macro_tests {
         );
 
         // Verify parameter values
-        assert_eq!(params.get("pos"), Some(&Some("1 2 3".to_string())));
-        assert_eq!(params.get("scale"), Some(&Some("0.5".to_string())));
-        assert_eq!(params.get("content"), Some(&None)); // Block param has no default
-        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+        assert_eq!(
+            params.get("pos"),
+            Some(&ParamDefault::Value("1 2 3".to_string()))
+        );
+        assert_eq!(
+            params.get("scale"),
+            Some(&ParamDefault::Value("0.5".to_string()))
+        );
+        assert_eq!(params.get("content"), Some(&ParamDefault::None)); // Block param has no default
+        assert_eq!(
+            params.get("name"),
+            Some(&ParamDefault::Value("test".to_string()))
+        );
     }
 
     /// Test that quoted defaults with ':=' inside quotes are handled correctly
@@ -782,8 +827,14 @@ mod macro_tests {
         let (params, order, _blocks, _lazy_blocks) = result.unwrap();
         assert_eq!(params.len(), 2);
         assert_eq!(order, vec!["expr", "name"]);
-        assert_eq!(params.get("expr"), Some(&Some("x:=5 y:=10".to_string())));
-        assert_eq!(params.get("name"), Some(&Some("test".to_string())));
+        assert_eq!(
+            params.get("expr"),
+            Some(&ParamDefault::Value("x:=5 y:=10".to_string()))
+        );
+        assert_eq!(
+            params.get("name"),
+            Some(&ParamDefault::Value("test".to_string()))
+        );
     }
 
     /// Test that block parameters with quoted defaults are rejected
@@ -832,7 +883,7 @@ mod macro_tests {
         );
 
         let (params, _, _, _) = result.unwrap();
-        assert_eq!(params.get("p"), Some(&Some("x".to_string())));
+        assert_eq!(params.get("p"), Some(&ParamDefault::Value("x".to_string())));
     }
 
     /// Test edge case: properly quoted single-character string
@@ -849,7 +900,7 @@ mod macro_tests {
 
         let (params, _, _, _) = result.unwrap();
         // Quote-stripping should extract the 'x'
-        assert_eq!(params.get("p"), Some(&Some("x".to_string())));
+        assert_eq!(params.get("p"), Some(&ParamDefault::Value("x".to_string())));
     }
 
     /// Test escape sequences in quoted defaults (NOT YET SUPPORTED)
@@ -920,7 +971,10 @@ mod macro_tests {
         assert_eq!(params.len(), 1, "Adjacent quotes treated as single token");
         assert_eq!(order, vec!["a"]);
         // The value includes everything after := including the adjacent param
-        assert_eq!(params.get("a"), Some(&Some("val1'b:='val2".to_string())));
+        assert_eq!(
+            params.get("a"),
+            Some(&ParamDefault::Value("val1'b:='val2".to_string()))
+        );
     }
 
     /// Test edge case: quote character in parameter name causes unbalanced quote
@@ -955,8 +1009,8 @@ mod macro_tests {
         let (params, param_order, block_params, _lazy_block_params) = result.unwrap();
 
         // Last declaration wins for value
-        assert_eq!(params.get("x"), Some(&Some("3".to_string())));
-        assert_eq!(params.get("y"), Some(&Some("2".to_string())));
+        assert_eq!(params.get("x"), Some(&ParamDefault::Value("3".to_string())));
+        assert_eq!(params.get("y"), Some(&ParamDefault::Value("2".to_string())));
 
         // Order should only contain unique params, in first-seen order
         assert_eq!(param_order, vec!["x", "y"]);
@@ -977,7 +1031,7 @@ mod macro_tests {
 
         // Should have one entry
         assert_eq!(params.len(), 1);
-        assert_eq!(params.get("body"), Some(&None));
+        assert_eq!(params.get("body"), Some(&ParamDefault::None));
 
         // Order should only contain unique params
         assert_eq!(param_order, vec!["body"]);

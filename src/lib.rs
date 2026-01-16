@@ -16,6 +16,7 @@ pub mod processor;
 pub mod test_utils;
 
 pub use error::XacroError;
+pub use eval::scope::PropertyScope;
 pub use processor::{CompatMode, XacroBuilder, XacroProcessor};
 
 pub fn process_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroError> {

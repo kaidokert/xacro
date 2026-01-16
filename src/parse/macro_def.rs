@@ -2,8 +2,23 @@ use crate::error::XacroError;
 use std::collections::{HashMap, HashSet};
 pub use xmltree::Element;
 
+/// Default value specification for a macro parameter
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamDefault {
+    /// No default: "param"
+    None,
+    /// Regular default: "param:=5" or "param:=${x*2}"
+    Value(String),
+    /// Forward required: "param:=^"
+    /// Must exist in parent scope or error
+    ForwardRequired(String),
+    /// Forward with default: "param:=^|5" or "param:=^|"
+    /// Try parent scope, fall back to default (or empty string if None)
+    ForwardWithDefault(String, Option<String>),
+}
+
 // Type aliases to simplify complex return types
-pub type ParamsMap = HashMap<String, Option<String>>;
+pub type ParamsMap = HashMap<String, ParamDefault>;
 pub type ParamOrder = Vec<String>;
 pub type BlockParamsSet = HashSet<String>;
 pub type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet, BlockParamsSet);
@@ -26,6 +41,17 @@ pub struct MacroDefinition {
 pub struct MacroProcessor;
 
 impl MacroProcessor {
+    /// Helper to unquote a value (removes surrounding quotes if present)
+    fn unquote_value(value: &str) -> String {
+        if let Some(s) = value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+            s.to_string()
+        } else if let Some(s) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            s.to_string()
+        } else {
+            value.to_string()
+        }
+    }
+
     /// Split a parameter string on whitespace, respecting quoted sections.
     ///
     /// Returns an error if quotes are unbalanced (unclosed quote).
@@ -102,7 +128,7 @@ impl MacroProcessor {
 
         for token in Self::split_params_respecting_quotes(params_str)? {
             // Parse token to determine parameter type and components
-            let (param_name_str, is_block, is_lazy, default_value_str) = if token.starts_with('*') {
+            let (param_name_str, is_block, is_lazy, param_default) = if token.starts_with('*') {
                 // Block parameter (**param or *param)
                 // Block parameters CANNOT have defaults
                 if token.contains(":=") || token.contains('=') {
@@ -129,7 +155,7 @@ impl MacroProcessor {
                     });
                 }
 
-                (stripped.to_string(), true, is_lazy, None)
+                (stripped.to_string(), true, is_lazy, ParamDefault::None)
             } else if let Some((name, value)) =
                 token.split_once(":=").or_else(|| token.split_once('='))
             {
@@ -137,26 +163,37 @@ impl MacroProcessor {
                 // Python xacro supports both syntaxes:
                 //   params="width:=5"  (preferred)
                 //   params="width=5"   (also valid)
-                // Strip surrounding quotes from default value if present
-                // Using strip_prefix/strip_suffix is safe and handles edge cases like single-char strings
-                let unquoted_value = if let Some(s) =
-                    value.strip_prefix('\'').and_then(|s| s.strip_suffix('\''))
-                {
-                    s
-                } else if let Some(s) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-                    s
+
+                // Check for ^ operator (parent scope forwarding)
+                let param_default = if let Some(remainder) = value.strip_prefix('^') {
+                    if let Some(default_str) = remainder.strip_prefix('|') {
+                        // ^|default syntax - forward with default
+                        let unquoted = Self::unquote_value(default_str);
+                        if unquoted.is_empty() {
+                            ParamDefault::ForwardWithDefault(name.to_string(), None)
+                        } else {
+                            ParamDefault::ForwardWithDefault(name.to_string(), Some(unquoted))
+                        }
+                    } else if remainder.is_empty() {
+                        // ^ syntax - required forward
+                        ParamDefault::ForwardRequired(name.to_string())
+                    } else {
+                        // Invalid: ^something (not ^| or plain ^)
+                        return Err(XacroError::InvalidForwardSyntax {
+                            param: token.clone(),
+                            hint: "Use ^ for required forward or ^|default for optional"
+                                .to_string(),
+                        });
+                    }
                 } else {
-                    value
+                    // Regular default value
+                    ParamDefault::Value(Self::unquote_value(value))
                 };
-                (
-                    name.to_string(),
-                    false,
-                    false,
-                    Some(unquoted_value.to_string()),
-                )
+
+                (name.to_string(), false, false, param_default)
             } else {
                 // Regular parameter without default
-                (token.clone(), false, false, None)
+                (token.clone(), false, false, ParamDefault::None)
             };
 
             // Validate parameter name is not empty
@@ -185,14 +222,14 @@ impl MacroProcessor {
                     // Regular block, remove from lazy set if previously there
                     lazy_block_params.remove(&param_name);
                 }
-                params.insert(param_name, None);
+                params.insert(param_name, ParamDefault::None);
             } else {
                 // In compat mode, if changing from block to non-block, remove from block_params and lazy_block_params
                 if compat_mode {
                     block_params.remove(&param_name);
                     lazy_block_params.remove(&param_name);
                 }
-                params.insert(param_name, default_value_str);
+                params.insert(param_name, param_default);
             }
         }
 

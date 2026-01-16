@@ -70,6 +70,21 @@ pub enum XacroError {
     #[error("Invalid macro parameter '{param}': {reason}")]
     InvalidMacroParameter { param: String, reason: String },
 
+    #[error("Invalid forward syntax in parameter '{param}': {hint}")]
+    InvalidForwardSyntax { param: String, hint: String },
+
+    #[error("Macro '{macro_name}' parameter '{param}' declared with ^ to forward '{forward_name}' but not found in parent scope")]
+    UndefinedPropertyToForward {
+        macro_name: String,
+        param: String,
+        forward_name: String,
+    },
+
+    #[error(
+        "Invalid scope attribute '{scope}' for property '{property}': must be 'parent' or 'global'"
+    )]
+    InvalidScopeAttribute { property: String, scope: String },
+
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 
