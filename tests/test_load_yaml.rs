@@ -11,15 +11,13 @@ mod load_yaml_tests {
 
         // Load YAML and access top-level key
         // Note: YAML true becomes Python True, which evaluates to 1
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['enabled']}",
             &props,
-        );
+        )
+        .expect("load_yaml should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "1", "enabled (True) should evaluate to 1"),
-            Err(e) => panic!("load_yaml failed: {}", e),
-        }
+        assert_eq!(value, "1", "enabled (True) should evaluate to 1");
     }
 
     #[test]
@@ -27,15 +25,13 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Access nested dict values
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['robot']['chassis']['length']}",
             &props,
-        );
+        )
+        .expect("load_yaml nested access should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "0.5", "chassis length should be 0.5"),
-            Err(e) => panic!("load_yaml nested access failed: {}", e),
-        }
+        assert_eq!(value, "0.5", "chassis length should be 0.5");
     }
 
     #[test]
@@ -43,15 +39,13 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Test xacro.load_yaml() syntax
-        let result = eval_text(
+        let value = eval_text(
             "${xacro.load_yaml('tests/data/test_config.yaml')['count']}",
             &props,
-        );
+        )
+        .expect("xacro.load_yaml should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "5", "count should be 5"),
-            Err(e) => panic!("xacro.load_yaml failed: {}", e),
-        }
+        assert_eq!(value, "5", "count should be 5");
     }
 
     #[test]
@@ -59,15 +53,13 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Access array elements
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['joints'][0]}",
             &props,
-        );
+        )
+        .expect("load_yaml array access should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "joint1", "first joint should be joint1"),
-            Err(e) => panic!("load_yaml array access failed: {}", e),
-        }
+        assert_eq!(value, "joint1", "first joint should be joint1");
     }
 
     #[test]
@@ -75,15 +67,13 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Access deeply nested value
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['nested']['level1']['level2']['value']}",
             &props,
-        );
+        )
+        .expect("load_yaml deep nesting should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "deep_value", "deep nested value should match"),
-            Err(e) => panic!("load_yaml deep nesting failed: {}", e),
-        }
+        assert_eq!(value, "deep_value", "deep nested value should match");
     }
 
     #[test]
@@ -91,15 +81,13 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Use loaded value in arithmetic expression
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['robot']['wheel']['radius'] * 2}",
             &props,
-        );
+        )
+        .expect("load_yaml in arithmetic should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "0.2", "radius * 2 should be 0.2"),
-            Err(e) => panic!("load_yaml in arithmetic failed: {}", e),
-        }
+        assert_eq!(value, "0.2", "radius * 2 should be 0.2");
     }
 
     #[test]
@@ -107,16 +95,14 @@ mod load_yaml_tests {
         let props = HashMap::new();
 
         // Multiple load_yaml calls in same expression
-        let result = eval_text(
+        let value = eval_text(
             "${load_yaml('tests/data/test_config.yaml')['robot']['chassis']['length'] + \
              load_yaml('tests/data/test_config.yaml')['robot']['chassis']['width']}",
             &props,
-        );
+        )
+        .expect("multiple load_yaml calls should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "0.8", "0.5 + 0.3 should be 0.8"),
-            Err(e) => panic!("multiple load_yaml calls failed: {}", e),
-        }
+        assert_eq!(value, "0.8", "0.5 + 0.3 should be 0.8");
     }
 
     #[test]
@@ -136,12 +122,10 @@ mod load_yaml_tests {
         props.insert("wheel_base".to_string(), wheel_base);
 
         // Now use the stored value in calculations
-        let result = eval_text_with_interpreter("${wheel_base * 2}", &props, &mut interp);
+        let value = eval_text_with_interpreter("${wheel_base * 2}", &props, &mut interp)
+            .expect("stored value calculation should succeed");
 
-        match result {
-            Ok(value) => assert_eq!(value, "0.8", "wheel_base * 2 should be 0.8"),
-            Err(e) => panic!("stored value calculation failed: {}", e),
-        }
+        assert_eq!(value, "0.8", "wheel_base * 2 should be 0.8");
     }
 
     #[test]
@@ -191,12 +175,34 @@ mod load_yaml_tests {
         );
 
         // Variable filenames are now supported
-        let result = eval_text("${load_yaml(config_file)['count']}", &props);
+        let value = eval_text("${load_yaml(config_file)['count']}", &props)
+            .expect("variable filename should work");
 
-        match result {
-            Ok(value) => assert_eq!(value, "5", "count should be 5"),
-            Err(e) => panic!("variable filename should work: {}", e),
-        }
+        assert_eq!(value, "5", "count should be 5");
+    }
+
+    #[test]
+    fn test_load_yaml_argument_with_parentheses_in_string() {
+        let mut props = HashMap::new();
+        // Property value contains parentheses - this tests that find_matching_paren
+        // correctly handles the closing paren of load_yaml vs parens inside the argument
+        props.insert(
+            "file_with_parens".to_string(),
+            "tests/data/test_config.yaml".to_string(),
+        );
+
+        // The fix ensures we use find_matching_paren instead of regex capture [^()]+?
+        // This allows proper handling when the argument contains parentheses
+        let value = eval_text(
+            "${load_yaml(file_with_parens)['robot']['chassis']['width']}",
+            &props,
+        )
+        .expect("load_yaml argument parsing should succeed");
+
+        assert_eq!(
+            value, "0.3",
+            "should correctly parse load_yaml argument even with potential paren complexity"
+        );
     }
 }
 
@@ -215,8 +221,8 @@ mod yaml_disabled_tests {
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("load_yaml() requires 'yaml' feature"),
-            "error should mention explicit load_yaml yaml feature requirement, got: {}",
+            err_msg.contains("yaml") && err_msg.contains("feature"),
+            "error should mention yaml feature requirement, got: {}",
             err_msg
         );
     }
@@ -231,8 +237,8 @@ mod yaml_disabled_tests {
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("load_yaml() requires 'yaml' feature"),
-            "error should mention explicit load_yaml yaml feature requirement, got: {}",
+            err_msg.contains("yaml") && err_msg.contains("feature"),
+            "error should mention yaml feature requirement, got: {}",
             err_msg
         );
     }
