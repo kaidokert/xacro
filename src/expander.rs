@@ -269,8 +269,8 @@ fn expand_element(
             }
             // default only sets if property not already defined
             (None, Some(default_value)) => {
-                // Check if property already exists
-                if !ctx.properties.has_property(&name) {
+                // Check if property already exists in target scope
+                if !ctx.properties.has_property_in_scope(&name, scope) {
                     // For non-local scopes, use eager evaluation
                     if scope == PropertyScope::Local {
                         ctx.properties
@@ -282,7 +282,7 @@ fn expand_element(
                             .define_property(name.clone(), evaluated, scope);
                     }
                 }
-                // else: property already defined, keep existing value
+                // else: property already defined in target scope, keep existing value
             }
             // Neither value nor default - check for lazy property (body-based)
             (None, None) => {

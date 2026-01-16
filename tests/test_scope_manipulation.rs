@@ -295,9 +295,14 @@ fn test_scope_invalid_value_error() {
     );
 }
 
-// TODO: This test is disabled because it reveals that local properties defined
-// inside macros are currently accessible outside the macro. This might match
-// Python xacro's behavior, or it might be a bug. Needs investigation.
+// TODO: This test is disabled because it reveals a known limitation:
+// Properties defined inside macros are currently accessible outside the macro.
+// This does NOT match Python xacro behavior (confirmed: Python xacro properly
+// scopes local properties and errors on access outside the macro).
+//
+// Fixing this requires broader architectural changes to the scope stack system
+// to properly isolate macro-local properties. This is tracked as a known
+// limitation and should be addressed in a future PR focused on scope isolation.
 #[test]
 #[ignore]
 fn test_scope_local_default() {
@@ -439,4 +444,31 @@ fn test_forward_with_scope_global() {
     let output = run_xacro(input);
     //"Forward with scope='global' should work");
     assert_xacro_contains!(&output, r#"name="robot_arm""#);
+}
+
+#[test]
+fn test_scope_default_not_shadowed() {
+    // Test that scoped defaults are not suppressed by local shadows (issue #5)
+    // This test uses scope="parent" to avoid scope leakage issues
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="inner">
+    <!-- Local property named "config" -->
+    <xacro:property name="config" value="local_value"/>
+    <!-- Parent default should NOT be suppressed by local shadow -->
+    <xacro:property name="config" default="parent_default" scope="parent"/>
+  </xacro:macro>
+
+  <xacro:macro name="outer">
+    <!-- Call inner macro - it defines local config and parent default -->
+    <xacro:inner/>
+    <!-- In outer scope, config should be "parent_default" set by inner -->
+    <link name="${config}"/>
+  </xacro:macro>
+
+  <xacro:outer/>
+</robot>"#;
+
+    let output = run_xacro(input);
+    assert_xacro_contains!(&output, r#"name="parent_default""#);
 }

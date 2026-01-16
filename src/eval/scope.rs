@@ -646,6 +646,50 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         self.lookup_raw_value(name).is_some()
     }
 
+    /// Check if property exists in a specific scope
+    ///
+    /// Used for scope-aware default application to avoid shadowing issues.
+    ///
+    /// # Arguments
+    /// * `name` - Property name to check
+    /// * `scope` - Which scope to check
+    ///
+    /// # Returns
+    /// * `true` if property exists in the target scope
+    /// * `false` if property does not exist in the target scope
+    pub fn has_property_in_scope(
+        &self,
+        name: &str,
+        scope: PropertyScope,
+    ) -> bool {
+        match scope {
+            PropertyScope::Local => {
+                // Check current scope (top of stack or global if no stack)
+                let stack = self.scope_stack.borrow();
+                if let Some(top) = stack.last() {
+                    top.contains_key(name)
+                } else {
+                    self.raw_properties.borrow().contains_key(name)
+                }
+            }
+            PropertyScope::Parent => {
+                // Check parent scope (stack[len-2] or global if at first macro)
+                let stack = self.scope_stack.borrow();
+                if stack.len() >= 2 {
+                    let parent_idx = stack.len() - 2;
+                    stack[parent_idx].contains_key(name)
+                } else {
+                    // Parent is global scope
+                    self.raw_properties.borrow().contains_key(name)
+                }
+            }
+            PropertyScope::Global => {
+                // Check global scope only
+                self.raw_properties.borrow().contains_key(name)
+            }
+        }
+    }
+
     /// Get current scope depth
     ///
     /// Returns the number of active macro scopes:
