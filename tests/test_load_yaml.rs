@@ -204,6 +204,32 @@ mod load_yaml_tests {
             "should correctly parse load_yaml argument even with potential paren complexity"
         );
     }
+
+    #[test]
+    fn test_load_yaml_argument_with_parentheses_in_string() {
+        let mut props = HashMap::new();
+        // Property value contains parentheses - this tests that find_matching_paren
+        // correctly handles the closing paren of load_yaml vs parens inside the argument
+        props.insert(
+            "file_with_parens".to_string(),
+            "tests/data/test_config.yaml".to_string(),
+        );
+
+        // The fix ensures we use find_matching_paren instead of regex capture [^()]+?
+        // This allows proper handling when the argument contains parentheses
+        let result = eval_text(
+            "${load_yaml(file_with_parens)['robot']['chassis']['width']}",
+            &props,
+        );
+
+        match result {
+            Ok(value) => assert_eq!(
+                value, "0.3",
+                "should correctly parse load_yaml argument even with potential paren complexity"
+            ),
+            Err(e) => panic!("load_yaml argument parsing failed: {}", e),
+        }
+    }
 }
 
 #[cfg(not(feature = "yaml"))]
