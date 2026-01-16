@@ -464,3 +464,80 @@ fn test_atan2_with_nested_expressions() {
         "Should process atan2() with nested math functions",
     );
 }
+
+#[test]
+fn test_pow_function() {
+    use std::collections::HashMap;
+    use xacro::eval::interpreter::eval_text;
+
+    let props = HashMap::new();
+    let result = eval_text("${pow(2, 3)}", &props).expect("pow should work");
+    assert_eq!(result, "8");
+
+    let result = eval_text("${pow(10, 0.5)}", &props).expect("pow with fractional exp");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value - 3.162277660168).abs() < 1e-10, "sqrt(10) ≈ 3.162");
+}
+
+#[test]
+fn test_log_function() {
+    use std::collections::HashMap;
+    use xacro::eval::interpreter::eval_text;
+
+    let props = HashMap::new();
+    let result = eval_text("${log(1)}", &props).expect("log should work");
+    assert_eq!(result, "0", "ln(1) = 0");
+
+    // ln(e) should be 1
+    let mut props = HashMap::new();
+    props.insert("e".to_string(), "2.718281828459045".to_string());
+    let result = eval_text("${log(e)}", &props).expect("log(e)");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value - 1.0).abs() < 1e-10, "ln(e) = 1");
+}
+
+#[test]
+fn test_math_prefix() {
+    use std::collections::HashMap;
+    use xacro::eval::interpreter::eval_text;
+
+    let props = HashMap::new();
+
+    // Test math.pow
+    let result = eval_text("${math.pow(2, 3)}", &props).expect("math.pow");
+    assert_eq!(result, "8");
+
+    // Test math.log
+    let result = eval_text("${math.log(1)}", &props).expect("math.log");
+    assert_eq!(result, "0");
+
+    // Test math.atan2
+    let result = eval_text("${math.atan2(1, 0)}", &props).expect("math.atan2");
+    let value: f64 = result.parse().expect("parse float");
+    assert!(
+        (value - std::f64::consts::FRAC_PI_2).abs() < 1e-10,
+        "atan2(1,0) = π/2"
+    );
+
+    // Test math.sqrt
+    let result = eval_text("${math.sqrt(4)}", &props).expect("math.sqrt");
+    assert_eq!(result, "2");
+}
+
+#[test]
+fn test_math_pi_constant() {
+    use std::collections::HashMap;
+    use xacro::eval::interpreter::eval_text;
+
+    let props = HashMap::new();
+
+    // Test math.pi
+    let result = eval_text("${math.pi}", &props).expect("math.pi");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value - std::f64::consts::PI).abs() < 1e-10, "math.pi = π");
+
+    // Test math.pi in expression (from corpus error)
+    let result = eval_text("${-math.pi / 2}", &props).expect("-math.pi / 2");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value + std::f64::consts::FRAC_PI_2).abs() < 1e-10, "-π/2");
+}

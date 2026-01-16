@@ -122,7 +122,8 @@ pub fn find_matching_paren(
 /// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
 /// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
 pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
-    "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+    "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "pow", "log",
+    "abs",
 ];
 
 /// Regex pattern for matching math function calls with word boundaries
@@ -130,11 +131,14 @@ static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Get the math functions regex, initializing it on first access
 ///
-/// Matches function names at word boundaries followed by optional whitespace and '('.
+/// Matches function names at word boundaries followed by optional whitespace and '(',
+/// with optional `math.` prefix for Python-style namespaced calls.
 fn get_math_funcs_regex() -> &'static Regex {
     MATH_FUNCS_REGEX.get_or_init(|| {
-        // Use \b for word boundaries, capture function name, allow optional whitespace before '('
-        let pattern = format!(r"\b({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
+        // Match optional `math.` prefix, then function name at word boundary
+        // Capture group 1: optional "math."
+        // Capture group 2: function name
+        let pattern = format!(r"\b(math\.)?({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
         Regex::new(&pattern).expect("Math functions regex should be valid")
     })
 }
@@ -145,7 +149,9 @@ fn get_math_funcs_regex() -> &'static Regex {
 /// This function finds math function calls, evaluates them using Rust's f64 methods,
 /// and substitutes the results back into the expression.
 ///
-/// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil
+/// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil, pow, log
+/// All functions can be called with or without `math.` prefix (e.g., `cos(x)` or `math.cos(x)`).
+/// Also handles `math.pi` constant by stripping the `math.` prefix.
 ///
 /// # Limitations
 /// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
@@ -164,7 +170,8 @@ fn preprocess_math_functions(
     expr: &str,
     interp: &mut Interpreter,
 ) -> Result<String, EvalError> {
-    let mut result = expr.to_string();
+    // First, replace math.pi with pi (pyisheval doesn't support namespaced constants)
+    let mut result = expr.replace("math.pi", "pi");
 
     // Keep replacing until no more matches (handle nested calls from inside out)
     let mut iteration = 0;
@@ -190,8 +197,8 @@ fn preprocess_math_functions(
         let mut made_replacement = false;
         // Iterate from right to left to find the innermost, evaluatable function call
         for caps in captures.iter().rev() {
-            // Safe extraction of capture groups (should always succeed due to regex structure)
-            let (whole_match, func_name) = match (caps.get(0), caps.get(1)) {
+            // Extract capture groups: group 0 = whole match, group 1 = optional "math.", group 2 = function name
+            let (whole_match, func_name) = match (caps.get(0), caps.get(2)) {
                 (Some(m), Some(f)) => (m, f.as_str()),
                 _ => continue, // Skip malformed captures
             };
@@ -205,16 +212,21 @@ fn preprocess_math_functions(
 
             let arg = &result[paren_pos + 1..close_pos];
 
-            // Special handling for atan2 which takes two arguments
-            if func_name == "atan2" {
+            // Special handling for 2-argument functions (atan2, pow)
+            if func_name == "atan2" || func_name == "pow" {
                 // Split arguments on comma (simple split, assuming no nested commas in expressions)
                 // For more complex cases with nested expressions, we'd need a proper parser
-                if let Some((y_str, x_str)) = arg.split_once(',') {
+                if let Some((first_str, second_str)) = arg.split_once(',') {
                     // Try to evaluate both arguments
-                    if let (Ok(Value::Number(y)), Ok(Value::Number(x))) =
-                        (interp.eval(y_str.trim()), interp.eval(x_str.trim()))
-                    {
-                        let computed = y.atan2(x);
+                    if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
+                        interp.eval(first_str.trim()),
+                        interp.eval(second_str.trim()),
+                    ) {
+                        let computed = match func_name {
+                            "atan2" => first.atan2(second),
+                            "pow" => first.powf(second),
+                            _ => unreachable!(),
+                        };
                         let replacement = format!("{}", computed);
                         result.replace_range(whole_match.start()..=close_pos, &replacement);
                         made_replacement = true;
@@ -250,6 +262,7 @@ fn preprocess_math_functions(
                     "abs" => n.abs(),
                     "floor" => n.floor(),
                     "ceil" => n.ceil(),
+                    "log" => n.ln(), // Natural logarithm (Python's math.log defaults to ln)
                     _ => unreachable!(
                         "Function '{}' matched regex but not in match statement",
                         func_name
