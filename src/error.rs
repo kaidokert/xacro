@@ -104,9 +104,8 @@ pub enum XacroError {
     #[error(
         "load_yaml() requires 'yaml' feature.\n\
          \n\
-         To enable YAML support:\n\
-         1. Add yaml feature: cargo build --features yaml\n\
-         2. Or use default+yaml: cargo build --features default,yaml"
+         To enable YAML support, rebuild with:\n\
+         cargo build --features yaml"
     )]
     YamlFeatureDisabled,
 

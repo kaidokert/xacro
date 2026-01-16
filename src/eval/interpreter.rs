@@ -454,7 +454,10 @@ fn preprocess_load_yaml(
                     Ok(_other) => {
                         return Err(EvalError::PyishEval {
                             expr: format!("load_yaml({})", filename_arg),
-                            source: pyisheval::EvalError::TypeError,
+                            source: pyisheval::EvalError::ParseError(format!(
+                                "load_yaml() filename must be a string, got: {}",
+                                filename_arg
+                            )),
                         });
                     }
                     Err(e) => {
@@ -487,7 +490,11 @@ fn preprocess_load_yaml(
 /// Stub function when yaml feature is disabled
 ///
 /// Checks if load_yaml is used and returns a helpful error message
-fn preprocess_load_yaml(expr: &str) -> Result<String, EvalError> {
+fn preprocess_load_yaml(
+    expr: &str,
+    _interp: &mut Interpreter,
+    _context: &HashMap<String, Value>,
+) -> Result<String, EvalError> {
     if expr.contains("load_yaml") {
         return Err(EvalError::PyishEval {
             expr: expr.to_string(),
