@@ -788,7 +788,25 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                     top.insert(name, value);
                 } else {
                     drop(stack);
-                    self.add_raw_property(name, value);
+                    // Inline add_raw_property to reuse pre-computed metadata
+                    if self.raw_properties.borrow().contains_key(&name)
+                        && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
+                    {
+                        log::warn!(
+                            "Property '{}' overrides built-in math constant. \
+                             This may cause unexpected behavior. \
+                             Consider using a different name.",
+                            name
+                        );
+                    }
+                    #[cfg(feature = "compat")]
+                    {
+                        self.property_metadata
+                            .borrow_mut()
+                            .insert(name.clone(), metadata);
+                    }
+                    self.raw_properties.borrow_mut().insert(name.clone(), value);
+                    self.evaluated_cache.borrow_mut().remove(&name);
                 }
             }
 
@@ -810,7 +828,25 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 } else if stack.len() == 1 {
                     // At first macro level - parent is global (valid case)
                     drop(stack);
-                    self.add_raw_property(name, value);
+                    // Inline add_raw_property to reuse pre-computed metadata
+                    if self.raw_properties.borrow().contains_key(&name)
+                        && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
+                    {
+                        log::warn!(
+                            "Property '{}' overrides built-in math constant. \
+                             This may cause unexpected behavior. \
+                             Consider using a different name.",
+                            name
+                        );
+                    }
+                    #[cfg(feature = "compat")]
+                    {
+                        self.property_metadata
+                            .borrow_mut()
+                            .insert(name.clone(), metadata);
+                    }
+                    self.raw_properties.borrow_mut().insert(name.clone(), value);
+                    self.evaluated_cache.borrow_mut().remove(&name);
                 } else {
                     // stack.len() == 0: At global scope, no parent exists
                     drop(stack);
@@ -819,13 +855,49 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                          falling back to global scope",
                         name
                     );
-                    self.add_raw_property(name, value);
+                    // Inline add_raw_property to reuse pre-computed metadata
+                    if self.raw_properties.borrow().contains_key(&name)
+                        && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
+                    {
+                        log::warn!(
+                            "Property '{}' overrides built-in math constant. \
+                             This may cause unexpected behavior. \
+                             Consider using a different name.",
+                            name
+                        );
+                    }
+                    #[cfg(feature = "compat")]
+                    {
+                        self.property_metadata
+                            .borrow_mut()
+                            .insert(name.clone(), metadata);
+                    }
+                    self.raw_properties.borrow_mut().insert(name.clone(), value);
+                    self.evaluated_cache.borrow_mut().remove(&name);
                 }
             }
 
             PropertyScope::Global => {
                 // Always add to raw_properties (depth 0)
-                self.add_raw_property(name, value);
+                // Inline add_raw_property to reuse pre-computed metadata
+                if self.raw_properties.borrow().contains_key(&name)
+                    && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
+                {
+                    log::warn!(
+                        "Property '{}' overrides built-in math constant. \
+                         This may cause unexpected behavior. \
+                         Consider using a different name.",
+                        name
+                    );
+                }
+                #[cfg(feature = "compat")]
+                {
+                    self.property_metadata
+                        .borrow_mut()
+                        .insert(name.clone(), metadata);
+                }
+                self.raw_properties.borrow_mut().insert(name.clone(), value);
+                self.evaluated_cache.borrow_mut().remove(&name);
             }
         }
     }
