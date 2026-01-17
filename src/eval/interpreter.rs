@@ -1771,8 +1771,8 @@ mod tests {
 
         // Test each function in SUPPORTED_MATH_FUNCS to ensure it's implemented
         for func in SUPPORTED_MATH_FUNCS {
-            // atan2 requires two arguments, others require one
-            let expr = if *func == "atan2" {
+            // atan2 and pow require two arguments, others require one
+            let expr = if *func == "atan2" || *func == "pow" {
                 format!("${{{}(0, 1)}}", func)
             } else {
                 format!("${{{}(0)}}", func)
