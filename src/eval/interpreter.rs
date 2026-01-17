@@ -394,16 +394,25 @@ fn preprocess_math_functions(
                     }
                 }
 
-                // Handle 1-argument case for log (natural logarithm)
-                if func_name == "log" && args.len() == 1 {
-                    // Fall through to single-arg handling below
-                } else if args.len() != 1 && args.len() != 2 {
-                    // Wrong number of arguments for these functions
-                    log::warn!("{}() expects 2 arguments, got {}", func_name, args.len());
-                    continue;
+                // Validate argument count based on function requirements
+                if func_name == "log" {
+                    // log() accepts 1 or 2 arguments
+                    if args.len() == 1 {
+                        // Fall through to single-arg handling below (natural logarithm)
+                    } else if args.len() != 2 {
+                        log::warn!("log() expects 1 or 2 arguments, but got {}.", args.len());
+                        continue;
+                    }
                 } else {
-                    // For atan2/pow with wrong arg count, or failed evaluation, continue
-                    continue;
+                    // atan2() and pow() require exactly 2 arguments
+                    if args.len() != 2 {
+                        log::warn!(
+                            "{}() expects 2 arguments, but got {}.",
+                            func_name,
+                            args.len()
+                        );
+                        continue;
+                    }
                 }
             }
 
