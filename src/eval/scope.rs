@@ -1215,7 +1215,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
 
         // Build context only for properties in ${...} expressions, not entire args
         let properties = if !expr_texts.is_empty() {
-            let combined_exprs = expr_texts.join(" ");
+            let combined_exprs: String = expr_texts.iter().map(|s| format!("${{{}}}", s)).collect();
             self.build_eval_context(&combined_exprs)?
         } else {
             HashMap::new()
@@ -1240,9 +1240,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                         &context,
                     )
                     .map_err(|e| XacroError::EvalError {
-                        expr: format!("${{{}}}", token_value),
+                        expr: format!("In args '{}'", args),
                         source: crate::eval::EvalError::PyishEval {
-                            expr: format!("In args '{}': ${{{}}}", args, token_value),
+                            expr: format!("${{{}}}", token_value),
                             source: e,
                         },
                     })?;
