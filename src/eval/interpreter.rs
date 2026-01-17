@@ -169,6 +169,7 @@ fn get_math_funcs_regex() -> &'static Regex {
 fn preprocess_math_functions(
     expr: &str,
     interp: &mut Interpreter,
+    context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
     // First, replace math.pi with pi (pyisheval doesn't support namespaced constants)
     let mut result = expr.replace("math.pi", "pi");
@@ -217,10 +218,10 @@ fn preprocess_math_functions(
                 // Split arguments on comma (simple split, assuming no nested commas in expressions)
                 // For more complex cases with nested expressions, we'd need a proper parser
                 if let Some((first_str, second_str)) = arg.split_once(',') {
-                    // Try to evaluate both arguments
+                    // Try to evaluate both arguments with context (needed for property references)
                     if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
-                        interp.eval(first_str.trim()),
-                        interp.eval(second_str.trim()),
+                        interp.eval_with_context(first_str.trim(), context),
+                        interp.eval_with_context(second_str.trim(), context),
                     ) {
                         let computed = match func_name {
                             "atan2" => first.atan2(second),
@@ -237,8 +238,8 @@ fn preprocess_math_functions(
                 continue;
             }
 
-            // Try to evaluate the argument - only replace if successful
-            if let Ok(Value::Number(n)) = interp.eval(arg) {
+            // Try to evaluate the argument with context - only replace if successful
+            if let Ok(Value::Number(n)) = interp.eval_with_context(arg, context) {
                 // Validate domain for inverse trig functions (matches Python xacro behavior)
                 if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
                     log::warn!(
@@ -912,7 +913,8 @@ pub fn evaluate_expression(
     // Preprocess math functions (cos, sin, tan, etc.) before evaluation
     // This converts native math calls into computed values since pyisheval
     // doesn't support calling native Rust functions
-    let preprocessed = preprocess_math_functions(expr, interp).map_err(|e| match e {
+    // Pass context to allow property references in function arguments
+    let preprocessed = preprocess_math_functions(expr, interp, context).map_err(|e| match e {
         EvalError::PyishEval { source, .. } => source,
         _ => pyisheval::EvalError::ParseError(e.to_string()),
     })?;
