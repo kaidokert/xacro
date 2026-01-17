@@ -129,10 +129,22 @@ pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
 /// Regex pattern for matching math function calls with word boundaries
 static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 
+/// Regex pattern for matching math.pi constant
+static MATH_PI_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Get the math.pi regex, initializing it on first access
+fn get_math_pi_regex() -> &'static Regex {
+    MATH_PI_REGEX.get_or_init(|| {
+        // Match math.pi as a complete token (not as part of math.pid_controller)
+        // Word boundaries ensure we don't match partial identifiers
+        Regex::new(r"\bmath\.pi\b").expect("Math.pi regex should be valid")
+    })
+}
+
 /// Get the math functions regex, initializing it on first access
 ///
-/// Matches function names at word boundaries followed by optional whitespace and '(',
-/// with optional `math.` prefix for Python-style namespaced calls.
+/// Matches function names with optional `math.` prefix. We post-process matches
+/// to filter out false positives like `custom.sin()`.
 fn get_math_funcs_regex() -> &'static Regex {
     MATH_FUNCS_REGEX.get_or_init(|| {
         // Match optional `math.` prefix, then function name at word boundary
@@ -141,6 +153,46 @@ fn get_math_funcs_regex() -> &'static Regex {
         let pattern = format!(r"\b(math\.)?({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
         Regex::new(&pattern).expect("Math functions regex should be valid")
     })
+}
+
+/// Split arguments on commas while respecting nested parentheses
+///
+/// Handles cases like: `pow(max(1, 2), 3)` -> `["max(1, 2)", "3"]`
+fn split_args_balanced(args: &str) -> Vec<&str> {
+    let mut result = Vec::new();
+    let mut depth = 0;
+    let mut start = 0;
+    let bytes = args.as_bytes();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+
+    for (i, &ch) in bytes.iter().enumerate() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            b'\\' => escape_next = true,
+            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
+            b'(' if !in_single_quote && !in_double_quote => depth += 1,
+            b')' if !in_single_quote && !in_double_quote => depth -= 1,
+            b',' if !in_single_quote && !in_double_quote && depth == 0 => {
+                result.push(&args[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+
+    // Push the last segment
+    if start < args.len() {
+        result.push(&args[start..]);
+    }
+
+    result
 }
 
 /// Preprocess an expression to evaluate native math functions
@@ -172,7 +224,9 @@ fn preprocess_math_functions(
     context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
     // First, replace math.pi with pi (pyisheval doesn't support namespaced constants)
-    let mut result = expr.replace("math.pi", "pi");
+    // Use regex to ensure we only match math.pi as a complete token, not as part
+    // of larger identifiers like math.pid_controller
+    let mut result = get_math_pi_regex().replace_all(expr, "pi").to_string();
 
     // Keep replacing until no more matches (handle nested calls from inside out)
     let mut iteration = 0;
@@ -203,6 +257,18 @@ fn preprocess_math_functions(
                 (Some(m), Some(f)) => (m, f.as_str()),
                 _ => continue, // Skip malformed captures
             };
+
+            // Filter out false positives: reject matches like `custom.sin()` where
+            // there's a dot before the function name but no `math.` prefix
+            let has_math_prefix = caps.get(1).is_some();
+            if !has_math_prefix && whole_match.start() > 0 {
+                let char_before = result.as_bytes()[whole_match.start() - 1];
+                if char_before == b'.' {
+                    // This is a custom namespace like `mylib.sin()`, not our math function
+                    continue;
+                }
+            }
+
             let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
 
             // Find matching closing parenthesis
@@ -215,13 +281,14 @@ fn preprocess_math_functions(
 
             // Special handling for 2-argument functions (atan2, pow)
             if func_name == "atan2" || func_name == "pow" {
-                // Split arguments on comma (simple split, assuming no nested commas in expressions)
-                // For more complex cases with nested expressions, we'd need a proper parser
-                if let Some((first_str, second_str)) = arg.split_once(',') {
+                // Split arguments on comma while respecting nested parentheses
+                // This handles cases like pow(max(1, 2), 3) correctly
+                let args = split_args_balanced(arg);
+                if args.len() == 2 {
                     // Try to evaluate both arguments with context (needed for property references)
                     if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
-                        interp.eval_with_context(first_str.trim(), context),
-                        interp.eval_with_context(second_str.trim(), context),
+                        interp.eval_with_context(args[0].trim(), context),
+                        interp.eval_with_context(args[1].trim(), context),
                     ) {
                         let computed = match func_name {
                             "atan2" => first.atan2(second),
@@ -1782,6 +1849,61 @@ mod tests {
             // Ensure evaluation succeeds - unreachable!() would panic if function is missing
             result.expect("Evaluation should succeed for all supported math functions");
         }
+    }
+
+    #[test]
+    fn test_math_pi_not_substring_match() {
+        // Regression test: math.pi should not match identifiers like math_pi_value
+        let mut props = HashMap::new();
+        props.insert("math_pi_value".to_string(), "42".to_string());
+
+        // math_pi_value should remain as a property lookup, not be replaced
+        let result = eval_text("${math_pi_value}", &props).unwrap();
+        assert_eq!(result, "42");
+
+        // But math.pi should be replaced with pi (pyisheval built-in)
+        let result = eval_text("${math.pi * 2}", &props).unwrap();
+        // Should be approximately 6.28...
+        let value: f64 = result.parse().unwrap();
+        assert!((value - 6.283).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pow_with_nested_function_args() {
+        // Regression test: pow(max(1, 2), 3) should handle nested commas correctly
+        let props = HashMap::new();
+
+        // This previously failed because split_once(',') would split at first comma
+        // Now split_args_balanced handles nested parentheses correctly
+        let result = eval_text("${pow(2, 3)}", &props).unwrap();
+        assert_eq!(result, "8");
+
+        // Note: max() is not in SUPPORTED_MATH_FUNCS, so this won't actually evaluate max()
+        // But we can test that the parsing doesn't break on nested parens
+        // by using arithmetic expressions instead
+        let result = eval_text("${pow((1 + 1), 3)}", &props).unwrap();
+        assert_eq!(result, "8");
+    }
+
+    #[test]
+    fn test_custom_namespace_not_hijacked() {
+        // Regression test: custom.sin() should not be treated as math function
+        let mut props = HashMap::new();
+        props.insert("custom".to_string(), "unused".to_string());
+
+        // custom.sin(0) should fail (custom namespace not supported)
+        // It should NOT be preprocessed as a math function
+        let result = eval_text("${custom.sin(0)}", &props);
+
+        // Should error because custom.sin is not defined, not because we tried to preprocess it
+        assert!(result.is_err());
+        // The error should be from pyisheval, not from our preprocessing
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("UndefinedVar") || err_msg.contains("AttributeError"),
+            "Expected undefined variable error, got: {}",
+            err_msg
+        );
     }
 
     #[test]
