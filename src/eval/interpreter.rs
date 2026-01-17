@@ -75,7 +75,7 @@ fn eval_literal(value: &str) -> Value {
 ///
 /// Note: Uses byte-based iteration since parentheses are ASCII characters
 /// and will never appear as continuation bytes in UTF-8.
-fn find_matching_paren(
+pub fn find_matching_paren(
     text: &str,
     start: usize,
 ) -> Option<usize> {

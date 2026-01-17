@@ -1186,95 +1186,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Returns
     /// The args string with ${...} expressions evaluated
-    fn evaluate_args_expressions(
-        &self,
-        args: &str,
-    ) -> Result<String, XacroError> {
-        use super::interpreter::build_pyisheval_context;
-
-        // Quick path: if no ${...}, return as-is
-        if !args.contains("${") {
-            return Ok(args.to_string());
-        }
-
-        // Tokenize first to identify ${...} expressions
-        let lexer = Lexer::new(args);
-        let tokens: Vec<(TokenType, String)> = lexer.collect();
-
-        // Extract only ${...} expressions for context building (performance optimization)
-        let expr_texts: Vec<&str> = tokens
-            .iter()
-            .filter_map(|(t, v)| {
-                if matches!(t, TokenType::Expr) {
-                    Some(v.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Build context only for properties in ${...} expressions, not entire args
-        let properties = if !expr_texts.is_empty() {
-            let combined_exprs: String = expr_texts.iter().map(|s| format!("${{{}}}", s)).collect();
-            self.build_eval_context(&combined_exprs)?
-        } else {
-            HashMap::new()
-        };
-
-        let context = build_pyisheval_context(&properties, &mut self.interpreter.borrow_mut())
-            .map_err(|e| XacroError::EvalError {
-                expr: args.to_string(),
-                source: e,
-            })?;
-
-        // Process tokens to build result
-        let mut result = String::new();
-
-        for (token_type, token_value) in tokens {
-            match token_type {
-                TokenType::Expr => {
-                    // Evaluate expression
-                    let value_opt = evaluate_expression(
-                        &mut self.interpreter.borrow_mut(),
-                        &token_value,
-                        &context,
-                    )
-                    .map_err(|e| XacroError::EvalError {
-                        expr: format!("In args '{}'", args),
-                        source: crate::eval::EvalError::PyishEval {
-                            expr: format!("${{{}}}", token_value),
-                            source: e,
-                        },
-                    })?;
-
-                    match value_opt {
-                        Some(value) => {
-                            let formatted = self.format_evaluation_result(&value, &token_value);
-                            result.push_str(&formatted);
-                        }
-                        None => continue,
-                    }
-                }
-                TokenType::Text => {
-                    result.push_str(&token_value);
-                }
-                TokenType::Extension => {
-                    // Preserve literal extension syntax: $(...)
-                    result.push_str("$(");
-                    result.push_str(&token_value);
-                    result.push(')');
-                }
-                TokenType::DollarDollarBrace => {
-                    // Preserve escape sequence: $${...}
-                    result.push_str("$$");
-                    result.push_str(&token_value);
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
     ///
     /// Extensions are distinct from expressions - they provide external data sources.
@@ -1310,10 +1221,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Collect remaining parts as raw args string
         let args_raw = parts_iter.collect::<Vec<_>>().join(" ");
 
-        // Evaluate ${...} expressions in args before passing to handlers
-        // This allows patterns like: $(find ${package_name})
-        // We only evaluate expressions, not nested extensions, to avoid recursion
-        let args_evaluated = self.evaluate_args_expressions(&args_raw)?;
+        // Fully resolve args: both ${...} expressions and nested $(...) extensions
+        // This allows patterns like: $(find ${package_name}) and $(arg $(arg inner))
+        // MAX_SUBSTITUTION_DEPTH in substitute_all prevents infinite recursion
+        let args_evaluated = self.substitute_all(&args_raw)?;
 
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
