@@ -1197,19 +1197,40 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             return Ok(args.to_string());
         }
 
-        // Build context for properties referenced in args
-        let properties = self.build_eval_context(args)?;
+        // Tokenize first to identify ${...} expressions
+        let lexer = Lexer::new(args);
+        let tokens: Vec<(TokenType, String)> = lexer.collect();
+
+        // Extract only ${...} expressions for context building (performance optimization)
+        let expr_texts: Vec<&str> = tokens
+            .iter()
+            .filter_map(|(t, v)| {
+                if matches!(t, TokenType::Expr) {
+                    Some(v.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Build context only for properties in ${...} expressions, not entire args
+        let properties = if !expr_texts.is_empty() {
+            let combined_exprs = expr_texts.join(" ");
+            self.build_eval_context(&combined_exprs)?
+        } else {
+            HashMap::new()
+        };
+
         let context = build_pyisheval_context(&properties, &mut self.interpreter.borrow_mut())
             .map_err(|e| XacroError::EvalError {
                 expr: args.to_string(),
                 source: e,
             })?;
 
-        // Tokenize and evaluate only Expr tokens
-        let lexer = Lexer::new(args);
+        // Process tokens to build result
         let mut result = String::new();
 
-        for (token_type, token_value) in lexer {
+        for (token_type, token_value) in tokens {
             match token_type {
                 TokenType::Expr => {
                     // Evaluate expression
@@ -1219,9 +1240,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                         &context,
                     )
                     .map_err(|e| XacroError::EvalError {
-                        expr: token_value.clone(),
+                        expr: format!("${{{}}}", token_value),
                         source: crate::eval::EvalError::PyishEval {
-                            expr: token_value.clone(),
+                            expr: format!("In args '{}': ${{{}}}", args, token_value),
                             source: e,
                         },
                     })?;
@@ -1234,8 +1255,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                         None => continue,
                     }
                 }
-                TokenType::Text | TokenType::Extension | TokenType::DollarDollarBrace => {
-                    // Keep as-is (don't recursively evaluate extensions)
+                TokenType::Text => {
+                    result.push_str(&token_value);
+                }
+                TokenType::Extension => {
+                    // Preserve literal extension syntax: $(...)
+                    result.push_str("$(");
+                    result.push_str(&token_value);
+                    result.push(')');
+                }
+                TokenType::DollarDollarBrace => {
+                    // Preserve escape sequence: $${...}
+                    result.push_str("$$");
                     result.push_str(&token_value);
                 }
             }
