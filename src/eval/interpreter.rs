@@ -261,6 +261,22 @@ fn preprocess_math_functions(
     Ok(result)
 }
 
+// ===== String Escaping Utilities =====
+
+/// Escape a string for use in a Python single-quoted string literal
+///
+/// Escapes characters that would cause syntax errors or incorrect behavior:
+/// - Backslash (\) must be escaped first (otherwise we'd double-escape)
+/// - Single quote (') for string delimiter
+/// - Newline (\n), carriage return (\r), tab (\t) for control characters
+fn escape_python_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
 // ===== YAML Loading Functions (feature-gated) =====
 
 #[cfg(feature = "yaml")]
@@ -294,8 +310,7 @@ fn yaml_to_python_literal(
             Scalar::Integer(i) => Ok(i.to_string()),
             Scalar::FloatingPoint(f) => Ok(f.to_string()),
             Scalar::String(s) => {
-                // Escape backslashes first, then single quotes (order matters!)
-                let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+                let escaped = escape_python_string(&s);
                 Ok(format!("'{}'", escaped))
             }
         },
@@ -312,7 +327,7 @@ fn yaml_to_python_literal(
                 .map(|(k, v)| -> Result<String, crate::error::XacroError> {
                     let key_str = match &k {
                         Yaml::Value(Scalar::String(s)) => {
-                            let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+                            let escaped = escape_python_string(s);
                             format!("'{}'", escaped)
                         }
                         _ => yaml_to_python_literal(k, path)?, // Non-string keys
@@ -519,20 +534,25 @@ fn preprocess_load_yaml(
 /// Stub function when yaml feature is disabled
 ///
 /// Checks if load_yaml is used and returns a helpful error message.
+/// Uses regex with word boundaries to avoid false positives on similar identifiers.
 /// Signature matches the enabled version for consistency.
 fn preprocess_load_yaml(
     expr: &str,
     _interp: &mut Interpreter,
     _context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
-    if expr.contains("load_yaml") {
+    // Use regex with word boundaries to robustly detect load_yaml and xacro.load_yaml
+    // This avoids false positives on similar-looking identifiers like "my_load_yaml"
+    static LOAD_YAML_REGEX: OnceLock<Regex> = OnceLock::new();
+    let regex = LOAD_YAML_REGEX.get_or_init(|| {
+        Regex::new(r"\b(?:xacro\.)?load_yaml\b").expect("load_yaml regex should be valid")
+    });
+
+    if regex.is_match(expr) {
         return Err(EvalError::PyishEval {
             expr: expr.to_string(),
             source: pyisheval::EvalError::ParseError(
-                "load_yaml() requires 'yaml' feature.\n\n\
-                 To enable YAML support, rebuild with:\n\
-                 cargo build --features yaml"
-                    .to_string(),
+                crate::error::XacroError::YamlFeatureDisabled.to_string(),
             ),
         });
     }
@@ -734,9 +754,7 @@ pub fn build_pyisheval_context(
                 Value::StringLit(s) if !s.is_empty() => {
                     // String property: load as quoted string literal
                     // Skip empty strings as pyisheval can't parse ''
-                    // Escape backslashes first, then single quotes (order matters!)
-                    // This handles Windows paths (C:\Users), regex patterns, etc.
-                    let escaped_value = s.replace('\\', "\\\\").replace('\'', "\\'");
+                    let escaped_value = escape_python_string(&s);
                     interp
                         .eval(&format!("{} = '{}'", name, escaped_value))
                         .map_err(|e| EvalError::PyishEval {
@@ -873,16 +891,9 @@ pub fn evaluate_expression(
         _ => pyisheval::EvalError::ParseError(e.to_string()),
     })?;
 
-    // Preprocess load_yaml() calls (if yaml feature is enabled)
-    // This loads YAML files and replaces load_yaml() with dict literals
-    #[cfg(feature = "yaml")]
-    let preprocessed =
-        preprocess_load_yaml(&preprocessed, interp, context).map_err(|e| match e {
-            EvalError::PyishEval { source, .. } => source,
-            _ => pyisheval::EvalError::ParseError(e.to_string()),
-        })?;
-
-    #[cfg(not(feature = "yaml"))]
+    // Preprocess load_yaml() calls.
+    // If the 'yaml' feature is enabled, this loads YAML files and replaces load_yaml()
+    // with dict literals. Otherwise, it returns an error if load_yaml() is used.
     let preprocessed =
         preprocess_load_yaml(&preprocessed, interp, context).map_err(|e| match e {
             EvalError::PyishEval { source, .. } => source,
