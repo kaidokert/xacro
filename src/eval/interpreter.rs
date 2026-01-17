@@ -546,7 +546,7 @@ fn yaml_to_python_literal(
         Yaml::Tagged(_tag, inner) => {
             // Handle YAML tags (e.g., !degrees, !radians)
             // For now, just extract the value and ignore the tag
-            // TODO: Implement unit conversions if corpus needs them
+            // TODO: Implement unit conversions when those come up
             yaml_to_python_literal(*inner, path)
         }
         Yaml::Representation(repr, _style, _tag) => {

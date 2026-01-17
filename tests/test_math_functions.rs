@@ -544,7 +544,7 @@ fn test_math_pi_constant() {
     let value: f64 = result.parse().expect("parse float");
     assert!((value - std::f64::consts::PI).abs() < 1e-10, "math.pi = π");
 
-    // Test math.pi in expression (from corpus error)
+    // Test math.pi in expression
     let result = eval_text("${-math.pi / 2}", &props).expect("-math.pi / 2");
     let value: f64 = result.parse().expect("parse float");
     assert!((value + std::f64::consts::FRAC_PI_2).abs() < 1e-10, "-π/2");

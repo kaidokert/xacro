@@ -352,15 +352,16 @@ fn expand_element(
 
     // 2. Macro definitions (no output)
     if is_xacro_element(&elem, "macro", &xacro_ns) {
-        // Extract macro name and substitute expressions
-        let name = ctx
-            .properties
-            .substitute_text(elem.get_attribute("name").ok_or_else(|| {
-                XacroError::MissingAttribute {
-                    element: "xacro:macro".to_string(),
-                    attribute: "name".to_string(),
-                }
-            })?)?;
+        // Extract macro name (raw, no substitution)
+        // Python xacro does NOT evaluate expressions in macro names during definition
+        // This allows names like "${ns}/box_inertia" where ns is undefined at definition time
+        let name = elem
+            .get_attribute("name")
+            .ok_or_else(|| XacroError::MissingAttribute {
+                element: "xacro:macro".to_string(),
+                attribute: "name".to_string(),
+            })?
+            .to_string();
 
         // Parse params attribute (optional - treat missing as empty string)
         let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
