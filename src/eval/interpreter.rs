@@ -922,6 +922,29 @@ pub fn build_pyisheval_context(
     // This ensures that lambda expressions can reference them during evaluation
     // Note: We skip inf/nan/NaN as they can't be created via arithmetic in pyisheval
     // (10**400 creates inf but 0.0/0.0 fails with DivisionByZero)
+
+    // WORKAROUND: Add Python built-in constant None as numeric 0
+    //
+    // This is needed for load_yaml() which returns the string "None" for null YAML values.
+    // We inject it into the interpreter environment so lambda expressions can reference it.
+    //
+    // LIMITATION: This is a bandaid that violates Python semantics:
+    // - In Python: None + 5 raises TypeError
+    // - In our implementation: None + 5 = 5 (because None=0)
+    //
+    // This workaround is necessary because pyisheval doesn't support None as a proper type.
+    // Proper fix requires adding None type support to pyisheval itself, which would allow:
+    // - Type checking: None + 5 -> TypeError
+    // - Boolean context: None -> False
+    // - Identity checks: x is None
+    //
+    // Until pyisheval adds None type support, we use this numeric approximation.
+    // It handles the common cases (mostly boolean checks) but masks real type errors.
+    interp.eval("None = 0").map_err(|e| EvalError::PyishEval {
+        expr: "None = 0".to_string(),
+        source: e,
+    })?;
+
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
@@ -1046,12 +1069,25 @@ pub fn build_pyisheval_context(
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
 
-    // Manually inject inf and nan constants (Strategy 3: bypass parsing)
+    // Manually inject inf, nan, and None constants (Strategy 3: bypass parsing)
     // Python xacro provides these via float('inf') and math.inf, but they're also
     // used as bare identifiers in expressions. Pyisheval cannot parse these as
     // literals, so we inject them directly into the context.
+    //
+    // WHY INJECT TWICE? (both into interpreter above AND into context map here):
+    // 1. Interpreter injection (line ~928): Makes constants available to lambda expressions
+    //    e.g., "lambda x: x if x != None else 0" needs None in interpreter environment
+    // 2. Context map injection (here): Makes constants available to eval_with_context()
+    //    e.g., "${None + 5}" needs None in the context passed to eval_with_context()
+    //
+    // Both injections are necessary for complete coverage of all expression types.
+    //
+    // WORKAROUND for None: Modeled as 0.0 (see comment above for limitations).
+    // This violates Python semantics (None + 5 should be TypeError, not 5) but is
+    // necessary until pyisheval adds proper None type support.
     context.insert("inf".to_string(), Value::Number(f64::INFINITY));
     context.insert("nan".to_string(), Value::Number(f64::NAN));
+    context.insert("None".to_string(), Value::Number(0.0));
 
     Ok(context)
 }

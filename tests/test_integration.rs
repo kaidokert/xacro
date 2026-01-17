@@ -1874,7 +1874,7 @@ fn test_macro_dynamic_name_not_evaluated() {
 ///
 /// Python xacro allows defining macros with expressions containing undefined variables
 /// (e.g., ${ns}_box_inertia where ns is unset at definition time). The macro name is
-/// stored literally without evaluation. This allows corpus files to define macros with
+/// stored literally without evaluation. This allows files to define macros with
 /// namespace placeholders that may be set in parent files during inclusion.
 #[test]
 fn test_macro_literal_name_with_undefined_var() {
