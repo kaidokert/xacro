@@ -1,13 +1,10 @@
-use xacro::XacroProcessor;
+mod common;
+use crate::common::*;
+use std::collections::HashMap;
 
 #[test]
 fn test_nested_extension_in_args() {
-    let processor = XacroProcessor::builder()
-        .with_arg("inner", "outer")
-        .with_arg("outer", "success")
-        .build();
-
-    // We want to evaluate $(arg $(arg inner))
+    // Test nested extension resolution: $(arg $(arg inner))
     // 1. $(arg inner) -> "outer"
     // 2. $(arg outer) -> "success"
 
@@ -16,19 +13,18 @@ fn test_nested_extension_in_args() {
             <test result="${result}"/>
         </robot>"#;
 
-    let result = processor.run_from_string(input);
+    let mut args = HashMap::new();
+    args.insert("inner".to_string(), "outer".to_string());
+    args.insert("outer".to_string(), "success".to_string());
 
-    if let Ok(xml) = &result {
-        println!("Generated XML: {}", xml);
-    } else {
-        println!("Error: {:?}", result.as_ref().err());
-    }
+    let output = run_xacro_with_args(input, args);
 
-    let xml = result.expect("Processing failed");
-
-    assert!(
-        xml.contains("result=\"success\""),
-        "Failed to resolve nested extension. XML: {}",
-        xml
+    let root = parse_xml(&output);
+    let test_elem = find_child(&root, "test");
+    assert_xacro_attr!(
+        test_elem,
+        "result",
+        "success",
+        "Failed to resolve nested extension"
     );
 }
