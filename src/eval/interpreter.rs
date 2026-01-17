@@ -332,11 +332,14 @@ fn preprocess_math_functions(
 
             let arg = &result[paren_pos + 1..close_pos];
 
-            // Special handling for 2-argument functions (atan2, pow)
-            if func_name == "atan2" || func_name == "pow" {
+            // Special handling for 2-argument functions (atan2, pow, log)
+            // Note: log can take 1 or 2 arguments (natural log or log with base)
+            if func_name == "atan2" || func_name == "pow" || func_name == "log" {
                 // Split arguments on comma while respecting nested parentheses
                 // This handles cases like pow(max(1, 2), 3) correctly
                 let args = split_args_balanced(arg);
+
+                // Handle 2-argument case
                 if args.len() == 2 {
                     // Try to evaluate both arguments with context (needed for property references)
                     if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
@@ -346,6 +349,7 @@ fn preprocess_math_functions(
                         let computed = match func_name {
                             "atan2" => first.atan2(second),
                             "pow" => first.powf(second),
+                            "log" => first.log(second), // log(x, base)
                             _ => unreachable!(),
                         };
                         let replacement = format!("{}", computed);
@@ -354,8 +358,18 @@ fn preprocess_math_functions(
                         break;
                     }
                 }
-                // If parsing/evaluation failed, continue to next match
-                continue;
+
+                // Handle 1-argument case for log (natural logarithm)
+                if func_name == "log" && args.len() == 1 {
+                    // Fall through to single-arg handling below
+                } else if args.len() != 1 && args.len() != 2 {
+                    // Wrong number of arguments for these functions
+                    log::warn!("{}() expects 2 arguments, got {}", func_name, args.len());
+                    continue;
+                } else {
+                    // For atan2/pow with wrong arg count, or failed evaluation, continue
+                    continue;
+                }
             }
 
             // Try to evaluate the argument with context - only replace if successful

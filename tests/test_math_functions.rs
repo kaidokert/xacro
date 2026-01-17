@@ -492,6 +492,16 @@ fn test_log_function() {
     let result = eval_text("${log(e)}", &props).expect("log(e)");
     let value: f64 = result.parse().expect("parse float");
     assert!((value - 1.0).abs() < 1e-10, "ln(e) = 1");
+
+    // Test log with base (log(100, 10) = 2)
+    let result = eval_text("${log(100, 10)}", &props).expect("log(100, 10)");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value - 2.0).abs() < 1e-10, "log_10(100) = 2");
+
+    // Test log with base 2 (log(8, 2) = 3)
+    let result = eval_text("${log(8, 2)}", &props).expect("log(8, 2)");
+    let value: f64 = result.parse().expect("parse float");
+    assert!((value - 3.0).abs() < 1e-10, "log_2(8) = 3");
 }
 
 #[test]
