@@ -1175,17 +1175,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         Ok(result)
     }
 
-    /// Evaluate only ${...} expressions in args, leaving extensions unevaluated
-    ///
-    /// This is used to resolve property references in extension arguments before
-    /// passing them to handlers. For example: `$(find ${package_name})` evaluates
-    /// the `${package_name}` part but doesn't recursively evaluate nested extensions.
-    ///
-    /// # Arguments
-    /// * `args` - The argument string that may contain ${...} expressions
-    ///
-    /// # Returns
-    /// The args string with ${...} expressions evaluated
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
     ///
     /// Extensions are distinct from expressions - they provide external data sources.
