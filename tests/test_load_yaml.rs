@@ -221,8 +221,8 @@ mod yaml_disabled_tests {
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("yaml") && err_msg.contains("feature"),
-            "error should mention yaml feature requirement, got: {}",
+            err_msg.contains("load_yaml() requires 'yaml' feature"),
+            "error should mention explicit load_yaml yaml feature requirement, got: {}",
             err_msg
         );
     }
@@ -237,8 +237,8 @@ mod yaml_disabled_tests {
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("yaml") && err_msg.contains("feature"),
-            "error should mention yaml feature requirement, got: {}",
+            err_msg.contains("load_yaml() requires 'yaml' feature"),
+            "error should mention explicit load_yaml yaml feature requirement, got: {}",
             err_msg
         );
     }
