@@ -477,10 +477,13 @@ fn preprocess_load_yaml(
                 // Variable or expression - evaluate it
                 match interp.eval_with_context(filename_arg, context) {
                     Ok(Value::StringLit(s)) => s,
-                    Ok(_other) => {
+                    Ok(other) => {
                         return Err(EvalError::PyishEval {
                             expr: format!("load_yaml({})", filename_arg),
-                            source: pyisheval::EvalError::TypeError,
+                            source: pyisheval::EvalError::ParseError(format!(
+                                "load_yaml() filename must be a string, got: {:?}",
+                                other
+                            )),
                         });
                     }
                     Err(e) => {
@@ -515,8 +518,13 @@ fn preprocess_load_yaml(
 #[cfg(not(feature = "yaml"))]
 /// Stub function when yaml feature is disabled
 ///
-/// Checks if load_yaml is used and returns a helpful error message
-fn preprocess_load_yaml(expr: &str) -> Result<String, EvalError> {
+/// Checks if load_yaml is used and returns a helpful error message.
+/// Signature matches the enabled version for consistency.
+fn preprocess_load_yaml(
+    expr: &str,
+    _interp: &mut Interpreter,
+    _context: &HashMap<String, Value>,
+) -> Result<String, EvalError> {
     if expr.contains("load_yaml") {
         return Err(EvalError::PyishEval {
             expr: expr.to_string(),
@@ -875,10 +883,11 @@ pub fn evaluate_expression(
         })?;
 
     #[cfg(not(feature = "yaml"))]
-    let preprocessed = preprocess_load_yaml(&preprocessed).map_err(|e| match e {
-        EvalError::PyishEval { source, .. } => source,
-        _ => pyisheval::EvalError::ParseError(e.to_string()),
-    })?;
+    let preprocessed =
+        preprocess_load_yaml(&preprocessed, interp, context).map_err(|e| match e {
+            EvalError::PyishEval { source, .. } => source,
+            _ => pyisheval::EvalError::ParseError(e.to_string()),
+        })?;
 
     interp.eval_with_context(&preprocessed, context).map(Some)
 }
