@@ -1845,7 +1845,13 @@ fn test_property_dynamic_name_concatenation() {
 }
 
 /// Test dynamic macro name substitution
+///
+/// NOTE: This test is disabled because Python xacro does NOT evaluate expressions
+/// in macro names during definition. This allows macros like "${ns}/box_inertia"
+/// where ns is undefined at definition time, but means ${prefix}_base is stored
+/// literally and cannot be called as <xacro:mobile_base>.
 #[test]
+#[ignore = "Python xacro doesn't support dynamic macro names"]
 fn test_macro_dynamic_name() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -2378,9 +2384,6 @@ fn test_cwd_iterative_substitution() {
 
 #[test]
 fn test_multiline_attribute_whitespace_normalization() {
-    // Regression test for bug found in Tier 2 corpus validation:
-    // testdata/crossref/205f44300b7d740d_8ebb958f/delta.c14n.diff
-    //
     // When attribute values contain literal newlines (from multiline expressions),
     // Python xacro normalizes ALL whitespace to single spaces per XML spec.
     // Rust xacro now does the same (fixed by normalize_attribute_whitespace).
