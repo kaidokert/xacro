@@ -1210,6 +1210,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Collect remaining parts as raw args string
         let args_raw = parts_iter.collect::<Vec<_>>().join(" ");
 
+        // Fully resolve args: both ${...} expressions and nested $(...) extensions
+        // This allows patterns like: $(find ${package_name}) and $(arg $(arg inner))
+        // MAX_SUBSTITUTION_DEPTH in substitute_all prevents infinite recursion
+        let args_evaluated = self.substitute_all(&args_raw)?;
+
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
         // by xacro:arg directives during expansion.
@@ -1220,12 +1225,13 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // core feature. See notes/EXTENSION_IMPL_ACTUAL.md for rationale.
         if command == "arg" {
             use crate::extensions::extension_utils;
-            let arg_parts = extension_utils::expect_args(&args_raw, "arg", 1).map_err(|e| {
-                XacroError::InvalidExtension {
-                    content: content.to_string(),
-                    reason: e.to_string(),
-                }
-            })?;
+            let arg_parts =
+                extension_utils::expect_args(&args_evaluated, "arg", 1).map_err(|e| {
+                    XacroError::InvalidExtension {
+                        content: content.to_string(),
+                        reason: e.to_string(),
+                    }
+                })?;
 
             return self
                 .args
@@ -1239,7 +1245,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
 
         // Try each extension handler in order
         for handler in self.extensions.iter() {
-            match handler.resolve(command, &args_raw) {
+            match handler.resolve(command, &args_evaluated) {
                 Ok(Some(result)) => return Ok(result),
                 Ok(None) => continue, // Try next handler
                 Err(e) => {

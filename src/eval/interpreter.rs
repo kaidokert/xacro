@@ -75,7 +75,7 @@ fn eval_literal(value: &str) -> Value {
 ///
 /// Note: Uses byte-based iteration since parentheses are ASCII characters
 /// and will never appear as continuation bytes in UTF-8.
-fn find_matching_paren(
+pub fn find_matching_paren(
     text: &str,
     start: usize,
 ) -> Option<usize> {
@@ -85,10 +85,23 @@ fn find_matching_paren(
     }
 
     let mut depth = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+
     for (i, &ch) in bytes.iter().enumerate().skip(start) {
+        // Handle escape sequences - next character is literal
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
         match ch {
-            b'(' => depth += 1,
-            b')' => {
+            b'\\' => escape_next = true,
+            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
+            b'(' if !in_single_quote && !in_double_quote => depth += 1,
+            b')' if !in_single_quote && !in_double_quote => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(i);

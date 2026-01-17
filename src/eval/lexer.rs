@@ -74,6 +74,23 @@ impl<'a> Iterator for Lexer<'a> {
             return None;
         }
 
+        // Special handling for Extension tokens to support nested parentheses
+        // Extension regex can't handle $(foo $(bar)) - it stops at first )
+        // Use find_matching_paren instead for proper nesting support
+        let remaining = &self.input_str[self.position..];
+        if remaining.starts_with("$(") {
+            // Find matching closing paren using depth counting
+            if let Some(close_pos) = crate::eval::interpreter::find_matching_paren(remaining, 1) {
+                // Extract content between $( and )
+                let content = &remaining[2..close_pos];
+                // Advance position past the entire $(...) construct
+                self.position += close_pos + 1;
+                return Some((TokenType::Extension, content.to_string()));
+            }
+            // If no matching paren found, fall through to regex handling
+            // which will treat it as malformed ($ as Text, then ( as Text)
+        }
+
         for (token_type, regex) in self.regexes.iter() {
             if let Some(captures) = regex.captures(&self.input_str[self.position..]) {
                 if let Some(m) = captures.get(0) {
