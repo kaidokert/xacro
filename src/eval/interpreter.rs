@@ -277,64 +277,70 @@ fn preprocess_math_functions(
 /// true → "True"
 /// null → "None"
 /// ```
-fn yaml_to_python_literal(value: Yaml) -> String {
+fn yaml_to_python_literal(
+    value: Yaml,
+    path: &str,
+) -> Result<String, crate::error::XacroError> {
     match value {
         Yaml::Value(scalar) => match scalar {
-            Scalar::Null => "None".to_string(),
+            Scalar::Null => Ok("None".to_string()),
             Scalar::Boolean(b) => {
                 if b {
-                    "True".to_string()
+                    Ok("True".to_string())
                 } else {
-                    "False".to_string()
+                    Ok("False".to_string())
                 }
             }
-            Scalar::Integer(i) => i.to_string(),
-            Scalar::FloatingPoint(f) => f.to_string(),
+            Scalar::Integer(i) => Ok(i.to_string()),
+            Scalar::FloatingPoint(f) => Ok(f.to_string()),
             Scalar::String(s) => {
                 // Escape backslashes first, then single quotes (order matters!)
                 let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
-                format!("'{}'", escaped)
+                Ok(format!("'{}'", escaped))
             }
         },
         Yaml::Sequence(seq) => {
-            let elements: Vec<String> = seq.into_iter().map(yaml_to_python_literal).collect();
-            format!("[{}]", elements.join(", "))
+            let elements: Result<Vec<String>, _> = seq
+                .into_iter()
+                .map(|v| yaml_to_python_literal(v, path))
+                .collect();
+            Ok(format!("[{}]", elements?.join(", ")))
         }
         Yaml::Mapping(map) => {
-            let entries: Vec<String> = map
+            let entries: Result<Vec<String>, crate::error::XacroError> = map
                 .into_iter()
-                .map(|(k, v)| {
+                .map(|(k, v)| -> Result<String, crate::error::XacroError> {
                     let key_str = match &k {
                         Yaml::Value(Scalar::String(s)) => {
                             let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
                             format!("'{}'", escaped)
                         }
-                        _ => yaml_to_python_literal(k), // Non-string keys
+                        _ => yaml_to_python_literal(k, path)?, // Non-string keys
                     };
-                    let value_str = yaml_to_python_literal(v);
-                    format!("{}: {}", key_str, value_str)
+                    let value_str = yaml_to_python_literal(v, path)?;
+                    Ok(format!("{}: {}", key_str, value_str))
                 })
                 .collect();
-            format!("{{{}}}", entries.join(", "))
+            Ok(format!("{{{}}}", entries?.join(", ")))
         }
         Yaml::Tagged(_tag, inner) => {
             // Handle YAML tags (e.g., !degrees, !radians)
             // For now, just extract the value and ignore the tag
             // TODO: Implement unit conversions if corpus needs them
-            yaml_to_python_literal(*inner)
+            yaml_to_python_literal(*inner, path)
         }
         Yaml::Representation(repr, _style, _tag) => {
             // Handle unresolved representations - parse as scalar value
-            yaml_to_python_literal(Yaml::value_from_str(&repr))
+            yaml_to_python_literal(Yaml::value_from_str(&repr), path)
         }
-        Yaml::Alias(_) => {
-            // YAML aliases not fully supported yet
-            "None".to_string()
-        }
-        Yaml::BadValue => {
-            // Bad value - return None
-            "None".to_string()
-        }
+        Yaml::Alias(_) => Err(crate::error::XacroError::YamlParseError {
+            path: path.to_string(),
+            message: "YAML aliases are not supported".to_string(),
+        }),
+        Yaml::BadValue => Err(crate::error::XacroError::YamlParseError {
+            path: path.to_string(),
+            message: "YAML contains an invalid value".to_string(),
+        }),
     }
 }
 
@@ -375,7 +381,7 @@ fn load_yaml_file(path: &str) -> Result<String, crate::error::XacroError> {
             })?;
 
     // Convert to Python literal
-    Ok(yaml_to_python_literal(yaml_value))
+    yaml_to_python_literal(yaml_value, path)
 }
 
 #[cfg(feature = "yaml")]
@@ -515,8 +521,9 @@ fn preprocess_load_yaml(expr: &str) -> Result<String, EvalError> {
         return Err(EvalError::PyishEval {
             expr: expr.to_string(),
             source: pyisheval::EvalError::ParseError(
-                "load_yaml() requires 'yaml' feature. \
-                 Rebuild with --features yaml"
+                "load_yaml() requires 'yaml' feature.\n\n\
+                 To enable YAML support, rebuild with:\n\
+                 cargo build --features yaml"
                     .to_string(),
             ),
         });

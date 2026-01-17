@@ -152,7 +152,7 @@ mod load_yaml_tests {
         // Create temporary file with invalid YAML
         let mut temp_file = NamedTempFile::new().expect("create temp file");
         write!(temp_file, "invalid: yaml:\n  - bad\n  syntax").expect("write temp file");
-        let temp_path = temp_file.path().to_str().expect("get temp path");
+        let temp_path = temp_file.path().to_string_lossy().replace('\\', "/");
 
         let props = HashMap::new();
         let result = eval_text(&format!("${{load_yaml('{}')}}", temp_path), &props);
@@ -183,21 +183,25 @@ mod load_yaml_tests {
 
     #[test]
     fn test_load_yaml_argument_with_parentheses_in_string() {
-        let mut props = HashMap::new();
-        // Property value contains parentheses - this tests that find_matching_paren
-        // correctly handles the closing paren of load_yaml vs parens inside the argument
-        props.insert(
-            "file_with_parens".to_string(),
-            "tests/data/test_config.yaml".to_string(),
-        );
+        use std::io::Write;
+        use tempfile::Builder;
+
+        let props = HashMap::new();
+
+        // Create a temp YAML file whose path literal includes parentheses
+        // This truly tests that find_matching_paren handles parens in the argument
+        let mut temp = Builder::new()
+            .prefix("config(")
+            .suffix(").yaml")
+            .tempfile()
+            .expect("create temp yaml");
+        write!(temp, "robot:\n  chassis:\n    width: 0.3\n").expect("write temp yaml");
+        let path = temp.path().to_string_lossy().replace('\\', "/");
 
         // The fix ensures we use find_matching_paren instead of regex capture [^()]+?
         // This allows proper handling when the argument contains parentheses
-        let value = eval_text(
-            "${load_yaml(file_with_parens)['robot']['chassis']['width']}",
-            &props,
-        )
-        .expect("load_yaml argument parsing should succeed");
+        let expr = format!("${{load_yaml('{}')['robot']['chassis']['width']}}", path);
+        let value = eval_text(&expr, &props).expect("load_yaml argument parsing should succeed");
 
         assert_eq!(
             value, "0.3",
