@@ -1844,15 +1844,13 @@ fn test_property_dynamic_name_concatenation() {
     );
 }
 
-/// Test dynamic macro name substitution
+/// Test that dynamic macro names are NOT evaluated at definition time
 ///
-/// NOTE: This test is disabled because Python xacro does NOT evaluate expressions
-/// in macro names during definition. This allows macros like "${ns}/box_inertia"
-/// where ns is undefined at definition time, but means ${prefix}_base is stored
-/// literally and cannot be called as <xacro:mobile_base>.
+/// Python xacro does NOT evaluate expressions in macro names during definition.
+/// This means ${prefix}_base is stored literally and cannot be called as
+/// <xacro:mobile_base>. Since the macro name doesn't match, processing fails.
 #[test]
-#[ignore = "Python xacro doesn't support dynamic macro names"]
-fn test_macro_dynamic_name() {
+fn test_macro_dynamic_name_not_evaluated() {
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:property name="prefix" value="mobile"/>
@@ -1863,23 +1861,40 @@ fn test_macro_dynamic_name() {
 </robot>"#;
 
     let result = test_xacro(input);
-    assert!(
-        result.is_ok(),
-        "Dynamic macro name failed: {:?}",
-        result.err()
-    );
 
-    let output = result.unwrap();
+    // The macro is stored as literal "${prefix}_base", so calling <xacro:mobile_base>
+    // doesn't match any defined macro and results in an error
     assert!(
-        output.contains(r#"name="mobile_base_link""#),
-        "Macro with dynamic name should be callable: {}",
-        output
+        result.is_err(),
+        "Macro call with evaluated name should fail - macro stored as literal"
     );
-    assert!(
-        output.contains(r#"size="1.0""#),
-        "Macro parameters should work: {}",
-        output
-    );
+}
+
+/// Test that macro names with undefined variables can be defined
+///
+/// Python xacro allows defining macros with expressions containing undefined variables
+/// (e.g., ${ns}_box_inertia where ns is unset at definition time). The macro name is
+/// stored literally without evaluation. This allows corpus files to define macros with
+/// namespace placeholders that may be set in parent files during inclusion.
+#[test]
+fn test_macro_literal_name_with_undefined_var() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="${ns}_box_inertia" params="mass">
+    <inertial>
+      <mass value="${mass}"/>
+    </inertial>
+  </xacro:macro>
+  <link name="base_link"/>
+</robot>"#;
+
+    // Processing should succeed - macro is stored with literal name "${ns}_box_inertia"
+    // even though ${ns} is undefined
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
+    let link = find_child(&root, "link");
+
+    assert_xacro_attr!(link, "name", "base_link", "Should process without error");
 }
 
 /// Test dynamic include filename substitution
