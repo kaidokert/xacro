@@ -1963,9 +1963,8 @@ mod tests {
 
         // But math.pi should be replaced with pi (pyisheval built-in)
         let result = eval_text("${math.pi * 2}", &props).unwrap();
-        // Should be approximately 6.28...
         let value: f64 = result.parse().unwrap();
-        assert!((value - 6.283).abs() < 0.01);
+        assert!((value - (std::f64::consts::PI * 2.0)).abs() < 1e-9);
     }
 
     #[test]

@@ -476,7 +476,7 @@ fn test_pow_function() {
 
     let result = eval_text("${pow(10, 0.5)}", &props).expect("pow with fractional exp");
     let value: f64 = result.parse().expect("parse float");
-    assert!((value - 3.162277660168).abs() < 1e-10, "sqrt(10) ≈ 3.162");
+    assert!((value - 10.0_f64.sqrt()).abs() < 1e-10, "sqrt(10) mismatch");
 }
 
 #[test]
@@ -488,9 +488,7 @@ fn test_log_function() {
     let result = eval_text("${log(1)}", &props).expect("log should work");
     assert_eq!(result, "0", "ln(1) = 0");
 
-    // ln(e) should be 1
-    let mut props = HashMap::new();
-    props.insert("e".to_string(), "2.718281828459045".to_string());
+    // ln(e) should be 1, using the built-in 'e' constant
     let result = eval_text("${log(e)}", &props).expect("log(e)");
     let value: f64 = result.parse().expect("parse float");
     assert!((value - 1.0).abs() < 1e-10, "ln(e) = 1");
