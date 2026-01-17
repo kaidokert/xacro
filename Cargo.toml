@@ -16,7 +16,7 @@ yaml = ["dep:saphyr"]  # YAML loading support via load_yaml() function
 xml = "0.8"
 xmltree = "0.12"
 thiserror = "2.0"
-pyisheval = "0.13"
+pyisheval = "0.14"
 regex = "1.12"
 log = "0.4"
 clap = { version = "4.5", features = ["derive"] }
@@ -34,5 +34,5 @@ name = "xacro"
 path = "src/bin/xacro.rs"
 
 [patch.crates-io]
-pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.13_with_and_or" }
+pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.14_with_mixed_equality" }
 xmltree = { git = "https://github.com/kaidokert/xmltree-rs", tag = "v0.12.0_preserve_ns_patch" }
