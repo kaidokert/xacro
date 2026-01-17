@@ -186,18 +186,6 @@ pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
 /// Regex pattern for matching math function calls with word boundaries
 static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
 
-/// Regex pattern for matching math.pi constant
-static MATH_PI_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Get the math.pi regex, initializing it on first access
-fn get_math_pi_regex() -> &'static Regex {
-    MATH_PI_REGEX.get_or_init(|| {
-        // Match math.pi as a complete token (not as part of math.pid_controller)
-        // Word boundaries ensure we don't match partial identifiers
-        Regex::new(r"\bmath\.pi\b").expect("Math.pi regex should be valid")
-    })
-}
-
 /// Get the math functions regex, initializing it on first access
 ///
 /// Matches function names with optional `math.` prefix. We post-process matches
@@ -256,14 +244,9 @@ fn split_args_balanced(args: &str) -> Vec<&str> {
 ///
 /// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil, pow, log
 /// All functions can be called with or without `math.` prefix (e.g., `cos(x)` or `math.cos(x)`).
-/// Also handles `math.pi` constant by stripping the `math.` prefix.
+/// Also handles `math.pi` constant by replacing with `pi` (only outside string literals).
 ///
-/// # Limitations
-/// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
-/// This can cause incorrect evaluation: an expression like `'cos(0)'` will be
-/// preprocessed to `'1.0'` instead of remaining as the string `"cos(0)"`.
-/// A full fix would require a proper parser to track string literal context.
-/// For now, users should avoid math function names inside string literals.
+/// Uses DelimiterTracker to respect string boundaries for all replacements.
 ///
 /// # Arguments
 /// * `expr` - Expression that may contain math function calls
@@ -276,10 +259,35 @@ fn preprocess_math_functions(
     interp: &mut Interpreter,
     context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
-    // First, replace math.pi with pi (pyisheval doesn't support namespaced constants)
-    // Use regex to ensure we only match math.pi as a complete token, not as part
-    // of larger identifiers like math.pid_controller
-    let mut result = get_math_pi_regex().replace_all(expr, "pi").to_string();
+    // First pass: Replace math.pi with pi, respecting string boundaries
+    // Walk through string with DelimiterTracker to only replace outside quotes
+    let bytes = expr.as_bytes();
+    let mut result = String::with_capacity(expr.len());
+    let mut tracker = DelimiterTracker::new();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Check for math.pi (7 bytes)
+        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"math.pi" {
+            // Verify it's at a word boundary (not part of larger identifier)
+            let after_ok = i + 7 >= bytes.len()
+                || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+
+            // Only replace if we're at top level (not in quotes) and at word boundary
+            if tracker.at_top_level() && before_ok && after_ok {
+                result.push_str("pi");
+                i += 7; // Skip "math.pi"
+                continue;
+            }
+        }
+
+        // Track delimiter state and append character
+        let ch = bytes[i];
+        tracker.process(ch);
+        result.push(ch as char);
+        i += 1;
+    }
 
     // Keep replacing until no more matches (handle nested calls from inside out)
     let mut iteration = 0;
@@ -1979,6 +1987,44 @@ mod tests {
         let result = eval_text("${math.pi * 2}", &props).unwrap();
         let value: f64 = result.parse().unwrap();
         assert!((value - (std::f64::consts::PI * 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_math_pi_not_in_string_literals() {
+        // CRITICAL: math.pi inside string literals should NOT be replaced
+        let props = HashMap::new();
+
+        // Single quoted string literal containing math.pi
+        let result = eval_text("${'Use math.pi for calculations'}", &props).unwrap();
+        assert_eq!(
+            result, "Use math.pi for calculations",
+            "math.pi in single-quoted string should not be replaced"
+        );
+
+        // Another single quoted example
+        let result = eval_text("${'The constant math.pi is useful'}", &props).unwrap();
+        assert_eq!(
+            result, "The constant math.pi is useful",
+            "math.pi in string should not be replaced"
+        );
+
+        // Actual math.pi usage (not in string) should be replaced
+        let result = eval_text("${math.pi}", &props).unwrap();
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - std::f64::consts::PI).abs() < 1e-9,
+            "math.pi outside strings should be replaced with pi constant"
+        );
+
+        // Mixed: comparison with string containing math.pi vs actual math.pi
+        let result = eval_text("${'math.pi' == 'math.pi'}", &props).unwrap();
+        assert_eq!(result, "1", "String comparison should work");
+
+        let result = eval_text("${math.pi > 3}", &props).unwrap();
+        assert_eq!(
+            result, "1",
+            "Numeric math.pi should be replaced and evaluated"
+        );
     }
 
     #[test]
