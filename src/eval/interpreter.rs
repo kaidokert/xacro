@@ -64,7 +64,76 @@ fn eval_literal(value: &str) -> Value {
     }
 }
 
-/// Find matching closing parenthesis, handling nested parentheses
+/// Tracks delimiter depth and quote state while parsing expressions
+///
+/// Maintains nesting depth for parentheses, brackets, and braces,
+/// along with quote state and escape handling. Used to find matching
+/// delimiters and split arguments correctly.
+struct DelimiterTracker {
+    paren_depth: usize,
+    bracket_depth: usize,
+    brace_depth: usize,
+    in_single_quote: bool,
+    in_double_quote: bool,
+    escape_next: bool,
+}
+
+impl DelimiterTracker {
+    fn new() -> Self {
+        Self {
+            paren_depth: 0,
+            bracket_depth: 0,
+            brace_depth: 0,
+            in_single_quote: false,
+            in_double_quote: false,
+            escape_next: false,
+        }
+    }
+
+    /// Process a byte, updating internal state
+    fn process(
+        &mut self,
+        ch: u8,
+    ) {
+        // Handle escape sequences - next character is literal
+        if self.escape_next {
+            self.escape_next = false;
+            return;
+        }
+
+        match ch {
+            b'\\' => self.escape_next = true,
+            b'\'' if !self.in_double_quote => self.in_single_quote = !self.in_single_quote,
+            b'"' if !self.in_single_quote => self.in_double_quote = !self.in_double_quote,
+            b'(' if !self.in_single_quote && !self.in_double_quote => self.paren_depth += 1,
+            b')' if !self.in_single_quote && !self.in_double_quote && self.paren_depth > 0 => {
+                self.paren_depth -= 1
+            }
+            b'[' if !self.in_single_quote && !self.in_double_quote => self.bracket_depth += 1,
+            b']' if !self.in_single_quote && !self.in_double_quote && self.bracket_depth > 0 => {
+                self.bracket_depth -= 1
+            }
+            b'{' if !self.in_single_quote && !self.in_double_quote => self.brace_depth += 1,
+            b'}' if !self.in_single_quote && !self.in_double_quote && self.brace_depth > 0 => {
+                self.brace_depth -= 1
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if we're at top level (no nesting, no quotes)
+    fn at_top_level(&self) -> bool {
+        self.paren_depth == 0
+            && self.bracket_depth == 0
+            && self.brace_depth == 0
+            && !self.in_single_quote
+            && !self.in_double_quote
+    }
+}
+
+/// Find matching closing parenthesis, handling nested delimiters
+///
+/// Handles nested parentheses, brackets, braces, quotes, and escape sequences.
 ///
 /// # Arguments
 /// * `text` - String to search
@@ -73,7 +142,7 @@ fn eval_literal(value: &str) -> Value {
 /// # Returns
 /// Byte index of matching ')', or None if not found
 ///
-/// Note: Uses byte-based iteration since parentheses are ASCII characters
+/// Note: Uses byte-based iteration since delimiters are ASCII characters
 /// and will never appear as continuation bytes in UTF-8.
 pub fn find_matching_paren(
     text: &str,
@@ -84,30 +153,18 @@ pub fn find_matching_paren(
         return None;
     }
 
-    let mut depth = 0;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escape_next = false;
+    let mut tracker = DelimiterTracker::new();
 
     for (i, &ch) in bytes.iter().enumerate().skip(start) {
-        // Handle escape sequences - next character is literal
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
+        tracker.process(ch);
 
-        match ch {
-            b'\\' => escape_next = true,
-            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
-            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
-            b'(' if !in_single_quote && !in_double_quote => depth += 1,
-            b')' if !in_single_quote && !in_double_quote => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
+        // Check if we closed the opening parenthesis
+        if ch == b')'
+            && tracker.paren_depth == 0
+            && !tracker.in_single_quote
+            && !tracker.in_double_quote
+        {
+            return Some(i);
         }
     }
     None
@@ -155,35 +212,31 @@ fn get_math_funcs_regex() -> &'static Regex {
     })
 }
 
-/// Split arguments on commas while respecting nested parentheses
+/// Split arguments on commas while respecting all nested delimiters
 ///
-/// Handles cases like: `pow(max(1, 2), 3)` -> `["max(1, 2)", "3"]`
+/// Correctly handles nested parentheses, brackets, and braces, along with
+/// quotes and escape sequences. Only splits on commas at the top level
+/// (no nesting, no quotes).
+///
+/// # Examples
+/// - `"max(1, 2), 3"` -> `["max(1, 2)", " 3"]`
+/// - `"[1,2][0], 3"` -> `["[1,2][0]", " 3"]`
+/// - `"{a:1,b:2}, 3"` -> `["{a:1,b:2}", " 3"]`
+///
+/// This is the standard helper for parsing multi-argument function calls.
 fn split_args_balanced(args: &str) -> Vec<&str> {
     let mut result = Vec::new();
-    let mut depth = 0;
     let mut start = 0;
     let bytes = args.as_bytes();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escape_next = false;
+    let mut tracker = DelimiterTracker::new();
 
     for (i, &ch) in bytes.iter().enumerate() {
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
+        tracker.process(ch);
 
-        match ch {
-            b'\\' => escape_next = true,
-            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
-            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
-            b'(' if !in_single_quote && !in_double_quote => depth += 1,
-            b')' if !in_single_quote && !in_double_quote => depth -= 1,
-            b',' if !in_single_quote && !in_double_quote && depth == 0 => {
-                result.push(&args[start..i]);
-                start = i + 1;
-            }
-            _ => {}
+        // Split on comma only at top level (no nesting, no quotes)
+        if ch == b',' && tracker.at_top_level() {
+            result.push(&args[start..i]);
+            start = i + 1;
         }
     }
 
@@ -1852,6 +1905,53 @@ mod tests {
     }
 
     #[test]
+    fn test_find_matching_paren_with_brackets() {
+        // Regression test: find_matching_paren should handle brackets inside parens
+        let text = "pow([1,2][0], 3)";
+        let result = find_matching_paren(text, 3); // Start at '(' after 'pow'
+        assert_eq!(result, Some(15)); // Position of final ')'
+    }
+
+    #[test]
+    fn test_find_matching_paren_with_braces() {
+        // Regression test: find_matching_paren should handle braces (dict literals)
+        let text = "func({a:1,b:2}, 3)";
+        let result = find_matching_paren(text, 4); // Start at '(' after 'func'
+        assert_eq!(result, Some(17)); // Position of final ')'
+    }
+
+    #[test]
+    fn test_split_args_with_array_literal() {
+        // Regression test: split_args_balanced should not split on commas inside arrays
+        let args = "[1,2][0], 3";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "[1,2][0]");
+        assert_eq!(result[1], " 3");
+    }
+
+    #[test]
+    fn test_split_args_with_dict_literal() {
+        // Regression test: split_args_balanced should not split on commas inside dicts
+        let args = "{a:1,b:2}, 3";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "{a:1,b:2}");
+        assert_eq!(result[1], " 3");
+    }
+
+    #[test]
+    fn test_split_args_with_nested_structures() {
+        // Complex case: nested arrays, dicts, and function calls
+        let args = "[[1,2],[3,4]], {x:[5,6]}, max(7,8)";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "[[1,2],[3,4]]");
+        assert_eq!(result[1], " {x:[5,6]}");
+        assert_eq!(result[2], " max(7,8)");
+    }
+
+    #[test]
     fn test_math_pi_not_substring_match() {
         // Regression test: math.pi should not match identifiers like math_pi_value
         let mut props = HashMap::new();
@@ -1873,16 +1973,32 @@ mod tests {
         // Regression test: pow(max(1, 2), 3) should handle nested commas correctly
         let props = HashMap::new();
 
-        // This previously failed because split_once(',') would split at first comma
-        // Now split_args_balanced handles nested parentheses correctly
-        let result = eval_text("${pow(2, 3)}", &props).unwrap();
+        // This previously failed because split_once(',') would split at the first comma.
+        // Now split_args_balanced handles nested function calls correctly.
+        // `max` is a pyisheval builtin, so `max(1, 2)` will be evaluated to 2
+        // before `pow` is pre-processed.
+        let result = eval_text("${pow(max(1, 2), 3)}", &props).unwrap();
         assert_eq!(result, "8");
 
-        // Note: max() is not in SUPPORTED_MATH_FUNCS, so this won't actually evaluate max()
-        // But we can test that the parsing doesn't break on nested parens
-        // by using arithmetic expressions instead
-        let result = eval_text("${pow((1 + 1), 3)}", &props).unwrap();
-        assert_eq!(result, "8");
+        // Also test with nested arithmetic expressions
+        let result_arith = eval_text("${pow((1 + 1), 3)}", &props).unwrap();
+        assert_eq!(result_arith, "8");
+    }
+
+    #[test]
+    fn test_pow_with_array_indexing() {
+        // Regression test: pow([1,2][0], 3) should handle commas inside array literals
+        let mut props = HashMap::new();
+        props.insert("values".to_string(), "[2,3,4]".to_string());
+
+        // Array indexing with commas inside the array literal
+        // This tests that split_args_balanced correctly handles brackets
+        let result = eval_text("${pow([1,2][1], 3)}", &props).unwrap();
+        assert_eq!(result, "8"); // 2^3 = 8
+
+        // Property containing array literal
+        let result = eval_text("${pow(values[0], 3)}", &props).unwrap();
+        assert_eq!(result, "8"); // 2^3 = 8
     }
 
     #[test]
