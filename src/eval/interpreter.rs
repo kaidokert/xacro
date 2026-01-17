@@ -183,23 +183,6 @@ pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
     "abs",
 ];
 
-/// Regex pattern for matching math function calls with word boundaries
-static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Get the math functions regex, initializing it on first access
-///
-/// Matches function names with optional `math.` prefix. We post-process matches
-/// to filter out false positives like `custom.sin()`.
-fn get_math_funcs_regex() -> &'static Regex {
-    MATH_FUNCS_REGEX.get_or_init(|| {
-        // Match optional `math.` prefix, then function name at word boundary
-        // Capture group 1: optional "math."
-        // Capture group 2: function name
-        let pattern = format!(r"\b(math\.)?({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
-        Regex::new(&pattern).expect("Math functions regex should be valid")
-    })
-}
-
 /// Split arguments on commas while respecting all nested delimiters
 ///
 /// Correctly handles nested parentheses, brackets, and braces, along with
@@ -304,34 +287,78 @@ fn preprocess_math_functions(
             });
         }
 
-        // Collect all function matches to iterate right-to-left (innermost first)
-        let captures: Vec<_> = get_math_funcs_regex().captures_iter(&result).collect();
-        if captures.is_empty() {
-            break;
-        }
+        // Find all function matches using DelimiterTracker to respect string boundaries
+        // This prevents evaluating functions inside string literals like ${'Print cos(0)'}
+        let result_bytes = result.as_bytes();
+        let mut function_matches: Vec<(usize, &str, usize)> = Vec::new(); // (match_start, func_name, paren_pos)
+        let mut scan_tracker = DelimiterTracker::new();
+        let mut i = 0;
 
-        let mut made_replacement = false;
-        // Iterate from right to left to find the innermost, evaluatable function call
-        for caps in captures.iter().rev() {
-            // Extract capture groups: group 0 = whole match, group 1 = optional "math.", group 2 = function name
-            let (whole_match, func_name) = match (caps.get(0), caps.get(2)) {
-                (Some(m), Some(f)) => (m, f.as_str()),
-                _ => continue, // Skip malformed captures
-            };
+        while i < result_bytes.len() {
+            scan_tracker.process(result_bytes[i]);
 
-            // Filter out false positives: reject matches like `custom.sin()` where
-            // there's a dot before the function name but no `math.` prefix
-            let has_math_prefix = caps.get(1).is_some();
-            if !has_math_prefix && whole_match.start() > 0 {
-                let char_before = result.as_bytes()[whole_match.start() - 1];
-                if char_before == b'.' {
-                    // This is a custom namespace like `mylib.sin()`, not our math function
+            // Only look for functions when at top level (not in strings)
+            if !scan_tracker.at_top_level() {
+                i += 1;
+                continue;
+            }
+
+            // Check for optional "math." prefix
+            let has_prefix = i + 5 <= result_bytes.len() && &result_bytes[i..i + 5] == b"math.";
+            let func_start = if has_prefix { i + 5 } else { i };
+
+            // Check word boundary before function name
+            if func_start > 0 {
+                let prev_ch = result_bytes[func_start - 1];
+                // Skip if part of larger identifier OR custom namespace (e.g., custom.sin)
+                if prev_ch.is_ascii_alphanumeric()
+                    || prev_ch == b'_'
+                    || (!has_prefix && prev_ch == b'.')
+                {
+                    i += 1;
                     continue;
                 }
             }
 
-            let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
+            // Try to match supported functions
+            let mut found = None;
+            for &func in SUPPORTED_MATH_FUNCS {
+                let func_bytes = func.as_bytes();
+                let func_end = func_start + func_bytes.len();
 
+                if func_end <= result_bytes.len()
+                    && &result_bytes[func_start..func_end] == func_bytes
+                {
+                    // Look for '(' after function name (skip whitespace)
+                    let mut paren_pos = func_end;
+                    while paren_pos < result_bytes.len()
+                        && result_bytes[paren_pos].is_ascii_whitespace()
+                    {
+                        paren_pos += 1;
+                    }
+
+                    if paren_pos < result_bytes.len() && result_bytes[paren_pos] == b'(' {
+                        found = Some((func, paren_pos, i));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((func_name, paren_pos, match_start)) = found {
+                function_matches.push((match_start, func_name, paren_pos));
+                i = paren_pos + 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        if function_matches.is_empty() {
+            break;
+        }
+
+        let mut made_replacement = false;
+        // Process matches right-to-left (innermost first)
+        for &(match_start, func_name, paren_pos) in function_matches.iter().rev() {
             // Find matching closing parenthesis
             let close_pos = match find_matching_paren(&result, paren_pos) {
                 Some(pos) => pos,
@@ -361,7 +388,7 @@ fn preprocess_math_functions(
                             _ => unreachable!(),
                         };
                         let replacement = format!("{}", computed);
-                        result.replace_range(whole_match.start()..=close_pos, &replacement);
+                        result.replace_range(match_start..=close_pos, &replacement);
                         made_replacement = true;
                         break;
                     }
@@ -407,13 +434,13 @@ fn preprocess_math_functions(
                     "ceil" => n.ceil(),
                     "log" => n.ln(), // Natural logarithm (Python's math.log defaults to ln)
                     _ => unreachable!(
-                        "Function '{}' matched regex but not in match statement",
+                        "Function '{}' in SUPPORTED_MATH_FUNCS but not in match statement",
                         func_name
                     ),
                 };
 
                 let replacement = format!("{}", computed);
-                result.replace_range(whole_match.start()..=close_pos, &replacement);
+                result.replace_range(match_start..=close_pos, &replacement);
                 made_replacement = true;
                 // A replacement was made, restart loop to rescan the string
                 break;
@@ -1987,6 +2014,34 @@ mod tests {
         let result = eval_text("${math.pi * 2}", &props).unwrap();
         let value: f64 = result.parse().unwrap();
         assert!((value - (std::f64::consts::PI * 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_math_functions_not_in_string_literals() {
+        // CRITICAL: Math functions inside string literals should NOT be evaluated
+        let props = HashMap::new();
+
+        // Single quoted string literal containing cos(0)
+        let result = eval_text("${'Print cos(0)'}", &props).unwrap();
+        assert_eq!(
+            result, "Print cos(0)",
+            "cos(0) in single-quoted string should not be evaluated"
+        );
+
+        // Another example with sin
+        let result = eval_text("${'The function sin(x) is useful'}", &props).unwrap();
+        assert_eq!(
+            result, "The function sin(x) is useful",
+            "sin(x) in string should not be evaluated"
+        );
+
+        // Actual cos(0) usage (not in string) should be evaluated
+        let result = eval_text("${cos(0)}", &props).unwrap();
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - 1.0).abs() < 1e-9,
+            "cos(0) outside strings should be evaluated to 1"
+        );
     }
 
     #[test]
