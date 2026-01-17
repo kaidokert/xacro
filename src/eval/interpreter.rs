@@ -64,7 +64,76 @@ fn eval_literal(value: &str) -> Value {
     }
 }
 
-/// Find matching closing parenthesis, handling nested parentheses
+/// Tracks delimiter depth and quote state while parsing expressions
+///
+/// Maintains nesting depth for parentheses, brackets, and braces,
+/// along with quote state and escape handling. Used to find matching
+/// delimiters and split arguments correctly.
+struct DelimiterTracker {
+    paren_depth: usize,
+    bracket_depth: usize,
+    brace_depth: usize,
+    in_single_quote: bool,
+    in_double_quote: bool,
+    escape_next: bool,
+}
+
+impl DelimiterTracker {
+    fn new() -> Self {
+        Self {
+            paren_depth: 0,
+            bracket_depth: 0,
+            brace_depth: 0,
+            in_single_quote: false,
+            in_double_quote: false,
+            escape_next: false,
+        }
+    }
+
+    /// Process a byte, updating internal state
+    fn process(
+        &mut self,
+        ch: u8,
+    ) {
+        // Handle escape sequences - next character is literal
+        if self.escape_next {
+            self.escape_next = false;
+            return;
+        }
+
+        match ch {
+            b'\\' => self.escape_next = true,
+            b'\'' if !self.in_double_quote => self.in_single_quote = !self.in_single_quote,
+            b'"' if !self.in_single_quote => self.in_double_quote = !self.in_double_quote,
+            b'(' if !self.in_single_quote && !self.in_double_quote => self.paren_depth += 1,
+            b')' if !self.in_single_quote && !self.in_double_quote && self.paren_depth > 0 => {
+                self.paren_depth -= 1
+            }
+            b'[' if !self.in_single_quote && !self.in_double_quote => self.bracket_depth += 1,
+            b']' if !self.in_single_quote && !self.in_double_quote && self.bracket_depth > 0 => {
+                self.bracket_depth -= 1
+            }
+            b'{' if !self.in_single_quote && !self.in_double_quote => self.brace_depth += 1,
+            b'}' if !self.in_single_quote && !self.in_double_quote && self.brace_depth > 0 => {
+                self.brace_depth -= 1
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if we're at top level (no nesting, no quotes)
+    fn at_top_level(&self) -> bool {
+        self.paren_depth == 0
+            && self.bracket_depth == 0
+            && self.brace_depth == 0
+            && !self.in_single_quote
+            && !self.in_double_quote
+    }
+}
+
+/// Find matching closing parenthesis, handling nested delimiters
+///
+/// Handles nested parentheses, brackets, braces, quotes, and escape sequences.
 ///
 /// # Arguments
 /// * `text` - String to search
@@ -73,7 +142,7 @@ fn eval_literal(value: &str) -> Value {
 /// # Returns
 /// Byte index of matching ')', or None if not found
 ///
-/// Note: Uses byte-based iteration since parentheses are ASCII characters
+/// Note: Uses byte-based iteration since delimiters are ASCII characters
 /// and will never appear as continuation bytes in UTF-8.
 pub fn find_matching_paren(
     text: &str,
@@ -84,30 +153,18 @@ pub fn find_matching_paren(
         return None;
     }
 
-    let mut depth = 0;
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escape_next = false;
+    let mut tracker = DelimiterTracker::new();
 
     for (i, &ch) in bytes.iter().enumerate().skip(start) {
-        // Handle escape sequences - next character is literal
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
+        tracker.process(ch);
 
-        match ch {
-            b'\\' => escape_next = true,
-            b'\'' if !in_double_quote => in_single_quote = !in_single_quote,
-            b'"' if !in_single_quote => in_double_quote = !in_double_quote,
-            b'(' if !in_single_quote && !in_double_quote => depth += 1,
-            b')' if !in_single_quote && !in_double_quote => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
+        // Check if we closed the opening parenthesis
+        if ch == b')'
+            && tracker.paren_depth == 0
+            && !tracker.in_single_quote
+            && !tracker.in_double_quote
+        {
+            return Some(i);
         }
     }
     None
@@ -122,21 +179,44 @@ pub fn find_matching_paren(
 /// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
 /// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
 pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
-    "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "abs",
+    "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "pow", "log",
+    "abs",
 ];
 
-/// Regex pattern for matching math function calls with word boundaries
-static MATH_FUNCS_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Get the math functions regex, initializing it on first access
+/// Split arguments on commas while respecting all nested delimiters
 ///
-/// Matches function names at word boundaries followed by optional whitespace and '('.
-fn get_math_funcs_regex() -> &'static Regex {
-    MATH_FUNCS_REGEX.get_or_init(|| {
-        // Use \b for word boundaries, capture function name, allow optional whitespace before '('
-        let pattern = format!(r"\b({})\s*\(", SUPPORTED_MATH_FUNCS.join("|"));
-        Regex::new(&pattern).expect("Math functions regex should be valid")
-    })
+/// Correctly handles nested parentheses, brackets, and braces, along with
+/// quotes and escape sequences. Only splits on commas at the top level
+/// (no nesting, no quotes).
+///
+/// # Examples
+/// - `"max(1, 2), 3"` -> `["max(1, 2)", " 3"]`
+/// - `"[1,2][0], 3"` -> `["[1,2][0]", " 3"]`
+/// - `"{a:1,b:2}, 3"` -> `["{a:1,b:2}", " 3"]`
+///
+/// This is the standard helper for parsing multi-argument function calls.
+fn split_args_balanced(args: &str) -> Vec<&str> {
+    let mut result = Vec::new();
+    let mut start = 0;
+    let bytes = args.as_bytes();
+    let mut tracker = DelimiterTracker::new();
+
+    for (i, &ch) in bytes.iter().enumerate() {
+        tracker.process(ch);
+
+        // Split on comma only at top level (no nesting, no quotes)
+        if ch == b',' && tracker.at_top_level() {
+            result.push(&args[start..i]);
+            start = i + 1;
+        }
+    }
+
+    // Push the last segment
+    if start < args.len() {
+        result.push(&args[start..]);
+    }
+
+    result
 }
 
 /// Preprocess an expression to evaluate native math functions
@@ -145,14 +225,11 @@ fn get_math_funcs_regex() -> &'static Regex {
 /// This function finds math function calls, evaluates them using Rust's f64 methods,
 /// and substitutes the results back into the expression.
 ///
-/// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil
+/// Supported functions: cos, sin, tan, acos, asin, atan, atan2, sqrt, abs, floor, ceil, pow, log
+/// All functions can be called with or without `math.` prefix (e.g., `cos(x)` or `math.cos(x)`).
+/// Also handles `math.pi` constant by replacing with `pi` (only outside string literals).
 ///
-/// # Limitations
-/// **Does not distinguish function calls inside string literals** (e.g., `'cos(0)'`).
-/// This can cause incorrect evaluation: an expression like `'cos(0)'` will be
-/// preprocessed to `'1.0'` instead of remaining as the string `"cos(0)"`.
-/// A full fix would require a proper parser to track string literal context.
-/// For now, users should avoid math function names inside string literals.
+/// Uses DelimiterTracker to respect string boundaries for all replacements.
 ///
 /// # Arguments
 /// * `expr` - Expression that may contain math function calls
@@ -163,8 +240,37 @@ fn get_math_funcs_regex() -> &'static Regex {
 fn preprocess_math_functions(
     expr: &str,
     interp: &mut Interpreter,
+    context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
-    let mut result = expr.to_string();
+    // First pass: Replace math.pi with pi, respecting string boundaries
+    // Walk through string with DelimiterTracker to only replace outside quotes
+    let bytes = expr.as_bytes();
+    let mut result = String::with_capacity(expr.len());
+    let mut tracker = DelimiterTracker::new();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Check for math.pi (7 bytes)
+        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"math.pi" {
+            // Verify it's at a word boundary (not part of larger identifier)
+            let after_ok = i + 7 >= bytes.len()
+                || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+
+            // Only replace if we're at top level (not in quotes) and at word boundary
+            if tracker.at_top_level() && before_ok && after_ok {
+                result.push_str("pi");
+                i += 7; // Skip "math.pi"
+                continue;
+            }
+        }
+
+        // Track delimiter state and append character
+        let ch = bytes[i];
+        tracker.process(ch);
+        result.push(ch as char);
+        i += 1;
+    }
 
     // Keep replacing until no more matches (handle nested calls from inside out)
     let mut iteration = 0;
@@ -181,22 +287,78 @@ fn preprocess_math_functions(
             });
         }
 
-        // Collect all function matches to iterate right-to-left (innermost first)
-        let captures: Vec<_> = get_math_funcs_regex().captures_iter(&result).collect();
-        if captures.is_empty() {
+        // Find all function matches using DelimiterTracker to respect string boundaries
+        // This prevents evaluating functions inside string literals like ${'Print cos(0)'}
+        let result_bytes = result.as_bytes();
+        let mut function_matches: Vec<(usize, &str, usize)> = Vec::new(); // (match_start, func_name, paren_pos)
+        let mut scan_tracker = DelimiterTracker::new();
+        let mut i = 0;
+
+        while i < result_bytes.len() {
+            scan_tracker.process(result_bytes[i]);
+
+            // Only look for functions when at top level (not in strings)
+            if !scan_tracker.at_top_level() {
+                i += 1;
+                continue;
+            }
+
+            // Check for optional "math." prefix
+            let has_prefix = i + 5 <= result_bytes.len() && &result_bytes[i..i + 5] == b"math.";
+            let func_start = if has_prefix { i + 5 } else { i };
+
+            // Check word boundary before function name
+            if func_start > 0 {
+                let prev_ch = result_bytes[func_start - 1];
+                // Skip if part of larger identifier OR custom namespace (e.g., custom.sin)
+                if prev_ch.is_ascii_alphanumeric()
+                    || prev_ch == b'_'
+                    || (!has_prefix && prev_ch == b'.')
+                {
+                    i += 1;
+                    continue;
+                }
+            }
+
+            // Try to match supported functions
+            let mut found = None;
+            for &func in SUPPORTED_MATH_FUNCS {
+                let func_bytes = func.as_bytes();
+                let func_end = func_start + func_bytes.len();
+
+                if func_end <= result_bytes.len()
+                    && &result_bytes[func_start..func_end] == func_bytes
+                {
+                    // Look for '(' after function name (skip whitespace)
+                    let mut paren_pos = func_end;
+                    while paren_pos < result_bytes.len()
+                        && result_bytes[paren_pos].is_ascii_whitespace()
+                    {
+                        paren_pos += 1;
+                    }
+
+                    if paren_pos < result_bytes.len() && result_bytes[paren_pos] == b'(' {
+                        found = Some((func, paren_pos, i));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((func_name, paren_pos, match_start)) = found {
+                function_matches.push((match_start, func_name, paren_pos));
+                i = paren_pos + 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        if function_matches.is_empty() {
             break;
         }
 
         let mut made_replacement = false;
-        // Iterate from right to left to find the innermost, evaluatable function call
-        for caps in captures.iter().rev() {
-            // Safe extraction of capture groups (should always succeed due to regex structure)
-            let (whole_match, func_name) = match (caps.get(0), caps.get(1)) {
-                (Some(m), Some(f)) => (m, f.as_str()),
-                _ => continue, // Skip malformed captures
-            };
-            let paren_pos = whole_match.end() - 1; // Position of '(' after optional whitespace
-
+        // Process matches right-to-left (innermost first)
+        for &(match_start, func_name, paren_pos) in function_matches.iter().rev() {
             // Find matching closing parenthesis
             let close_pos = match find_matching_paren(&result, paren_pos) {
                 Some(pos) => pos,
@@ -205,28 +367,57 @@ fn preprocess_math_functions(
 
             let arg = &result[paren_pos + 1..close_pos];
 
-            // Special handling for atan2 which takes two arguments
-            if func_name == "atan2" {
-                // Split arguments on comma (simple split, assuming no nested commas in expressions)
-                // For more complex cases with nested expressions, we'd need a proper parser
-                if let Some((y_str, x_str)) = arg.split_once(',') {
-                    // Try to evaluate both arguments
-                    if let (Ok(Value::Number(y)), Ok(Value::Number(x))) =
-                        (interp.eval(y_str.trim()), interp.eval(x_str.trim()))
-                    {
-                        let computed = y.atan2(x);
+            // Special handling for 2-argument functions (atan2, pow, log)
+            // Note: log can take 1 or 2 arguments (natural log or log with base)
+            if func_name == "atan2" || func_name == "pow" || func_name == "log" {
+                // Split arguments on comma while respecting nested parentheses
+                // This handles cases like pow(max(1, 2), 3) correctly
+                let args = split_args_balanced(arg);
+
+                // Handle 2-argument case
+                if args.len() == 2 {
+                    // Try to evaluate both arguments with context (needed for property references)
+                    if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
+                        interp.eval_with_context(args[0].trim(), context),
+                        interp.eval_with_context(args[1].trim(), context),
+                    ) {
+                        let computed = match func_name {
+                            "atan2" => first.atan2(second),
+                            "pow" => first.powf(second),
+                            "log" => first.log(second), // log(x, base)
+                            _ => unreachable!(),
+                        };
                         let replacement = format!("{}", computed);
-                        result.replace_range(whole_match.start()..=close_pos, &replacement);
+                        result.replace_range(match_start..=close_pos, &replacement);
                         made_replacement = true;
                         break;
                     }
                 }
-                // If parsing/evaluation failed, continue to next match
-                continue;
+
+                // Validate argument count based on function requirements
+                if func_name == "log" {
+                    // log() accepts 1 or 2 arguments
+                    if args.len() == 1 {
+                        // Fall through to single-arg handling below (natural logarithm)
+                    } else if args.len() != 2 {
+                        log::warn!("log() expects 1 or 2 arguments, but got {}.", args.len());
+                        continue;
+                    }
+                } else {
+                    // atan2() and pow() require exactly 2 arguments
+                    if args.len() != 2 {
+                        log::warn!(
+                            "{}() expects 2 arguments, but got {}.",
+                            func_name,
+                            args.len()
+                        );
+                        continue;
+                    }
+                }
             }
 
-            // Try to evaluate the argument - only replace if successful
-            if let Ok(Value::Number(n)) = interp.eval(arg) {
+            // Try to evaluate the argument with context - only replace if successful
+            if let Ok(Value::Number(n)) = interp.eval_with_context(arg, context) {
                 // Validate domain for inverse trig functions (matches Python xacro behavior)
                 if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
                     log::warn!(
@@ -250,14 +441,15 @@ fn preprocess_math_functions(
                     "abs" => n.abs(),
                     "floor" => n.floor(),
                     "ceil" => n.ceil(),
+                    "log" => n.ln(), // Natural logarithm (Python's math.log defaults to ln)
                     _ => unreachable!(
-                        "Function '{}' matched regex but not in match statement",
+                        "Function '{}' in SUPPORTED_MATH_FUNCS but not in match statement",
                         func_name
                     ),
                 };
 
                 let replacement = format!("{}", computed);
-                result.replace_range(whole_match.start()..=close_pos, &replacement);
+                result.replace_range(match_start..=close_pos, &replacement);
                 made_replacement = true;
                 // A replacement was made, restart loop to rescan the string
                 break;
@@ -899,7 +1091,8 @@ pub fn evaluate_expression(
     // Preprocess math functions (cos, sin, tan, etc.) before evaluation
     // This converts native math calls into computed values since pyisheval
     // doesn't support calling native Rust functions
-    let preprocessed = preprocess_math_functions(expr, interp).map_err(|e| match e {
+    // Pass context to allow property references in function arguments
+    let preprocessed = preprocess_math_functions(expr, interp, context).map_err(|e| match e {
         EvalError::PyishEval { source, .. } => source,
         _ => pyisheval::EvalError::ParseError(e.to_string()),
     })?;
@@ -1756,8 +1949,8 @@ mod tests {
 
         // Test each function in SUPPORTED_MATH_FUNCS to ensure it's implemented
         for func in SUPPORTED_MATH_FUNCS {
-            // atan2 requires two arguments, others require one
-            let expr = if *func == "atan2" {
+            // atan2 and pow require two arguments, others require one
+            let expr = if *func == "atan2" || *func == "pow" {
                 format!("${{{}(0, 1)}}", func)
             } else {
                 format!("${{{}(0)}}", func)
@@ -1767,6 +1960,189 @@ mod tests {
             // Ensure evaluation succeeds - unreachable!() would panic if function is missing
             result.expect("Evaluation should succeed for all supported math functions");
         }
+    }
+
+    #[test]
+    fn test_find_matching_paren_with_brackets() {
+        // Regression test: find_matching_paren should handle brackets inside parens
+        let text = "pow([1,2][0], 3)";
+        let result = find_matching_paren(text, 3); // Start at '(' after 'pow'
+        assert_eq!(result, Some(15)); // Position of final ')'
+    }
+
+    #[test]
+    fn test_find_matching_paren_with_braces() {
+        // Regression test: find_matching_paren should handle braces (dict literals)
+        let text = "func({a:1,b:2}, 3)";
+        let result = find_matching_paren(text, 4); // Start at '(' after 'func'
+        assert_eq!(result, Some(17)); // Position of final ')'
+    }
+
+    #[test]
+    fn test_split_args_with_array_literal() {
+        // Regression test: split_args_balanced should not split on commas inside arrays
+        let args = "[1,2][0], 3";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "[1,2][0]");
+        assert_eq!(result[1], " 3");
+    }
+
+    #[test]
+    fn test_split_args_with_dict_literal() {
+        // Regression test: split_args_balanced should not split on commas inside dicts
+        let args = "{a:1,b:2}, 3";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "{a:1,b:2}");
+        assert_eq!(result[1], " 3");
+    }
+
+    #[test]
+    fn test_split_args_with_nested_structures() {
+        // Complex case: nested arrays, dicts, and function calls
+        let args = "[[1,2],[3,4]], {x:[5,6]}, max(7,8)";
+        let result = split_args_balanced(args);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "[[1,2],[3,4]]");
+        assert_eq!(result[1], " {x:[5,6]}");
+        assert_eq!(result[2], " max(7,8)");
+    }
+
+    #[test]
+    fn test_math_pi_not_substring_match() {
+        // Regression test: math.pi should not match identifiers like math_pi_value
+        let mut props = HashMap::new();
+        props.insert("math_pi_value".to_string(), "42".to_string());
+
+        // math_pi_value should remain as a property lookup, not be replaced
+        let result = eval_text("${math_pi_value}", &props).unwrap();
+        assert_eq!(result, "42");
+
+        // But math.pi should be replaced with pi (pyisheval built-in)
+        let result = eval_text("${math.pi * 2}", &props).unwrap();
+        let value: f64 = result.parse().unwrap();
+        assert!((value - (std::f64::consts::PI * 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_math_functions_not_in_string_literals() {
+        // CRITICAL: Math functions inside string literals should NOT be evaluated
+        let props = HashMap::new();
+
+        // Single quoted string literal containing cos(0)
+        let result = eval_text("${'Print cos(0)'}", &props).unwrap();
+        assert_eq!(
+            result, "Print cos(0)",
+            "cos(0) in single-quoted string should not be evaluated"
+        );
+
+        // Another example with sin
+        let result = eval_text("${'The function sin(x) is useful'}", &props).unwrap();
+        assert_eq!(
+            result, "The function sin(x) is useful",
+            "sin(x) in string should not be evaluated"
+        );
+
+        // Actual cos(0) usage (not in string) should be evaluated
+        let result = eval_text("${cos(0)}", &props).unwrap();
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - 1.0).abs() < 1e-9,
+            "cos(0) outside strings should be evaluated to 1"
+        );
+    }
+
+    #[test]
+    fn test_math_pi_not_in_string_literals() {
+        // CRITICAL: math.pi inside string literals should NOT be replaced
+        let props = HashMap::new();
+
+        // Single quoted string literal containing math.pi
+        let result = eval_text("${'Use math.pi for calculations'}", &props).unwrap();
+        assert_eq!(
+            result, "Use math.pi for calculations",
+            "math.pi in single-quoted string should not be replaced"
+        );
+
+        // Another single quoted example
+        let result = eval_text("${'The constant math.pi is useful'}", &props).unwrap();
+        assert_eq!(
+            result, "The constant math.pi is useful",
+            "math.pi in string should not be replaced"
+        );
+
+        // Actual math.pi usage (not in string) should be replaced
+        let result = eval_text("${math.pi}", &props).unwrap();
+        let value: f64 = result.parse().unwrap();
+        assert!(
+            (value - std::f64::consts::PI).abs() < 1e-9,
+            "math.pi outside strings should be replaced with pi constant"
+        );
+
+        // Mixed: comparison with string containing math.pi vs actual math.pi
+        let result = eval_text("${'math.pi' == 'math.pi'}", &props).unwrap();
+        assert_eq!(result, "1", "String comparison should work");
+
+        let result = eval_text("${math.pi > 3}", &props).unwrap();
+        assert_eq!(
+            result, "1",
+            "Numeric math.pi should be replaced and evaluated"
+        );
+    }
+
+    #[test]
+    fn test_pow_with_nested_function_args() {
+        // Regression test: pow(max(1, 2), 3) should handle nested commas correctly
+        let props = HashMap::new();
+
+        // This previously failed because split_once(',') would split at the first comma.
+        // Now split_args_balanced handles nested function calls correctly.
+        // `max` is a pyisheval builtin, so `max(1, 2)` will be evaluated to 2
+        // before `pow` is pre-processed.
+        let result = eval_text("${pow(max(1, 2), 3)}", &props).unwrap();
+        assert_eq!(result, "8");
+
+        // Also test with nested arithmetic expressions
+        let result_arith = eval_text("${pow((1 + 1), 3)}", &props).unwrap();
+        assert_eq!(result_arith, "8");
+    }
+
+    #[test]
+    fn test_pow_with_array_indexing() {
+        // Regression test: pow([1,2][0], 3) should handle commas inside array literals
+        let mut props = HashMap::new();
+        props.insert("values".to_string(), "[2,3,4]".to_string());
+
+        // Array indexing with commas inside the array literal
+        // This tests that split_args_balanced correctly handles brackets
+        let result = eval_text("${pow([1,2][1], 3)}", &props).unwrap();
+        assert_eq!(result, "8"); // 2^3 = 8
+
+        // Property containing array literal
+        let result = eval_text("${pow(values[0], 3)}", &props).unwrap();
+        assert_eq!(result, "8"); // 2^3 = 8
+    }
+
+    #[test]
+    fn test_custom_namespace_not_hijacked() {
+        // Regression test: custom.sin() should not be treated as math function
+        let mut props = HashMap::new();
+        props.insert("custom".to_string(), "unused".to_string());
+
+        // custom.sin(0) should fail (custom namespace not supported)
+        // It should NOT be preprocessed as a math function
+        let result = eval_text("${custom.sin(0)}", &props);
+
+        // Should error because custom.sin is not defined, not because we tried to preprocess it
+        assert!(result.is_err());
+        // The error should be from pyisheval, not from our preprocessing
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("UndefinedVar") || err_msg.contains("AttributeError"),
+            "Expected undefined variable error, got: {}",
+            err_msg
+        );
     }
 
     #[test]
