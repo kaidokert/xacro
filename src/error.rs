@@ -85,6 +85,30 @@ pub enum XacroError {
     )]
     InvalidScopeAttribute { property: String, scope: String },
 
+    /// YAML file loading failed
+    #[cfg(feature = "yaml")]
+    #[error("Failed to load YAML file '{path}': {source}")]
+    YamlLoadError {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// YAML parsing failed
+    #[cfg(feature = "yaml")]
+    #[error("Failed to parse YAML file '{path}': {message}")]
+    YamlParseError { path: String, message: String },
+
+    /// YAML feature not enabled
+    #[cfg(not(feature = "yaml"))]
+    #[error(
+        "load_yaml() requires 'yaml' feature.\n\
+         \n\
+         To enable YAML support, rebuild with:\n\
+         cargo build --features yaml"
+    )]
+    YamlFeatureDisabled,
+
     #[error("Unimplemented xacro feature: {0}")]
     UnimplementedFeature(String),
 
