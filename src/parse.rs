@@ -840,8 +840,6 @@ mod macro_tests {
     /// Test that block parameters with quoted defaults are rejected
     #[test]
     fn test_parse_params_block_param_with_quoted_default_is_error() {
-        use crate::error::XacroError;
-
         // "*content" is a block parameter; it must not have a default, quoted or otherwise
         let result = MacroProcessor::parse_params("*content:='foo bar'");
 
@@ -856,8 +854,6 @@ mod macro_tests {
     /// Test that duplicate parameters are rejected when one has a quoted default
     #[test]
     fn test_parse_params_duplicate_with_quoted_default_is_error() {
-        use crate::error::XacroError;
-
         // Same parameter name "rpy" appears twice, once with a quoted default
         let result = MacroProcessor::parse_params("rpy:='0 0 0' rpy:=1");
 
@@ -933,8 +929,6 @@ mod macro_tests {
     /// an error if an unclosed quote is detected.
     #[test]
     fn test_parse_params_unbalanced_quotes() {
-        use crate::error::XacroError;
-
         // Missing closing quote - should return UnbalancedQuote error
         let result = MacroProcessor::parse_params("rpy:='0 0 0");
 
@@ -980,8 +974,6 @@ mod macro_tests {
     /// Test edge case: quote character in parameter name causes unbalanced quote
     #[test]
     fn test_parse_params_quote_in_param_name() {
-        use crate::error::XacroError;
-
         // A quote in the parameter name starts quote mode: "param':=value"
         // The tokenizer sees param' and enters quote mode, then reads :=value
         // Since there's no closing ', this is an unbalanced quote

@@ -1,12 +1,11 @@
 use super::interpreter::{
-    eval_boolean, eval_text_with_interpreter, evaluate_expression, format_value_python_style,
-    remove_quotes,
+    build_pyisheval_context, eval_boolean, eval_text_with_interpreter, evaluate_expression,
+    format_value_python_style, init_interpreter, remove_quotes,
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
-use crate::extensions::ExtensionHandler;
+use crate::extensions::{core::default_extensions, extension_utils, ExtensionHandler};
 use core::cell::RefCell;
-use pyisheval::Interpreter;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -88,7 +87,6 @@ pub enum PropertyScope {
 }
 
 pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
-    interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
@@ -297,7 +295,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        use crate::extensions::core::default_extensions;
         let extensions = Rc::new(default_extensions());
         Self::new_with_extensions(args, extensions)
     }
@@ -314,12 +311,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         args: Rc<RefCell<HashMap<String, String>>>,
         extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
     ) -> Self {
-        use super::interpreter::init_interpreter;
-
-        let interpreter = RefCell::new(init_interpreter());
-
         Self {
-            interpreter,
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
@@ -1081,8 +1073,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use super::interpreter::{build_pyisheval_context, init_interpreter};
-
         // Create fresh interpreter for this evaluation to prevent state leakage.
         // Using a shared interpreter caused properties defined in macro scopes to persist
         // after the scope was popped, violating Python xacro's scoping semantics.
@@ -1243,7 +1233,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // to guarantee correctness of argument handling and prevent shadowing of this
         // core feature. See notes/EXTENSION_IMPL_ACTUAL.md for rationale.
         if command == "arg" {
-            use crate::extensions::extension_utils;
             let arg_parts =
                 extension_utils::expect_args(&args_evaluated, "arg", 1).map_err(|e| {
                     XacroError::InvalidExtension {
@@ -1493,11 +1482,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            let next = eval_text_with_interpreter(
-                &result,
-                properties,
-                &mut self.interpreter.borrow_mut(),
-            )?;
+            // Create fresh interpreter for each iteration to prevent state leakage.
+            // Using a shared interpreter caused properties defined in macro scopes to persist
+            // after the scope was popped, violating Python xacro's scoping semantics.
+            let mut fresh_interp = init_interpreter();
+
+            let next = eval_text_with_interpreter(&result, properties, &mut fresh_interp)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -1542,27 +1532,17 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         name: &str,
     ) -> Option<String> {
-        let stack_len = self.scope_stack.borrow().len();
-        log::debug!("lookup_raw_value('{}'): stack_len={}", name, stack_len);
-
         // Search scope stack (innermost first)
         let scope_stack = self.scope_stack.borrow();
-        for (idx, scope) in scope_stack.iter().rev().enumerate() {
+        for scope in scope_stack.iter().rev() {
             if let Some(value) = scope.get(name) {
-                log::debug!("  -> found '{}' in scope[{}]", name, stack_len - 1 - idx);
                 return Some(value.clone());
             }
         }
         drop(scope_stack);
 
         // Fall back to global properties
-        if let Some(value) = self.raw_properties.borrow().get(name).cloned() {
-            log::debug!("  -> found '{}' in GLOBAL", name);
-            Some(value)
-        } else {
-            log::debug!("  -> '{}' NOT FOUND", name);
-            None
-        }
+        self.raw_properties.borrow().get(name).cloned()
     }
 
     /// Lazy property resolution with circular dependency detection and scope support
@@ -1584,9 +1564,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         name: &str,
     ) -> Result<String, XacroError> {
-        let stack_len = self.scope_stack.borrow().len();
-        log::debug!("resolve_property('{}'): stack_len={}", name, stack_len);
-
         // Skip cache when in macro scope to avoid stale cached values
         // Example bug this prevents:
         //   Global: x=10 (cached)
@@ -1597,7 +1574,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // 1. Check cache (only in global scope)
         if !in_macro_scope {
             if let Some(cached) = self.evaluated_cache.borrow().get(name) {
-                log::debug!("  -> returning CACHED value for '{}'", name);
                 return Ok(cached.clone());
             }
         }
@@ -1611,12 +1587,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         }
 
         // 3. Get raw value (searches scopes, then global)
-        let raw_value = self.lookup_raw_value(name).ok_or_else(|| {
-            log::debug!("  -> ERROR: UndefinedProperty('{}')", name);
-            XacroError::UndefinedProperty(name.to_string())
-        })?;
-
-        log::debug!("  -> got raw_value for '{}'", name);
+        let raw_value = self
+            .lookup_raw_value(name)
+            .ok_or_else(|| XacroError::UndefinedProperty(name.to_string()))?;
 
         // 4. Mark active (push to resolution stack)
         self.resolution_stack.borrow_mut().push(name.to_string());
@@ -1723,11 +1696,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             // extracted but can't be resolved - that's OK, they're not actually property references
             match self.resolve_property(&prop_name) {
                 Ok(resolved) => {
-                    log::debug!(
-                        "  build_eval_context: resolved '{}' = '{}'",
-                        prop_name,
-                        resolved
-                    );
                     // If this property is a lambda, extract properties it references
                     if resolved.trim().starts_with("lambda ") {
                         let nested_refs = self.extract_property_references(&resolved);
@@ -1740,7 +1708,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                     context.insert(prop_name, resolved);
                 }
                 Err(XacroError::UndefinedProperty(_)) => {
-                    log::debug!("  build_eval_context: skipping undefined '{}'", prop_name);
                     // Skip undefined - likely over-captured from string literal
                 }
                 Err(e) => {

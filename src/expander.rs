@@ -11,8 +11,8 @@
 //! - Scope support: Macro parameters shadow global properties
 
 use crate::{
-    error::XacroError,
-    eval::EvalContext,
+    error::{XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
+    eval::{EvalContext, PropertyScope},
     parse::{
         macro_def::{MacroDefinition, MacroProcessor, ParamDefault},
         xml::{extract_xacro_namespace, is_xacro_element},
@@ -236,7 +236,6 @@ fn expand_element(
             })?)?;
 
         // Parse scope attribute (default: local)
-        use crate::PropertyScope;
         let scope = match elem.get_attribute("scope").map(|s| s.as_str()) {
             None => PropertyScope::Local, // Default
             Some("parent") => PropertyScope::Parent,
@@ -548,7 +547,6 @@ fn expand_element(
 
     // 6. Check for known but unimplemented xacro directives
     // These should error explicitly rather than silently pass through as literal XML
-    use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
     for feature in UNIMPLEMENTED_FEATURES {
         // Strip "xacro:" prefix to get element name
         let directive = feature.strip_prefix("xacro:").unwrap_or(feature);
