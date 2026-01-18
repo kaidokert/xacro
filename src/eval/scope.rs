@@ -1535,21 +1535,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         self.raw_properties.borrow().get(name).cloned()
     }
 
-    /// Look up a global property (raw_properties only, NOT scope_stack)
-    ///
-    /// Used by insert_block to check for lazy properties without including macro parameters.
-    /// This ensures global <xacro:property> definitions can override local block parameters,
-    /// matching Python xacro's behavior.
-    ///
-    /// # Returns
-    /// The raw, unexpanded property value if found in global properties, None otherwise
-    pub fn lookup_global_property(
-        &self,
-        name: &str,
-    ) -> Option<String> {
-        self.raw_properties.borrow().get(name).cloned()
-    }
-
     /// Lazy property resolution with circular dependency detection and scope support
     ///
     /// Python xacro stores property values as raw strings and evaluates them only when accessed.

@@ -391,14 +391,68 @@ fn test_value_property_does_not_shadow_block_param() {
 </robot>"#;
 
     let result = run_xacro(input);
+
+    // Parse output and verify structure using XML parsing
+    let root = parse_xml(&result);
+
+    // Should contain <foo/> element from block parameter
+    let foo = find_child_opt(&root, "foo");
     assert!(
-        !result.contains("I AM A PROPERTY"),
-        "Output should NOT contain the property value. Output: {}",
-        result
+        foo.is_some(),
+        "Output should contain <foo/> from block parameter"
     );
-    assert!(
-        result.contains("<foo"),
-        "Output should contain <foo/> from parent block parameter. Output: {}",
-        result
+
+    // Should NOT contain the value property text anywhere in output
+    assert_xacro_not_contains!(
+        result,
+        "I AM A PROPERTY",
+        "Output should NOT contain the property value (value properties don't work with insert_block)"
+    );
+}
+
+// ============================================================================
+// Test 15: Lazy properties DO shadow block parameters
+// ============================================================================
+
+#[test]
+fn test_lazy_property_shadows_block_param() {
+    // Test that lazy properties (body-based) DO shadow block parameters
+    // This is the complement of Test 14 - shows that lazy properties have precedence
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="content">
+    <link name="from_lazy_property"/>
+  </xacro:property>
+
+  <xacro:macro name="outer" params="*content">
+    <xacro:macro name="inner">
+      <xacro:insert_block name="content"/>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+
+  <xacro:outer>
+    <link name="from_block_param"/>
+  </xacro:outer>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse output and verify structure using XML parsing
+    let root = parse_xml(&result);
+
+    // Should contain <link> from lazy property (not from block parameter)
+    let link = find_child(&root, "link");
+    let link_name = get_attr(link, "name");
+    assert_eq!(
+        link_name, "from_lazy_property",
+        "Lazy property should shadow block parameter (properties have precedence)"
+    );
+
+    // Should NOT contain the block parameter name anywhere
+    assert_xacro_not_contains!(
+        result,
+        "from_block_param",
+        "Block parameter should be shadowed by lazy property"
     );
 }

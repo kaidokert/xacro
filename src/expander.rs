@@ -284,18 +284,7 @@ fn expand_element(
             (None, None) => {
                 // Rule: Text-only properties are NOT created (matches Python xacro)
                 // Valid if: (empty) OR (has at least one Element, Comment, CDATA, or PI child)
-                let has_significant_content = elem.children.is_empty()
-                    || elem.children.iter().any(|n| {
-                        matches!(
-                            n,
-                            xmltree::XMLNode::Element(_)
-                                | xmltree::XMLNode::Comment(_)
-                                | xmltree::XMLNode::CData(_)
-                                | xmltree::XMLNode::ProcessingInstruction(_, _)
-                        )
-                    });
-
-                if !has_significant_content {
+                if !crate::parse::xml::has_structural_content(&elem.children) {
                     // Text-only or whitespace-only - skip definition (matches Python xacro)
                     return Ok(vec![]);
                 }
@@ -528,42 +517,27 @@ fn expand_element(
         //    Only check raw_properties (NOT scope_stack which has macro params)
         //    Lazy properties contain structural XML (Element, Comment, CDATA, PI)
         //    Value properties (defined with value="...") contain only text
-        if let Some(raw_value) = ctx.properties.lookup_global_property(&name) {
-            // Parse as XML - always succeeds (plain text becomes Text nodes)
-            if let Ok(nodes) = crate::parse::xml::parse_xml_fragment(&raw_value) {
-                // Check if this is a lazy property (has structural content or is empty)
-                // Value properties only contain Text/Whitespace nodes
-                // Empty properties are valid lazy properties
-                let is_lazy = nodes.is_empty()
-                    || nodes.iter().any(|n| {
-                        matches!(
-                            n,
-                            xmltree::XMLNode::Element(_)
-                                | xmltree::XMLNode::Comment(_)
-                                | xmltree::XMLNode::CData(_)
-                                | xmltree::XMLNode::ProcessingInstruction(_, _)
-                        )
-                    });
+        if let Some(raw_value) = ctx.properties.lookup_at_depth(&name, 0) {
+            // Parse as XML
+            // Value properties (text-only) will parse successfully as Text nodes
+            // Malformed XML will error - propagate it
+            let nodes = crate::parse::xml::parse_xml_fragment(&raw_value)?;
 
-                if is_lazy {
-                    // This is a lazy property - expand and return
-                    let expanded = expand_children_list(nodes, ctx)?;
-                    return Ok(expanded);
-                }
-                // Not a lazy property (only text) - continue to check block stack
+            // Check if this is a lazy property (has structural content or is empty)
+            // Value properties only contain Text/Whitespace nodes
+            // Empty properties are valid lazy properties
+            if crate::parse::xml::has_structural_content(&nodes) {
+                // This is a lazy property - expand and return
+                let expanded = expand_children_list(nodes, ctx)?;
+                return Ok(expanded);
             }
+            // Not a lazy property (only text) - continue to check block stack
         }
 
         // 2. Block stack SECOND (macro block parameters)
         // This searches all parent scopes (Bug #2 fix makes this recursive)
-        if let Ok(nodes) = ctx.lookup_block(&name) {
-            return Ok(nodes);
-        }
-
-        // 3. Not found in properties or blocks - error
-        return Err(XacroError::UndefinedBlock {
-            name: name.to_string(),
-        });
+        // If not found, propagate the UndefinedBlock error
+        return ctx.lookup_block(&name);
     }
 
     // 6. Check for known but unimplemented xacro directives
