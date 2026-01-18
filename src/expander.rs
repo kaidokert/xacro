@@ -255,8 +255,12 @@ fn expand_element(
 
         // Helper closure to define property with scope-aware evaluation
         let define_property = |raw_value: String| -> Result<(), XacroError> {
+            // ALWAYS use define_property - it handles all scopes correctly
+            // Local properties use lazy evaluation (raw_value as-is)
+            // Parent/Global properties use eager evaluation (substitute first)
             if scope == PropertyScope::Local {
-                ctx.properties.add_raw_property(name.clone(), raw_value);
+                ctx.properties
+                    .define_property(name.clone(), raw_value, scope);
             } else {
                 // Eagerly evaluate for parent/global scope
                 let evaluated = ctx.properties.substitute_text(&raw_value)?;
@@ -293,7 +297,7 @@ fn expand_element(
                 if scope == PropertyScope::Local {
                     // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
                     let content = crate::parse::xml::serialize_nodes(&elem.children)?;
-                    ctx.properties.add_raw_property(name.clone(), content);
+                    ctx.properties.define_property(name.clone(), content, scope);
                 } else {
                     // Eagerly expand children for parent/global scope
                     let expanded_nodes = expand_children_list(elem.children, ctx)?;
@@ -513,11 +517,11 @@ fn expand_element(
             })?)?;
 
         // PRECEDENCE ORDER (matches Python xacro behavior):
-        // 1. Global LAZY properties FIRST (properties with XML body content)
-        //    Only check raw_properties (NOT scope_stack which has macro params)
+        // 1. LAZY properties FIRST (properties with XML body content)
+        //    Search all scopes (local to global) for lazy properties
         //    Lazy properties contain structural XML (Element, Comment, CDATA, PI)
         //    Value properties (defined with value="...") contain only text
-        if let Some(raw_value) = ctx.properties.lookup_at_depth(&name, 0) {
+        if let Some(raw_value) = ctx.properties.lookup_raw_value(&name) {
             // Try to parse as XML to distinguish lazy vs value properties
             // - Lazy properties: XML content (elements, comments, etc.)
             // - Value properties: Text that parses as Text nodes
