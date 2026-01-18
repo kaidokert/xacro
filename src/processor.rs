@@ -1,5 +1,5 @@
 use crate::{
-    error::XacroError,
+    error::{XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
     expander::{expand_node, XacroContext},
     extensions::ExtensionHandler,
     parse::xml::{extract_xacro_namespace, is_known_xacro_uri},
@@ -517,7 +517,6 @@ impl XacroProcessor {
             }
 
             // Use centralized feature lists for consistent error messages
-            use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
             return Err(XacroError::UnimplementedFeature(format!(
                 "<xacro:{}>\n\
                      This element was not processed. Either:\n\

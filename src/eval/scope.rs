@@ -1,12 +1,11 @@
 use super::interpreter::{
-    eval_boolean, eval_text_with_interpreter, evaluate_expression, format_value_python_style,
-    remove_quotes,
+    build_pyisheval_context, eval_boolean, eval_text_with_interpreter, evaluate_expression,
+    format_value_python_style, init_interpreter, remove_quotes,
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
-use crate::extensions::ExtensionHandler;
+use crate::extensions::{core::default_extensions, extension_utils, ExtensionHandler};
 use core::cell::RefCell;
-use pyisheval::Interpreter;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -88,7 +87,6 @@ pub enum PropertyScope {
 }
 
 pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
-    interpreter: RefCell<Interpreter>,
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
@@ -297,7 +295,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        use crate::extensions::core::default_extensions;
         let extensions = Rc::new(default_extensions());
         Self::new_with_extensions(args, extensions)
     }
@@ -314,12 +311,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         args: Rc<RefCell<HashMap<String, String>>>,
         extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
     ) -> Self {
-        use super::interpreter::init_interpreter;
-
-        let interpreter = RefCell::new(init_interpreter());
-
         Self {
-            interpreter,
             raw_properties: RefCell::new(HashMap::new()),
             evaluated_cache: RefCell::new(HashMap::new()),
             resolution_stack: RefCell::new(Vec::new()),
@@ -364,6 +356,22 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// Should be called when a macro expansion completes to restore the previous scope.
     /// Panics if the scope stack is empty (indicates a programming error).
     pub fn pop_scope(&self) {
+        // Get properties from the scope being popped before we pop it
+        let properties_to_clear: Vec<String> = self
+            .scope_stack
+            .borrow()
+            .last()
+            .map(|scope| scope.keys().cloned().collect())
+            .unwrap_or_default();
+
+        // Clear cache entries for properties that were in the popped scope
+        // This prevents scoped properties from leaking via the cache
+        let mut cache = self.evaluated_cache.borrow_mut();
+        for prop_name in &properties_to_clear {
+            cache.remove(prop_name);
+        }
+        drop(cache);
+
         #[cfg(feature = "compat")]
         {
             // Clean up metadata for the scope being popped
@@ -1064,14 +1072,18 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        use super::interpreter::build_pyisheval_context;
+        // Create fresh interpreter for this evaluation to prevent state leakage.
+        // Using a shared interpreter caused properties defined in macro scopes to persist
+        // after the scope was popped, violating Python xacro's scoping semantics.
+        let mut fresh_interp = init_interpreter();
 
-        // Build pyisheval context
-        let context = build_pyisheval_context(properties, &mut self.interpreter.borrow_mut())
-            .map_err(|e| XacroError::EvalError {
+        // Build pyisheval context with the fresh interpreter
+        let context = build_pyisheval_context(properties, &mut fresh_interp).map_err(|e| {
+            XacroError::EvalError {
                 expr: text.to_string(),
                 source: e,
-            })?;
+            }
+        })?;
 
         // Tokenize and process
         let lexer = Lexer::new(text);
@@ -1083,19 +1095,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                     result.push_str(&token_value);
                 }
                 TokenType::Expr => {
-                    // Evaluate expression using centralized helper
-                    let value_opt = evaluate_expression(
-                        &mut self.interpreter.borrow_mut(),
-                        &token_value,
-                        &context,
-                    )
-                    .map_err(|e| XacroError::EvalError {
-                        expr: token_value.clone(),
-                        source: crate::eval::EvalError::PyishEval {
+                    // Evaluate expression using centralized helper with fresh interpreter
+                    let value_opt = evaluate_expression(&mut fresh_interp, &token_value, &context)
+                        .map_err(|e| XacroError::EvalError {
                             expr: token_value.clone(),
-                            source: e,
-                        },
-                    })?;
+                            source: crate::eval::EvalError::PyishEval {
+                                expr: token_value.clone(),
+                                source: e,
+                            },
+                        })?;
 
                     // Handle result
                     match value_opt {
@@ -1224,7 +1232,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // to guarantee correctness of argument handling and prevent shadowing of this
         // core feature. See notes/EXTENSION_IMPL_ACTUAL.md for rationale.
         if command == "arg" {
-            use crate::extensions::extension_utils;
             let arg_parts =
                 extension_utils::expect_args(&args_evaluated, "arg", 1).map_err(|e| {
                     XacroError::InvalidExtension {
@@ -1474,11 +1481,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            let next = eval_text_with_interpreter(
-                &result,
-                properties,
-                &mut self.interpreter.borrow_mut(),
-            )?;
+            // Create fresh interpreter for each iteration to prevent state leakage.
+            // Using a shared interpreter caused properties defined in macro scopes to persist
+            // after the scope was popped, violating Python xacro's scoping semantics.
+            let mut fresh_interp = init_interpreter();
+
+            let next = eval_text_with_interpreter(&result, properties, &mut fresh_interp)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
@@ -1530,6 +1538,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 return Some(value.clone());
             }
         }
+        drop(scope_stack);
 
         // Fall back to global properties
         self.raw_properties.borrow().get(name).cloned()

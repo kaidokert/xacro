@@ -11,8 +11,8 @@
 //! - Scope support: Macro parameters shadow global properties
 
 use crate::{
-    error::XacroError,
-    eval::EvalContext,
+    error::{XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
+    eval::{EvalContext, PropertyScope},
     parse::{
         macro_def::{MacroDefinition, MacroProcessor, ParamDefault},
         xml::{extract_xacro_namespace, is_xacro_element},
@@ -236,7 +236,6 @@ fn expand_element(
             })?)?;
 
         // Parse scope attribute (default: local)
-        use crate::PropertyScope;
         let scope = match elem.get_attribute("scope").map(|s| s.as_str()) {
             None => PropertyScope::Local, // Default
             Some("parent") => PropertyScope::Parent,
@@ -255,8 +254,12 @@ fn expand_element(
 
         // Helper closure to define property with scope-aware evaluation
         let define_property = |raw_value: String| -> Result<(), XacroError> {
+            // ALWAYS use define_property - it handles all scopes correctly
+            // Local properties use lazy evaluation (raw_value as-is)
+            // Parent/Global properties use eager evaluation (substitute first)
             if scope == PropertyScope::Local {
-                ctx.properties.add_raw_property(name.clone(), raw_value);
+                ctx.properties
+                    .define_property(name.clone(), raw_value, scope);
             } else {
                 // Eagerly evaluate for parent/global scope
                 let evaluated = ctx.properties.substitute_text(&raw_value)?;
@@ -293,7 +296,7 @@ fn expand_element(
                 if scope == PropertyScope::Local {
                     // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
                     let content = crate::parse::xml::serialize_nodes(&elem.children)?;
-                    ctx.properties.add_raw_property(name.clone(), content);
+                    ctx.properties.define_property(name.clone(), content, scope);
                 } else {
                     // Eagerly expand children for parent/global scope
                     let expanded_nodes = expand_children_list(elem.children, ctx)?;
@@ -513,11 +516,11 @@ fn expand_element(
             })?)?;
 
         // PRECEDENCE ORDER (matches Python xacro behavior):
-        // 1. Global LAZY properties FIRST (properties with XML body content)
-        //    Only check raw_properties (NOT scope_stack which has macro params)
+        // 1. LAZY properties FIRST (properties with XML body content)
+        //    Search all scopes (local to global) for lazy properties
         //    Lazy properties contain structural XML (Element, Comment, CDATA, PI)
         //    Value properties (defined with value="...") contain only text
-        if let Some(raw_value) = ctx.properties.lookup_at_depth(&name, 0) {
+        if let Some(raw_value) = ctx.properties.lookup_raw_value(&name) {
             // Try to parse as XML to distinguish lazy vs value properties
             // - Lazy properties: XML content (elements, comments, etc.)
             // - Value properties: Text that parses as Text nodes
@@ -544,7 +547,6 @@ fn expand_element(
 
     // 6. Check for known but unimplemented xacro directives
     // These should error explicitly rather than silently pass through as literal XML
-    use crate::error::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
     for feature in UNIMPLEMENTED_FEATURES {
         // Strip "xacro:" prefix to get element name
         let directive = feature.strip_prefix("xacro:").unwrap_or(feature);

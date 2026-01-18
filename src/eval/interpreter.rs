@@ -1,6 +1,6 @@
 use super::lexer::{Lexer, TokenType};
 use super::scope::BUILTIN_CONSTANTS;
-use pyisheval::{Interpreter, Value};
+use pyisheval::{EvalError as PyEvalError, Interpreter, Value};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -1042,7 +1042,6 @@ pub fn build_pyisheval_context(
                     Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
                     Err(e) => {
                         // Distinguish expected parse failures from unexpected runtime errors
-                        use pyisheval::EvalError as PyEvalError;
                         match &e {
                             // Unexpected: runtime/type errors may indicate issues with property definitions
                             PyEvalError::TypeError
@@ -1772,8 +1771,6 @@ mod tests {
     // Python-style number formatting tests
     #[test]
     fn test_format_value_python_style_whole_numbers() {
-        use pyisheval::Value;
-
         // Whole numbers format without .0 (Python int behavior)
         assert_eq!(format_value_python_style(&Value::Number(0.0), false), "0");
         assert_eq!(format_value_python_style(&Value::Number(1.0), false), "1");
@@ -1787,9 +1784,7 @@ mod tests {
 
     #[test]
     fn test_format_value_python_style_fractional() {
-        use pyisheval::Value;
-
-        // Fractional numbers use default formatting (no trailing zeros)
+        //Fractional numbers use default formatting (no trailing zeros)
         assert_eq!(format_value_python_style(&Value::Number(1.5), false), "1.5");
         assert_eq!(format_value_python_style(&Value::Number(0.5), false), "0.5");
         assert_eq!(
@@ -1800,9 +1795,7 @@ mod tests {
 
     #[test]
     fn test_format_value_python_style_special() {
-        use pyisheval::Value;
-
-        // Special values
+        //Special values
         assert_eq!(
             format_value_python_style(&Value::Number(f64::INFINITY), false),
             "inf"
@@ -2183,8 +2176,6 @@ mod tests {
 
     #[test]
     fn test_context_can_shadow_len_builtin() {
-        use std::collections::HashMap;
-
         let mut interp = Interpreter::new();
         let mut properties = HashMap::new();
         properties.insert("len".to_string(), "0.2".to_string());
@@ -2218,8 +2209,6 @@ mod tests {
 
     #[test]
     fn test_context_can_shadow_other_builtins() {
-        use std::collections::HashMap;
-
         let mut interp = Interpreter::new();
         let mut properties = HashMap::new();
         properties.insert("min".to_string(), "42".to_string());
