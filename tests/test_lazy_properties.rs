@@ -456,3 +456,39 @@ fn test_lazy_property_shadows_block_param() {
         "Block parameter should be shadowed by lazy property"
     );
 }
+
+// ============================================================================
+// Test 16: Value property with special chars falls through to block parameter
+// ============================================================================
+
+#[test]
+fn test_value_property_with_special_chars_falls_through() {
+    // Regression test for PR #72 Round 2 feedback
+    // Value properties may contain expressions with XML special chars like < or &
+    // These should NOT cause parse errors - they should fall through to block lookup
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="content" value="${a &lt; b}"/>
+
+  <xacro:macro name="test" params="*content">
+    <xacro:insert_block name="content"/>
+  </xacro:macro>
+
+  <xacro:test>
+    <link name="from_block_param"/>
+  </xacro:test>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse output and verify structure
+    let root = parse_xml(&result);
+
+    // Should use block parameter, not fail with parse error
+    let link = find_child(&root, "link");
+    let link_name = get_attr(link, "name");
+    assert_eq!(
+        link_name, "from_block_param",
+        "Value property with special chars should fall through to block parameter"
+    );
+}

@@ -518,20 +518,22 @@ fn expand_element(
         //    Lazy properties contain structural XML (Element, Comment, CDATA, PI)
         //    Value properties (defined with value="...") contain only text
         if let Some(raw_value) = ctx.properties.lookup_at_depth(&name, 0) {
-            // Parse as XML
-            // Value properties (text-only) will parse successfully as Text nodes
-            // Malformed XML will error - propagate it
-            let nodes = crate::parse::xml::parse_xml_fragment(&raw_value)?;
-
-            // Check if this is a lazy property (has structural content or is empty)
-            // Value properties only contain Text/Whitespace nodes
-            // Empty properties are valid lazy properties
-            if crate::parse::xml::has_structural_content(&nodes) {
-                // This is a lazy property - expand and return
-                let expanded = expand_children_list(nodes, ctx)?;
-                return Ok(expanded);
+            // Try to parse as XML to distinguish lazy vs value properties
+            // - Lazy properties: XML content (elements, comments, etc.)
+            // - Value properties: Text that parses as Text nodes
+            // - Value properties with special chars (<, &): Parse fails, fall through
+            if let Ok(nodes) = crate::parse::xml::parse_xml_fragment(&raw_value) {
+                // Successfully parsed - check if this is a lazy property
+                // Value properties only contain Text/Whitespace nodes
+                // Empty properties are valid lazy properties
+                if crate::parse::xml::has_structural_content(&nodes) {
+                    // This is a lazy property - expand and return
+                    let expanded = expand_children_list(nodes, ctx)?;
+                    return Ok(expanded);
+                }
+                // Not a lazy property (only text) - continue to check block stack
             }
-            // Not a lazy property (only text) - continue to check block stack
+            // Parse failed - treat as value property with special chars, fall through
         }
 
         // 2. Block stack SECOND (macro block parameters)
