@@ -523,22 +523,47 @@ fn expand_element(
                 }
             })?)?;
 
-        // PRECEDENCE ORDER (corrected based on empirical verification):
-        // 1. Check properties FIRST (lazy properties have precedence)
-        if let Some(raw_value) = ctx.properties.lookup_raw_value(&name) {
-            // Parse raw XML string to nodes
-            let nodes = crate::parse::xml::parse_xml_fragment(&raw_value)?;
+        // PRECEDENCE ORDER (matches Python xacro behavior):
+        // 1. Global LAZY properties FIRST (properties with XML body content)
+        //    Only check raw_properties (NOT scope_stack which has macro params)
+        //    Lazy properties contain structural XML (Element, Comment, CDATA, PI)
+        //    Value properties (defined with value="...") contain only text
+        if let Some(raw_value) = ctx.properties.lookup_global_property(&name) {
+            // Parse as XML - always succeeds (plain text becomes Text nodes)
+            if let Ok(nodes) = crate::parse::xml::parse_xml_fragment(&raw_value) {
+                // Check if this is a lazy property (has structural content or is empty)
+                // Value properties only contain Text/Whitespace nodes
+                // Empty properties are valid lazy properties
+                let is_lazy = nodes.is_empty()
+                    || nodes.iter().any(|n| {
+                        matches!(
+                            n,
+                            xmltree::XMLNode::Element(_)
+                                | xmltree::XMLNode::Comment(_)
+                                | xmltree::XMLNode::CData(_)
+                                | xmltree::XMLNode::ProcessingInstruction(_, _)
+                        )
+                    });
 
-            // Expand recursively using INSERTION SCOPE
-            // This handles ${...} expressions and nested directives
-            let expanded = expand_children_list(nodes, ctx)?;
-            return Ok(expanded);
+                if is_lazy {
+                    // This is a lazy property - expand and return
+                    let expanded = expand_children_list(nodes, ctx)?;
+                    return Ok(expanded);
+                }
+                // Not a lazy property (only text) - continue to check block stack
+            }
         }
 
-        // 2. Fallback: Check block stack (macro block parameters)
-        // This will error with UndefinedBlock if not found
-        let nodes = ctx.lookup_block(&name)?;
-        return Ok(nodes);
+        // 2. Block stack SECOND (macro block parameters)
+        // This searches all parent scopes (Bug #2 fix makes this recursive)
+        if let Ok(nodes) = ctx.lookup_block(&name) {
+            return Ok(nodes);
+        }
+
+        // 3. Not found in properties or blocks - error
+        return Err(XacroError::UndefinedBlock {
+            name: name.to_string(),
+        });
     }
 
     // 6. Check for known but unimplemented xacro directives

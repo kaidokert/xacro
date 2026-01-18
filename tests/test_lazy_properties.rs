@@ -366,3 +366,39 @@ fn test_lazy_property_local_precedence() {
         "Should NOT use block parameter"
     );
 }
+
+// ============================================================================
+// Test 14: Value properties don't interfere with block parameters
+// ============================================================================
+
+#[test]
+fn test_value_property_does_not_shadow_block_param() {
+    // Test that value properties (defined with value="...") don't interfere
+    // with block parameters. Only LAZY properties (body-based) should be
+    // accessible via insert_block.
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="outer" params="*content">
+    <xacro:property name="content" value="I AM A PROPERTY, NOT A BLOCK"/>
+    <xacro:macro name="inner">
+      <xacro:insert_block name="content"/>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+  <xacro:outer>
+    <foo/>
+  </xacro:outer>
+</robot>"#;
+
+    let result = run_xacro(input);
+    assert!(
+        !result.contains("I AM A PROPERTY"),
+        "Output should NOT contain the property value. Output: {}",
+        result
+    );
+    assert!(
+        result.contains("<foo"),
+        "Output should contain <foo/> from parent block parameter. Output: {}",
+        result
+    );
+}
