@@ -5,7 +5,7 @@
 // 2. scope="parent": Property is visible in parent macro
 // 3. scope="global": Property is globally accessible
 //
-// All tests pass (10/10) - property scoping correctly implemented
+// All tests pass - property scoping correctly implemented
 
 mod common;
 use crate::common::*;
@@ -98,6 +98,31 @@ fn test_property_parent_scope_attribute() {
         result,
         r#"<link name="from_inner""#,
         "Parent scope property should be visible in parent macro"
+    );
+}
+
+// ============================================================================
+// Test 3b: Parent scope properties cleaned up after parent finishes
+// ============================================================================
+
+#[test]
+fn test_property_parent_scope_cleanup() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="outer">
+    <xacro:macro name="inner">
+      <xacro:property name="x" value="from_inner" scope="parent"/>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+  <xacro:outer/>
+  <link name="${x}"/>
+</robot>"#;
+
+    let result = test_xacro(input);
+    assert!(
+        result.is_err(),
+        "Parent scope property should not be accessible after parent macro finishes"
     );
 }
 
@@ -323,6 +348,33 @@ fn test_lazy_property_parent_scope() {
         result,
         r#"<link name="test_link""#,
         "Parent scope lazy property should be accessible in parent macro"
+    );
+}
+
+// ============================================================================
+// Test 10b: Parent scope lazy properties cleaned up after parent finishes
+// ============================================================================
+
+#[test]
+fn test_lazy_property_parent_scope_cleanup() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:macro name="outer">
+    <xacro:macro name="inner">
+      <xacro:property name="parent_block" scope="parent">
+        <link name="test_link"/>
+      </xacro:property>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+  <xacro:outer/>
+  <xacro:insert_block name="parent_block"/>
+</robot>"#;
+
+    let result = test_xacro(input);
+    assert!(
+        result.is_err(),
+        "Parent scope lazy property should not be accessible after parent macro finishes"
     );
 }
 

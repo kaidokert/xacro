@@ -357,13 +357,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// Panics if the scope stack is empty (indicates a programming error).
     pub fn pop_scope(&self) {
         // Get properties from the scope being popped before we pop it
-        let scope_to_pop = self.scope_stack.borrow();
-        let properties_to_clear: Vec<String> = if let Some(scope) = scope_to_pop.last() {
-            scope.keys().cloned().collect()
-        } else {
-            Vec::new()
-        };
-        drop(scope_to_pop);
+        let properties_to_clear: Vec<String> = self
+            .scope_stack
+            .borrow()
+            .last()
+            .map(|scope| scope.keys().cloned().collect())
+            .unwrap_or_default();
 
         // Clear cache entries for properties that were in the popped scope
         // This prevents scoped properties from leaking via the cache
