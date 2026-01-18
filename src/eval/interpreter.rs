@@ -973,6 +973,12 @@ pub fn build_pyisheval_context(
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
+            // Skip dict/list literals - they'll be handled in second pass
+            // where they're properly evaluated as Python expressions
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                continue;
+            }
+
             // Apply Python xacro's type coercion logic
             match eval_literal(value) {
                 Value::Number(num) => {
