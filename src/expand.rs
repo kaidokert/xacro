@@ -122,13 +122,19 @@ impl XacroContext {
         &self,
         name: &str,
     ) -> Result<Vec<XMLNode>, XacroError> {
-        self.block_stack
-            .borrow()
-            .last()
-            .and_then(|blocks| blocks.get(name).cloned())
-            .ok_or_else(|| XacroError::UndefinedBlock {
-                name: name.to_string(),
-            })
+        // FIX Bug #2: Search entire block stack (most recent to oldest)
+        // This allows nested macros to access block parameters from parent macros
+        let stack = self.block_stack.borrow();
+        for blocks in stack.iter().rev() {
+            if let Some(nodes) = blocks.get(name) {
+                return Ok(nodes.clone());
+            }
+        }
+
+        // Not found in block stack
+        Err(XacroError::UndefinedBlock {
+            name: name.to_string(),
+        })
     }
 
     /// Set the maximum recursion depth

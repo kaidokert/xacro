@@ -366,3 +366,129 @@ fn test_lazy_property_local_precedence() {
         "Should NOT use block parameter"
     );
 }
+
+// ============================================================================
+// Test 14: Value properties don't interfere with block parameters
+// ============================================================================
+
+#[test]
+fn test_value_property_does_not_shadow_block_param() {
+    // Test that value properties (defined with value="...") don't interfere
+    // with block parameters. Only LAZY properties (body-based) should be
+    // accessible via insert_block.
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="outer" params="*content">
+    <xacro:property name="content" value="I AM A PROPERTY, NOT A BLOCK"/>
+    <xacro:macro name="inner">
+      <xacro:insert_block name="content"/>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+  <xacro:outer>
+    <foo/>
+  </xacro:outer>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse output and verify structure using XML parsing
+    let root = parse_xml(&result);
+
+    // Should contain <foo/> element from block parameter
+    let foo = find_child_opt(&root, "foo");
+    assert!(
+        foo.is_some(),
+        "Output should contain <foo/> from block parameter"
+    );
+
+    // Should NOT contain the value property text anywhere in output
+    assert_xacro_not_contains!(
+        result,
+        "I AM A PROPERTY",
+        "Output should NOT contain the property value (value properties don't work with insert_block)"
+    );
+}
+
+// ============================================================================
+// Test 15: Lazy properties DO shadow block parameters
+// ============================================================================
+
+#[test]
+fn test_lazy_property_shadows_block_param() {
+    // Test that lazy properties (body-based) DO shadow block parameters
+    // This is the complement of Test 14 - shows that lazy properties have precedence
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="content">
+    <link name="from_lazy_property"/>
+  </xacro:property>
+
+  <xacro:macro name="outer" params="*content">
+    <xacro:macro name="inner">
+      <xacro:insert_block name="content"/>
+    </xacro:macro>
+    <xacro:inner/>
+  </xacro:macro>
+
+  <xacro:outer>
+    <link name="from_block_param"/>
+  </xacro:outer>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse output and verify structure using XML parsing
+    let root = parse_xml(&result);
+
+    // Should contain <link> from lazy property (not from block parameter)
+    let link = find_child(&root, "link");
+    let link_name = get_attr(link, "name");
+    assert_eq!(
+        link_name, "from_lazy_property",
+        "Lazy property should shadow block parameter (properties have precedence)"
+    );
+
+    // Should NOT contain the block parameter name anywhere
+    assert_xacro_not_contains!(
+        result,
+        "from_block_param",
+        "Block parameter should be shadowed by lazy property"
+    );
+}
+
+// ============================================================================
+// Test 16: Value property with special chars falls through to block parameter
+// ============================================================================
+
+#[test]
+fn test_value_property_with_special_chars_falls_through() {
+    // Regression test for PR #72 Round 2 feedback
+    // Value properties may contain expressions with XML special chars like < or &
+    // These should NOT cause parse errors - they should fall through to block lookup
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="content" value="${a &lt; b}"/>
+
+  <xacro:macro name="test" params="*content">
+    <xacro:insert_block name="content"/>
+  </xacro:macro>
+
+  <xacro:test>
+    <link name="from_block_param"/>
+  </xacro:test>
+</robot>"#;
+
+    let result = run_xacro(input);
+
+    // Parse output and verify structure
+    let root = parse_xml(&result);
+
+    // Should use block parameter, not fail with parse error
+    let link = find_child(&root, "link");
+    let link_name = get_attr(link, "name");
+    assert_eq!(
+        link_name, "from_block_param",
+        "Value property with special chars should fall through to block parameter"
+    );
+}
