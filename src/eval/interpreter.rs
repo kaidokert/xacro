@@ -502,7 +502,11 @@ fn yaml_to_python_literal(
     value: Yaml,
     path: &str,
 ) -> Result<String, crate::error::XacroError> {
-    match value {
+    let debug_yaml = std::env::var("RUST_XACRO_DEBUG_YAML").is_ok();
+    if debug_yaml {
+        eprintln!("[DEBUG YAML] Processing: {:?}", value);
+    }
+    let result = match value {
         Yaml::Value(scalar) => match scalar {
             Scalar::Null => Ok("None".to_string()),
             Scalar::Boolean(b) => {
@@ -561,7 +565,13 @@ fn yaml_to_python_literal(
             path: path.to_string(),
             message: "YAML contains an invalid value".to_string(),
         }),
+    };
+    if debug_yaml {
+        if let Ok(ref s) = result {
+            eprintln!("[DEBUG YAML] → Result: {}", s);
+        }
     }
+    result
 }
 
 #[cfg(feature = "yaml")]
@@ -720,6 +730,10 @@ fn preprocess_load_yaml(
                 expr: format!("load_yaml('{}')", filename),
                 source: pyisheval::EvalError::ParseError(e.to_string()),
             })?;
+
+            if std::env::var("RUST_XACRO_DEBUG_YAML").is_ok() {
+                eprintln!("[DEBUG YAML] load_yaml_file returned: {}", python_literal);
+            }
 
             // Replace load_yaml(...) with dict literal (from start of match to closing paren)
             result.replace_range(whole_match.start()..=close_pos, &python_literal);
@@ -918,6 +932,17 @@ pub fn build_pyisheval_context(
     properties: &HashMap<String, String>,
     interp: &mut Interpreter,
 ) -> Result<HashMap<String, Value>, EvalError> {
+    // DEBUG: Logging escape hatch for property type investigation
+    let debug_properties = std::env::var("RUST_XACRO_DEBUG_PROPERTIES").is_ok();
+    if debug_properties {
+        eprintln!(
+            "[DEBUG] build_pyisheval_context called with {} properties",
+            properties.len()
+        );
+        for (name, value) in properties.iter() {
+            eprintln!("[DEBUG]   property: {} = {:?}", name, value);
+        }
+    }
     // First pass: Load all constants and non-lambda properties into the interpreter
     // This ensures that lambda expressions can reference them during evaluation
     // Note: We skip inf/nan/NaN as they can't be created via arithmetic in pyisheval
@@ -1038,9 +1063,27 @@ pub fn build_pyisheval_context(
             // to avoid unnecessary parse errors on common string values
             // (reuse trimmed from lambda check above)
             if trimmed.starts_with('[') || trimmed.starts_with('{') || trimmed.starts_with('(') {
+                if debug_properties {
+                    eprintln!("[DEBUG]   Attempting to evaluate '{}' as Python expression", name);
+                    let display_value = if trimmed.len() > 100 {
+                        format!("{}...", &trimmed[..100])
+                    } else {
+                        trimmed.to_string()
+                    };
+                    eprintln!("[DEBUG]     Value: {}", display_value);
+                }
                 match interp.eval(trimmed) {
-                    Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
+                    Ok(evaluated_value) => {
+                        if debug_properties {
+                            eprintln!("[DEBUG]   ✓ Successfully evaluated '{}' to {:?}", name, evaluated_value);
+                            eprintln!("[DEBUG]   ✓ to_string() = {}", evaluated_value);
+                        }
+                        Ok((name.clone(), evaluated_value))
+                    }
                     Err(e) => {
+                        if debug_properties {
+                            eprintln!("[DEBUG]   ✗ Failed to evaluate '{}': {:?}", name, e);
+                        }
                         // Distinguish expected parse failures from unexpected runtime errors
                         match &e {
                             // Unexpected: runtime/type errors may indicate issues with property definitions
@@ -1058,12 +1101,19 @@ pub fn build_pyisheval_context(
                             PyEvalError::ParseError(_) | PyEvalError::UndefinedVar(_) => {}
                         }
                         // In all error cases, fall back to treating value as string literal
+                        if debug_properties {
+                            eprintln!("[DEBUG]   → Treating '{}' as string literal", name);
+                        }
                         Ok((name.clone(), Value::StringLit(value.clone())))
                     }
                 }
             } else {
                 // Apply Python xacro's type coercion for literals (int/float/boolean)
-                Ok((name.clone(), eval_literal(value)))
+                let literal_value = eval_literal(value);
+                if debug_properties {
+                    eprintln!("[DEBUG]   eval_literal('{}') = {:?}", name, literal_value);
+                }
+                Ok((name.clone(), literal_value))
             }
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
@@ -1141,7 +1191,19 @@ pub fn evaluate_expression(
             _ => pyisheval::EvalError::ParseError(e.to_string()),
         })?;
 
-    interp.eval_with_context(&preprocessed, context).map(Some)
+    let debug_yaml = std::env::var("RUST_XACRO_DEBUG_YAML").is_ok();
+    if debug_yaml && preprocessed.contains("load_yaml") {
+        eprintln!("[DEBUG YAML] After preprocess_load_yaml: {}", preprocessed);
+    }
+
+    let result = interp.eval_with_context(&preprocessed, context).map(Some);
+    if debug_yaml {
+        if let Ok(Some(ref val)) = result {
+            eprintln!("[DEBUG YAML] eval_with_context returned: {:?}", val);
+            eprintln!("[DEBUG YAML] to_string() = {}", val);
+        }
+    }
+    result
 }
 
 /// Evaluate text containing ${...} expressions using a provided interpreter
