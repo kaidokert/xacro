@@ -5,7 +5,7 @@
 mod common;
 use crate::common::*;
 use std::fs;
-use std::path::Path;
+use tempfile::NamedTempFile;
 
 #[test]
 #[cfg(feature = "yaml")]
@@ -16,27 +16,29 @@ fn test_pow_with_load_yaml_minimal() {
 
     // Create minimal YAML file
     let yaml_content = "radius: 2.0\n";
-    let yaml_path = "/tmp/test_pow_yaml.yaml";
-    fs::write(yaml_path, yaml_content).expect("Failed to write YAML file");
+    let yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
+    fs::write(yaml_file.path(), yaml_content).expect("Failed to write YAML file");
 
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
-  <xacro:property name="params" value="${load_yaml('/tmp/test_pow_yaml.yaml')}"/>
-  <xacro:property name="r" value="${params['radius']}" />
-  <xacro:property name="m" value="${pow(r,2)}" />
+  <xacro:property name="params" value="${{load_yaml('{}')}}"/>
+  <xacro:property name="r" value="${{params['radius']}}" />
+  <xacro:property name="m" value="${{pow(r,2)}}" />
 
-  <link name="test" value="${m*pow(r,2)}"/>
-</robot>"#;
+  <link name="test" value="${{m*pow(r,2)}}"/>
+</robot>"#,
+        yaml_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     let root = parse_xml(&output);
     let link = find_child(&root, "link");
 
     // m = 2^2 = 4, expression = 4 * 4 = 16
     assert_eq!(get_attr(link, "value"), "16.0");
 
-    // Cleanup
-    let _ = fs::remove_file(yaml_path);
+    // Temp file automatically cleaned up when yaml_file drops
 }
 
 #[test]
@@ -47,27 +49,35 @@ fn test_pow_with_load_yaml_and_include() {
 
     // Create minimal YAML file
     let yaml_content = "length: 0.235\n";
-    fs::write("/tmp/test_params.yaml", yaml_content).expect("Failed to write YAML");
+    let yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
+    fs::write(yaml_file.path(), yaml_content).expect("Failed to write YAML");
 
     // Create included file with load_yaml() and pow() in property
-    let included_content = r#"<?xml version="1.0"?>
+    let included_content = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="measurements">
-  <xacro:property name="params" value="${load_yaml('/tmp/test_params.yaml')}"/>
-  <xacro:property name="l" value="${params['length']}" />
-  <xacro:property name="r" value="${l}" />
-  <xacro:property name="m" value="${pi*l*pow(r,2)}" />
-</robot>"#;
-    fs::write("/tmp/test_measurements.xacro", included_content).expect("Failed to write include");
+  <xacro:property name="params" value="${{load_yaml('{}')}}"/>
+  <xacro:property name="l" value="${{params['length']}}" />
+  <xacro:property name="r" value="${{l}}" />
+  <xacro:property name="m" value="${{pi*l*pow(r,2)}}" />
+</robot>"#,
+        yaml_file.path().display()
+    );
+    let include_file = NamedTempFile::new().expect("Failed to create temp xacro file");
+    fs::write(include_file.path(), included_content).expect("Failed to write include");
 
     // Main file that includes and uses the properties with pow()
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
-  <xacro:include filename="/tmp/test_measurements.xacro" />
+  <xacro:include filename="{}" />
 
-  <link name="test" value="${m*(3*pow(r,2)+pow(l,2))/12}"/>
-</robot>"#;
+  <link name="test" value="${{m*(3*pow(r,2)+pow(l,2))/12}}"/>
+</robot>"#,
+        include_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     let root = parse_xml(&output);
     let link = find_child(&root, "link");
 
@@ -78,9 +88,7 @@ fn test_pow_with_load_yaml_and_include() {
         .parse()
         .expect("Should be a valid number, not 'Undefined variable: pow'");
 
-    // Cleanup
-    let _ = fs::remove_file("/tmp/test_params.yaml");
-    let _ = fs::remove_file("/tmp/test_measurements.xacro");
+    // Temp files automatically cleaned up when dropped
 }
 
 #[test]
@@ -94,17 +102,21 @@ fn test_pow_in_include_without_yaml() {
   <xacro:property name="r" value="${l}" />
   <xacro:property name="m" value="${pi*l*pow(r,2)}" />
 </robot>"#;
-    fs::write("/tmp/test_simple_include.xacro", included_content).expect("Failed to write include");
+    let include_file = NamedTempFile::new().expect("Failed to create temp xacro file");
+    fs::write(include_file.path(), included_content).expect("Failed to write include");
 
     // Main file that includes and uses the properties with pow()
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
-  <xacro:include filename="/tmp/test_simple_include.xacro" />
+  <xacro:include filename="{}" />
 
-  <link name="test" value="${m*(3*pow(r,2)+pow(l,2))/12}"/>
-</robot>"#;
+  <link name="test" value="${{m*(3*pow(r,2)+pow(l,2))/12}}"/>
+</robot>"#,
+        include_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     let root = parse_xml(&output);
     let link = find_child(&root, "link");
 
@@ -113,8 +125,7 @@ fn test_pow_in_include_without_yaml() {
         .parse()
         .expect("Should be a valid number, not 'Undefined variable: pow'");
 
-    // Cleanup
-    let _ = fs::remove_file("/tmp/test_simple_include.xacro");
+    // Temp file automatically cleaned up when dropped
 }
 
 #[test]
@@ -122,8 +133,9 @@ fn test_pow_absolute_minimal() {
     // ABSOLUTE MINIMAL: 10 lines total
     // Property with pow() in included file, used with pow() in main file
 
+    let include_file = NamedTempFile::new().expect("Failed to create temp xacro file");
     fs::write(
-        "/tmp/inc.xacro",
+        include_file.path(),
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="m" value="${pow(2,2)}" />
@@ -131,16 +143,19 @@ fn test_pow_absolute_minimal() {
     )
     .expect("write failed");
 
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:include filename="/tmp/inc.xacro" />
-  <link value="${m*pow(2,2)}"/>
-</robot>"#;
+  <xacro:include filename="{}" />
+  <link value="${{m*pow(2,2)}}"/>
+</robot>"#,
+        include_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     assert!(output.contains("value=\"16"));
 
-    fs::remove_file("/tmp/inc.xacro").ok();
+    // Temp file automatically cleaned up when dropped
 }
 
 #[test]
@@ -148,8 +163,9 @@ fn test_pow_with_property_args_in_include() {
     // THE KEY: pow() arguments are PROPERTIES, not literals
     // Include defines property using pow(PROPERTY), main uses pow(PROPERTY)
 
+    let include_file = NamedTempFile::new().expect("Failed to create temp xacro file");
     fs::write(
-        "/tmp/inc2.xacro",
+        include_file.path(),
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="r" value="2" />
@@ -158,16 +174,19 @@ fn test_pow_with_property_args_in_include() {
     )
     .expect("write failed");
 
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:include filename="/tmp/inc2.xacro" />
-  <link value="${m*pow(r,2)}"/>
-</robot>"#;
+  <xacro:include filename="{}" />
+  <link value="${{m*pow(r,2)}}"/>
+</robot>"#,
+        include_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     assert!(output.contains("value=\"16"));
 
-    fs::remove_file("/tmp/inc2.xacro").ok();
+    // Temp file automatically cleaned up when dropped
 }
 
 #[test]
@@ -176,8 +195,9 @@ fn test_pow_with_property_chain_and_pi() {
     let _ = env_logger::builder().is_test(true).try_init();
 
     // Add pi and property chain like corpus case
+    let include_file = NamedTempFile::new().expect("Failed to create temp xacro file");
     fs::write(
-        "/tmp/inc3.xacro",
+        include_file.path(),
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="l" value="0.235" />
@@ -187,15 +207,51 @@ fn test_pow_with_property_chain_and_pi() {
     )
     .expect("write failed");
 
-    let input = r#"<?xml version="1.0"?>
+    let input = format!(
+        r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:include filename="/tmp/inc3.xacro" />
-  <link value="${m*(3*pow(r,2)+pow(l,2))/12}"/>
-</robot>"#;
+  <xacro:include filename="{}" />
+  <link value="${{m*(3*pow(r,2)+pow(l,2))/12}}"/>
+</robot>"#,
+        include_file.path().display()
+    );
 
-    let output = run_xacro(input);
+    let output = run_xacro(&input);
     // Just check it doesn't crash
     assert!(!output.contains("Undefined"));
 
-    fs::remove_file("/tmp/inc3.xacro").ok();
+    // Temp file automatically cleaned up when dropped
+}
+
+#[test]
+fn test_pow_and_pi_in_string_literals_are_not_preprocessed() {
+    use env_logger;
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // pow()/pi-like tokens inside quoted strings must not be rewritten by preprocessing
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- plain string containing pow(...) -->
+  <xacro:property name="s1" value="print pow(2,3)" />
+  <!-- pow(...) embedded via string interpolation, still as plain text -->
+  <xacro:property name="s2" value="foo ${'pow(2,3)'}" />
+  <xacro:property name="s3" value="pi is pi()" />
+  <link name="test" s1="${s1}" s2="${s2}" s3="${s3}"/>
+</robot>"#;
+
+    let output = run_xacro(input);
+
+    // Ensure the math-like tokens inside strings are emitted unchanged
+    assert!(
+        output.contains("print pow(2,3)"),
+        "Expected pow(2,3) in plain string to be unchanged:\n{output}"
+    );
+    assert!(
+        output.contains("foo pow(2,3)"),
+        "Expected pow(2,3) coming from interpolation to be unchanged:\n{output}"
+    );
+    assert!(
+        output.contains("pi is pi()"),
+        "Expected pi() in string to be unchanged:\n{output}"
+    );
 }

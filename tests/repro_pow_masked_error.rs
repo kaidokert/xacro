@@ -88,3 +88,135 @@ fn test_cos_with_undefined_variable_reports_correct_error() {
         err_msg
     );
 }
+
+#[test]
+fn test_log_with_undefined_first_arg_reports_correct_error() {
+    let xacro = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="test">
+    <inertial>
+      <mass value="${log(undefined_var, 10)}"/>
+    </inertial>
+  </link>
+</robot>"#;
+
+    let result = test_xacro(xacro);
+
+    // Should report "undefined_var" is missing, NOT "log" is missing
+    assert!(
+        result.is_err(),
+        "Should fail when undefined variable is used"
+    );
+    let err_msg = result.unwrap_err().to_string();
+
+    assert!(
+        err_msg.contains("undefined_var"),
+        "Expected error about 'undefined_var', but got: {}",
+        err_msg
+    );
+
+    assert!(
+        !err_msg.contains("Undefined variable: log"),
+        "Error incorrectly blames 'log': {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_log_with_undefined_second_arg_reports_correct_error() {
+    let xacro = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="test">
+    <inertial>
+      <mass value="${log(10, undefined_base)}"/>
+    </inertial>
+  </link>
+</robot>"#;
+
+    let result = test_xacro(xacro);
+
+    // Should report "undefined_base" is missing, NOT "log" is missing
+    assert!(
+        result.is_err(),
+        "Should fail when undefined variable is used"
+    );
+    let err_msg = result.unwrap_err().to_string();
+
+    assert!(
+        err_msg.contains("undefined_base"),
+        "Expected error about 'undefined_base', but got: {}",
+        err_msg
+    );
+
+    assert!(
+        !err_msg.contains("Undefined variable: log"),
+        "Error incorrectly blames 'log': {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_atan2_with_undefined_first_arg_reports_correct_error() {
+    let xacro = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="test">
+    <inertial>
+      <mass value="${atan2(undefined_y, 1)}"/>
+    </inertial>
+  </link>
+</robot>"#;
+
+    let result = test_xacro(xacro);
+
+    // Should report "undefined_y" is missing, NOT "atan2" is missing
+    assert!(
+        result.is_err(),
+        "Should fail when undefined variable is used"
+    );
+    let err_msg = result.unwrap_err().to_string();
+
+    assert!(
+        err_msg.contains("undefined_y"),
+        "Expected error about 'undefined_y', but got: {}",
+        err_msg
+    );
+
+    assert!(
+        !err_msg.contains("Undefined variable: atan2"),
+        "Error incorrectly blames 'atan2': {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_atan2_with_undefined_second_arg_reports_correct_error() {
+    let xacro = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <link name="test">
+    <inertial>
+      <mass value="${atan2(1, undefined_x)}"/>
+    </inertial>
+  </link>
+</robot>"#;
+
+    let result = test_xacro(xacro);
+
+    // Should report "undefined_x" is missing, NOT "atan2" is missing
+    assert!(
+        result.is_err(),
+        "Should fail when undefined variable is used"
+    );
+    let err_msg = result.unwrap_err().to_string();
+
+    assert!(
+        err_msg.contains("undefined_x"),
+        "Expected error about 'undefined_x', but got: {}",
+        err_msg
+    );
+
+    assert!(
+        !err_msg.contains("Undefined variable: atan2"),
+        "Error incorrectly blames 'atan2': {}",
+        err_msg
+    );
+}

@@ -251,6 +251,23 @@ fn preprocess_math_functions(
     interp: &mut Interpreter,
     context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
+    // Local macro to reduce duplication in argument evaluation
+    macro_rules! eval_math_arg {
+        ($interp:expr, $context:expr, $arg_expr:expr, $func_name:expr, $arg_template:expr) => {
+            match $interp.eval_with_context($arg_expr, $context) {
+                Ok(Value::Number(n)) => n,
+                Ok(_) => continue, // Non-numeric, skip this match
+                Err(e) => {
+                    // Argument evaluation failed - propagate error instead of masking it
+                    return Err(EvalError::PyishEval {
+                        expr: format!($arg_template, $func_name, $arg_expr),
+                        source: e,
+                    });
+                }
+            }
+        };
+    }
+
     // First pass: Replace math.pi with pi, respecting string boundaries
     // Walk through string with DelimiterTracker to only replace outside quotes
     let bytes = expr.as_bytes();
@@ -365,11 +382,7 @@ fn preprocess_math_functions(
                             "[scan] No '(' after '{}' at pos {}, char at paren_pos: {:?}",
                             func,
                             func_start,
-                            if paren_pos < result_bytes.len() {
-                                Some(result_bytes[paren_pos] as char)
-                            } else {
-                                None
-                            }
+                            result_bytes.get(paren_pos).map(|&b| b as char)
                         );
                     }
                 }
@@ -383,11 +396,22 @@ fn preprocess_math_functions(
             }
         }
 
-        log::debug!(
-            "[preprocess_math_functions] Found {} function matches in: {}",
-            function_matches.len(),
-            result
-        );
+        if log::log_enabled!(log::Level::Debug) {
+            // Avoid logging excessively large expressions: log length and a truncated preview
+            let result_char_len = result.chars().count();
+            let max_preview_chars = 200;
+            let preview: String = result.chars().take(max_preview_chars).collect();
+            let truncated = result_char_len > max_preview_chars;
+
+            log::debug!(
+                "[preprocess_math_functions] Found {} function matches (len={}{}). Preview: {}",
+                function_matches.len(),
+                result_char_len,
+                if truncated { ", truncated" } else { "" },
+                preview,
+            );
+        }
+
         if function_matches.is_empty() {
             break;
         }
@@ -427,32 +451,12 @@ fn preprocess_math_functions(
                     );
 
                     // Evaluate first argument - propagate errors immediately
-                    let first_result = interp.eval_with_context(args[0].trim(), context);
-                    let first = match first_result {
-                        Ok(Value::Number(n)) => n,
-                        Ok(_) => continue, // Non-number, skip this match
-                        Err(e) => {
-                            // Argument evaluation failed - propagate error instead of masking it
-                            return Err(EvalError::PyishEval {
-                                expr: format!("{}({}, ...)", func_name, args[0].trim()),
-                                source: e,
-                            });
-                        }
-                    };
+                    let first =
+                        eval_math_arg!(interp, context, args[0].trim(), func_name, "{}({}, ...)");
 
                     // Evaluate second argument - propagate errors immediately
-                    let second_result = interp.eval_with_context(args[1].trim(), context);
-                    let second = match second_result {
-                        Ok(Value::Number(n)) => n,
-                        Ok(_) => continue, // Non-number, skip this match
-                        Err(e) => {
-                            // Argument evaluation failed - propagate error instead of masking it
-                            return Err(EvalError::PyishEval {
-                                expr: format!("{}(..., {})", func_name, args[1].trim()),
-                                source: e,
-                            });
-                        }
-                    };
+                    let second =
+                        eval_math_arg!(interp, context, args[1].trim(), func_name, "{}(..., {})");
 
                     let computed = match func_name {
                         "atan2" => first.atan2(second),
@@ -489,18 +493,7 @@ fn preprocess_math_functions(
             }
 
             // Evaluate the argument with context - propagate errors immediately
-            let arg_result = interp.eval_with_context(arg, context);
-            let n = match arg_result {
-                Ok(Value::Number(n)) => n,
-                Ok(_) => continue, // Non-number, skip this match
-                Err(e) => {
-                    // Argument evaluation failed - propagate error instead of masking it
-                    return Err(EvalError::PyishEval {
-                        expr: format!("{}({})", func_name, arg),
-                        source: e,
-                    });
-                }
-            };
+            let n = eval_math_arg!(interp, context, arg, func_name, "{}({})");
 
             // Validate domain for inverse trig functions (matches Python xacro behavior)
             if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
