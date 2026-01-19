@@ -948,6 +948,24 @@ pub fn build_pyisheval_context(
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
+            // Load dict/list/tuple literals into interpreter so lambdas can reference them
+            // They'll be properly evaluated as Python expressions in the second pass
+            if trimmed.starts_with('{') || trimmed.starts_with('[') || trimmed.starts_with('(') {
+                // Try to load as Python literal into interpreter environment for lambda closure
+                if let Err(e) = interp.eval(&format!("{} = {}", name, trimmed)) {
+                    log::warn!(
+                        "Could not load property '{}' with value '{}' into interpreter as Python literal: {}. \
+                         Loading as string fallback to prevent 'Undefined variable' in lambdas.",
+                        name, value, e
+                    );
+                    // Fallback: load as string literal so the variable is at least defined
+                    // This prevents "Undefined variable" errors in lambdas that reference it
+                    let escaped = escape_python_string(value);
+                    let _ = interp.eval(&format!("{} = '{}'", name, escaped));
+                }
+                continue;
+            }
+
             // Apply Python xacro's type coercion logic
             match eval_literal(value) {
                 Value::Number(num) => {
@@ -1039,7 +1057,9 @@ pub fn build_pyisheval_context(
             // (reuse trimmed from lambda check above)
             if trimmed.starts_with('[') || trimmed.starts_with('{') || trimmed.starts_with('(') {
                 match interp.eval(trimmed) {
-                    Ok(evaluated_value) => Ok((name.clone(), evaluated_value)),
+                    Ok(evaluated_value) => {
+                        Ok((name.clone(), evaluated_value))
+                    }
                     Err(e) => {
                         // Distinguish expected parse failures from unexpected runtime errors
                         match &e {
@@ -1063,7 +1083,8 @@ pub fn build_pyisheval_context(
                 }
             } else {
                 // Apply Python xacro's type coercion for literals (int/float/boolean)
-                Ok((name.clone(), eval_literal(value)))
+                let literal_value = eval_literal(value);
+                Ok((name.clone(), literal_value))
             }
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
