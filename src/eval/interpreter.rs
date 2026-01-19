@@ -130,13 +130,13 @@ impl DelimiterTracker {
             && !self.in_double_quote
     }
 
-    /// Check if we're outside string literals (quotes only, not structural delimiters)
+    /// Check if we're inside string literals (quotes only, not structural delimiters)
     ///
     /// Used for math function preprocessing where we want to process functions inside
     /// arithmetic parentheses like `m*(3*pow(r,2))` but skip functions inside strings
     /// like `'print pow(2,3)'`.
-    fn not_in_string(&self) -> bool {
-        !self.in_single_quote && !self.in_double_quote
+    fn in_string(&self) -> bool {
+        self.in_single_quote || self.in_double_quote
     }
 }
 
@@ -256,7 +256,14 @@ fn preprocess_math_functions(
         ($interp:expr, $context:expr, $arg_expr:expr, $func_name:expr, $arg_template:expr) => {
             match $interp.eval_with_context($arg_expr, $context) {
                 Ok(Value::Number(n)) => n,
-                Ok(_) => continue, // Non-numeric, skip this match
+                Ok(val) => {
+                    // Non-numeric value - log warning with actual value for debugging
+                    log::warn!(
+                        "[eval_math_arg] Expected numeric argument for {}({}), got {:?}. Skipping this match.",
+                        $func_name, $arg_expr, val
+                    );
+                    continue;
+                }
                 Err(e) => {
                     // Argument evaluation failed - propagate error instead of masking it
                     return Err(EvalError::PyishEval {
@@ -284,7 +291,7 @@ fn preprocess_math_functions(
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
 
             // Only replace if we're not in a string literal and at word boundary
-            if tracker.not_in_string() && before_ok && after_ok {
+            if !tracker.in_string() && before_ok && after_ok {
                 result.push_str("pi");
                 i += 7; // Skip "math.pi"
                 continue;
@@ -324,15 +331,15 @@ fn preprocess_math_functions(
             scan_tracker.process(result_bytes[i]);
 
             log::trace!(
-                "[scan] At pos {}, char: {}, not_in_string: {}",
+                "[scan] At pos {}, char: {}, in_string: {}",
                 i,
                 result_bytes[i] as char,
-                scan_tracker.not_in_string()
+                scan_tracker.in_string()
             );
 
             // Only look for functions when not inside string literals
             // We DO want to process functions inside arithmetic parentheses like m*(3*pow(r,2))
-            if !scan_tracker.not_in_string() {
+            if scan_tracker.in_string() {
                 i += 1;
                 continue;
             }
