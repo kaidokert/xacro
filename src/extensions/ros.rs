@@ -121,25 +121,132 @@ impl FindExtension {
         }
 
         // Parse environment variable and cache
-        let map: HashMap<String, PathBuf> = env::var("RUST_XACRO_PACKAGE_MAP")
-            .unwrap_or_default()
-            .split(PATH_LIST_SEPARATOR) // Cross-platform: ':' on Unix, ';' on Windows
-            .filter_map(|entry| {
-                entry.split_once('=').and_then(|(name, path)| {
-                    let name = name.trim();
-                    let path = path.trim();
-                    if name.is_empty() || path.is_empty() {
-                        None
-                    } else {
-                        Some((name.to_string(), PathBuf::from(path)))
-                    }
-                })
-            })
-            .collect();
+        let map_str = env::var("RUST_XACRO_PACKAGE_MAP").unwrap_or_default();
+        let map = Self::parse_package_map(&map_str);
 
         let result = map.get(package_name).cloned();
         *self.package_map.borrow_mut() = Some(map);
         result
+    }
+
+    /// Parse package map string, handling paths with colons correctly.
+    ///
+    /// Format: `pkg1=/path1<SEP>pkg2=/path2` where `<SEP>` is `:` on Unix, `;` on Windows.
+    ///
+    /// ROS package names follow Python identifier rules: `[a-zA-Z][a-zA-Z0-9_]*`
+    /// This allows us to identify package boundaries even when paths contain separators.
+    ///
+    /// Algorithm:
+    /// 1. Find all positions where a valid package name followed by `=` appears
+    /// 2. These mark entry boundaries (start of each `name=path` pair)
+    /// 3. Extract the path between consecutive boundaries
+    ///
+    /// Examples:
+    /// - `foo=/tmp:bar=/bin` → {foo: /tmp, bar: /bin}
+    /// - `foo=/path/with:colon:bar=/other` → {foo: /path/with:colon, bar: /other}
+    fn parse_package_map(input: &str) -> HashMap<String, PathBuf> {
+        let mut map = HashMap::new();
+
+        if input.is_empty() {
+            return map;
+        }
+
+        // Find all entry start positions: <separator><name>= or ^<name>=
+        // These mark the beginning of each "name=path" entry
+        //
+        // Note: Entries with invalid package names are silently skipped,
+        // while entries with valid names are still parsed. This allows
+        // partial parsing of mixed valid/invalid input (e.g., "123foo=/bad:bar=/good"
+        // will parse only the "bar" entry).
+        let mut entry_starts = Vec::new();
+        let bytes = input.as_bytes();
+
+        for i in 0..bytes.len() {
+            // Check if this could be the start of an entry
+            if i == 0 || bytes[i - 1] == PATH_LIST_SEPARATOR as u8 {
+                // Find the '=' after this position
+                if let Some(eq_pos) = input[i..].find('=') {
+                    let eq_pos = i + eq_pos;
+                    let name = input[i..eq_pos].trim();
+
+                    if Self::is_valid_package_name(name) {
+                        entry_starts.push((i, eq_pos));
+                    }
+                }
+            }
+        }
+
+        // If we found no valid entries, fall back to simple split
+        // This handles the common case where there's only one entry or simple paths
+        //
+        // Note: This fallback is used when the input contains NO valid ROS package
+        // name patterns (e.g., "123foo=/path" or "=/path"). In this case, paths
+        // with colons will NOT be correctly parsed and may be incorrectly split.
+        // This is acceptable since the input itself is malformed (invalid package names).
+        if entry_starts.is_empty() {
+            return input
+                .split(PATH_LIST_SEPARATOR)
+                .filter_map(|entry| {
+                    entry.split_once('=').and_then(|(name, path)| {
+                        let name = name.trim();
+                        let path = path.trim();
+                        if !name.is_empty() && !path.is_empty() {
+                            Some((name.to_string(), PathBuf::from(path)))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+        }
+
+        // Extract each entry's name and path
+        for (idx, &(start, eq_pos)) in entry_starts.iter().enumerate() {
+            let name = input[start..eq_pos].trim();
+
+            // Path starts after '=' and ends at the next entry or end of string
+            let path_start = eq_pos + 1;
+            let path_end = if idx + 1 < entry_starts.len() {
+                // Path ends just before the separator before the next entry
+                entry_starts[idx + 1].0.saturating_sub(1)
+            } else {
+                // Last entry - path goes to end of string
+                input.len()
+            };
+
+            if path_end > path_start {
+                let path = &input[path_start..path_end];
+                let path = path.trim();
+
+                if !path.is_empty() {
+                    map.insert(name.to_string(), PathBuf::from(path));
+                }
+            }
+        }
+
+        map
+    }
+
+    /// Check if a string is a valid ROS package name.
+    ///
+    /// ROS package names follow Python package naming rules:
+    /// - Must start with a letter (a-z, A-Z)
+    /// - Can contain letters, numbers, and underscores
+    /// - Cannot contain hyphens, dots, or other special characters
+    fn is_valid_package_name(name: &str) -> bool {
+        let name = name.trim();
+        let bytes = name.as_bytes();
+
+        // First character must be a letter
+        match bytes.first() {
+            Some(&first_byte) if first_byte.is_ascii_alphabetic() => (),
+            _ => return false, // Handles empty string or invalid first char
+        }
+
+        // Remaining characters must be alphanumeric or underscore
+        bytes[1..]
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
     }
 
     /// Find workspace root by looking for markers (.catkin_workspace, install/, build/)
@@ -447,5 +554,89 @@ mod tests {
         let result = ext.resolve("other", "arg");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_parse_package_map_simple() {
+        let input = "foo=/tmp:bar=/bin";
+        let map = FindExtension::parse_package_map(input);
+
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("foo"), Some(&PathBuf::from("/tmp")));
+        assert_eq!(map.get("bar"), Some(&PathBuf::from("/bin")));
+    }
+
+    #[test]
+    fn test_parse_package_map_path_with_colon() {
+        // This is the bug case: path contains a colon
+        let input = "urdf_demo=/opt/workshop/Workshop 7: Understanding URDFs/urdf_demo";
+        let map = FindExtension::parse_package_map(input);
+
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get("urdf_demo"),
+            Some(&PathBuf::from(
+                "/opt/workshop/Workshop 7: Understanding URDFs/urdf_demo"
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_package_map_multiple_with_colons() {
+        let input = "foo=/path/with:colon:bar=/other/path:baz=/tmp";
+        let map = FindExtension::parse_package_map(input);
+
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.get("foo"), Some(&PathBuf::from("/path/with:colon")));
+        assert_eq!(map.get("bar"), Some(&PathBuf::from("/other/path")));
+        assert_eq!(map.get("baz"), Some(&PathBuf::from("/tmp")));
+    }
+
+    #[test]
+    fn test_parse_package_map_empty() {
+        let input = "";
+        let map = FindExtension::parse_package_map(input);
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_package_map_single_entry() {
+        let input = "mypackage=/home/user/workspace/src/mypackage";
+        let map = FindExtension::parse_package_map(input);
+
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get("mypackage"),
+            Some(&PathBuf::from("/home/user/workspace/src/mypackage"))
+        );
+    }
+
+    #[test]
+    fn test_parse_package_map_whitespace() {
+        let input = "  foo  =  /tmp  :  bar  =  /bin  ";
+        let map = FindExtension::parse_package_map(input);
+
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("foo"), Some(&PathBuf::from("/tmp")));
+        assert_eq!(map.get("bar"), Some(&PathBuf::from("/bin")));
+    }
+
+    #[test]
+    fn test_is_valid_package_name() {
+        // Valid names
+        assert!(FindExtension::is_valid_package_name("foo"));
+        assert!(FindExtension::is_valid_package_name("foo_bar"));
+        assert!(FindExtension::is_valid_package_name("foo123"));
+        assert!(FindExtension::is_valid_package_name("f"));
+        assert!(FindExtension::is_valid_package_name("FOO"));
+        assert!(FindExtension::is_valid_package_name("FooBar"));
+
+        // Invalid names
+        assert!(!FindExtension::is_valid_package_name(""));
+        assert!(!FindExtension::is_valid_package_name("123foo")); // starts with number
+        assert!(!FindExtension::is_valid_package_name("foo-bar")); // hyphen not allowed
+        assert!(!FindExtension::is_valid_package_name("foo.bar")); // dot not allowed
+        assert!(!FindExtension::is_valid_package_name("foo bar")); // space not allowed
+        assert!(!FindExtension::is_valid_package_name("_foo")); // starts with underscore
     }
 }
