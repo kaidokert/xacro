@@ -529,11 +529,25 @@ fn expand_element(
         let lazy_name = format!("**{}", name);
         if let Some(raw_value) = ctx.properties.lookup_raw_value(&lazy_name) {
             // Found lazy property - parse and expand
-            if let Ok(nodes) = crate::parse::xml::parse_xml_fragment(&raw_value) {
-                let expanded = expand_children_list(nodes, ctx)?;
-                return Ok(expanded);
+            match crate::parse::xml::parse_xml_fragment(&raw_value) {
+                Ok(nodes) => {
+                    let expanded = expand_children_list(nodes, ctx)?;
+                    return Ok(expanded);
+                }
+                Err(e) => {
+                    // Lazy properties are written by this code path and should always be valid XML.
+                    // A parse failure here likely indicates a bug or data corruption.
+                    log::error!(
+                        "Failed to parse stored lazy property '{}' as XML fragment: {}. Raw value: '{}'",
+                        name, e, raw_value
+                    );
+                    // Return error instead of silently falling through
+                    return Err(XacroError::Include(format!(
+                        "Corrupted lazy property '{}': failed to parse XML: {}",
+                        name, e
+                    )));
+                }
             }
-            // Parse failed - this shouldn't happen for lazy properties, but fall through
         }
 
         // 2. Block stack SECOND (macro block parameters)

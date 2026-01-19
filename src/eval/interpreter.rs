@@ -948,9 +948,16 @@ pub fn build_pyisheval_context(
     for (name, value) in properties.iter() {
         let trimmed = value.trim();
         if !trimmed.starts_with("lambda ") {
-            // Skip dict/list literals - they'll be handled in second pass
-            // where they're properly evaluated as Python expressions
-            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+            // Load dict/list/tuple literals into interpreter so lambdas can reference them
+            // They'll be properly evaluated as Python expressions in the second pass
+            if trimmed.starts_with('{') || trimmed.starts_with('[') || trimmed.starts_with('(') {
+                // Load into interpreter environment for lambda closure
+                if let Err(e) = interp.eval(&format!("{} = {}", name, trimmed)) {
+                    log::warn!(
+                        "Could not load property '{}' with value '{}' into interpreter for lambdas: {}. Lambdas referencing it may fail.",
+                        name, value, e
+                    );
+                }
                 continue;
             }
 
