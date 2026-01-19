@@ -1,5 +1,6 @@
 use super::lexer::{Lexer, TokenType};
 use super::scope::BUILTIN_CONSTANTS;
+use log;
 use pyisheval::{EvalError as PyEvalError, Interpreter, Value};
 use regex::Regex;
 use std::collections::HashMap;
@@ -626,11 +627,67 @@ fn yaml_to_python_literal(
                 .collect();
             Ok(format!("{{{}}}", entries?.join(", ")))
         }
-        Yaml::Tagged(_tag, inner) => {
-            // Handle YAML tags (e.g., !degrees, !radians)
-            // For now, just extract the value and ignore the tag
-            // TODO: Implement unit conversions when those come up
-            yaml_to_python_literal(*inner, path)
+        Yaml::Tagged(tag, inner) => {
+            // Handle YAML custom tags for unit conversions
+            // Matches Python xacro's ConstructUnits behavior
+            let conversion_factor = match tag.suffix.as_str() {
+                // Angle units
+                "radians" => 1.0,
+                "degrees" => core::f64::consts::PI / 180.0,
+                // Length units
+                "meters" => 1.0,
+                "millimeters" => 0.001,
+                "foot" => 0.3048,
+                "inches" => 0.0254,
+                // Unknown tag - warn and pass through the value
+                _ => {
+                    log::warn!(
+                        "Unknown YAML tag '!{}' - value will be used without conversion",
+                        tag.suffix
+                    );
+                    return yaml_to_python_literal(*inner, path);
+                }
+            };
+
+            // Extract numeric value and apply conversion
+            match *inner {
+                Yaml::Value(Scalar::Integer(i)) => {
+                    let result = (i as f64) * conversion_factor;
+                    Ok(result.to_string())
+                }
+                Yaml::Value(Scalar::FloatingPoint(f)) => {
+                    let result = f * conversion_factor;
+                    Ok(result.to_string())
+                }
+                Yaml::Value(Scalar::String(s)) => {
+                    // Handle string values that might be numeric or expressions
+                    let trimmed = s.trim();
+                    // Try parsing as numeric first
+                    if let Ok(num) = trimmed.parse::<f64>() {
+                        let result = num * conversion_factor;
+                        Ok(result.to_string())
+                    } else {
+                        // Treat as expression - don't quote, just apply conversion
+                        if conversion_factor == 1.0 {
+                            Ok(trimmed.to_string())
+                        } else {
+                            Ok(format!("({})*{}", trimmed, conversion_factor))
+                        }
+                    }
+                }
+                // For other non-numeric values with unit tags, evaluate the expression first
+                _ => {
+                    // Get the value as a string, which might be an expression
+                    let value_str = yaml_to_python_literal(*inner, path)?;
+                    // Return as expression: value * conversion_factor
+                    // This allows expressions like "!degrees 45*2" to work
+                    if conversion_factor == 1.0 {
+                        Ok(value_str)
+                    } else {
+                        Ok(format!("({})*{}", value_str, conversion_factor))
+                    }
+                }
+            }
         }
         Yaml::Representation(repr, _style, _tag) => {
             // Handle unresolved representations - parse as scalar value
