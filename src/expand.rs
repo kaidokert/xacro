@@ -22,6 +22,9 @@ pub struct XacroContext {
     /// Include stack for circular include detection (uses RefCell for interior mutability)
     pub include_stack: RefCell<Vec<PathBuf>>,
 
+    /// All included files (for --deps output)
+    pub all_includes: RefCell<Vec<PathBuf>>,
+
     /// Namespace stack: (file_path, xacro_namespace_prefix) (uses RefCell for interior mutability)
     pub namespace_stack: RefCell<Vec<(PathBuf, String)>>,
 
@@ -64,6 +67,7 @@ impl XacroContext {
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),
+            all_includes: RefCell::new(Vec::new()),
             namespace_stack: RefCell::new(vec![(base_path.clone(), xacro_ns)]),
             block_stack: RefCell::new(Vec::new()),
             base_path: RefCell::new(base_path),
@@ -95,6 +99,7 @@ impl XacroContext {
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),
+            all_includes: RefCell::new(Vec::new()),
             namespace_stack: RefCell::new(vec![(base_path.clone(), xacro_ns)]),
             block_stack: RefCell::new(Vec::new()),
             base_path: RefCell::new(base_path),
@@ -143,5 +148,10 @@ impl XacroContext {
         depth: usize,
     ) {
         self.max_recursion_depth = depth;
+    }
+
+    /// Get all included files (for --deps output)
+    pub fn get_all_includes(&self) -> Vec<PathBuf> {
+        self.all_includes.borrow().clone()
     }
 }
