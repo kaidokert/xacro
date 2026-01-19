@@ -235,23 +235,18 @@ impl FindExtension {
     /// - Cannot contain hyphens, dots, or other special characters
     fn is_valid_package_name(name: &str) -> bool {
         let name = name.trim();
-        if name.is_empty() {
-            return false;
-        }
-
-        let mut chars = name.chars();
+        let bytes = name.as_bytes();
 
         // First character must be a letter
-        if let Some(first) = chars.next() {
-            if !first.is_ascii_alphabetic() {
-                return false;
-            }
-        } else {
-            return false;
+        match bytes.first() {
+            Some(&first_byte) if first_byte.is_ascii_alphabetic() => (),
+            _ => return false, // Handles empty string or invalid first char
         }
 
         // Remaining characters must be alphanumeric or underscore
-        chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        bytes[1..]
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
     }
 
     /// Find workspace root by looking for markers (.catkin_workspace, install/, build/)
