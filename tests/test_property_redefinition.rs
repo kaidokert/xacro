@@ -61,13 +61,20 @@ fn test_property_redefinition_with_arithmetic() {
 
 #[test]
 fn test_property_redefinition_in_included_file() {
+    use tempfile::Builder;
+
     // Complex corpus case: property defined and redefined in included file,
     // then used in macro expansion
-    let main_file = "/tmp/test_property_redef_main.xacro";
-    let included_file = "/tmp/test_property_redef_included.xacro";
+
+    // Create temporary files with .xacro extension for proper testing
+    let included_file = Builder::new()
+        .prefix("test_property_redef_included_")
+        .suffix(".xacro")
+        .tempfile()
+        .expect("Failed to create temp file");
 
     std::fs::write(
-        included_file,
+        included_file.path(),
         r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:property name="wheel_mass" value="0.5"/>
@@ -86,20 +93,26 @@ fn test_property_redefinition_in_included_file() {
     )
     .expect("Failed to write test file");
 
+    let main_file = Builder::new()
+        .prefix("test_property_redef_main_")
+        .suffix(".xacro")
+        .tempfile()
+        .expect("Failed to create temp file");
+
     std::fs::write(
-        main_file,
+        main_file.path(),
         format!(
             r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
   <xacro:include filename="{}"/>
   <xacro:wheel name="test_wheel"/>
 </robot>"#,
-            included_file
+            included_file.path().display()
         ),
     )
     .expect("Failed to write test file");
 
-    let output = run_xacro_file(main_file);
+    let output = run_xacro_file(main_file.path());
     let root = parse_xml(&output);
 
     let link = find_child(&root, "link");
@@ -110,9 +123,7 @@ fn test_property_redefinition_in_included_file() {
     assert_eq!(get_attr(mass, "value"), "0.5");
     assert_attr_float!(inertia, "ixx", 0.003125, 1e-10);
 
-    // Cleanup
-    std::fs::remove_file(main_file).ok();
-    std::fs::remove_file(included_file).ok();
+    // Temp files automatically cleaned up when dropped (RAII)
 }
 
 #[test]
