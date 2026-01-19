@@ -676,8 +676,15 @@ fn expand_macro_call(
         .cloned()
         .ok_or_else(|| XacroError::UndefinedMacro(macro_name.to_string()))?;
 
-    // Collect macro arguments and blocks from call element
-    let (args, blocks) = MacroProcessor::collect_macro_args(call_elem, &macro_def)?;
+    // Pre-process macro call children to expand conditionals (xacro:if, xacro:unless)
+    // before collecting block parameters. This matches Python xacro's behavior:
+    // conditionals are evaluated before block parameters are collected.
+    let mut processed_elem = call_elem.clone();
+    processed_elem.children =
+        expand_children_list(core::mem::take(&mut processed_elem.children), ctx)?;
+
+    // Collect macro arguments and blocks from processed element
+    let (args, blocks) = MacroProcessor::collect_macro_args(&processed_elem, &macro_def)?;
 
     // Pre-expand blocks in caller's scope before entering macro scope
     // Must happen BEFORE pushing macro's parameter scope to ensure

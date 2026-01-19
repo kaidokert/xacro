@@ -64,19 +64,41 @@ impl MacroProcessor {
         let mut current_token = String::new();
         let mut in_quotes = false;
         let mut quote_char = ' ';
+        let mut expecting_value = false; // Track if we're expecting a value after := or =
+        let mut collecting_value = false; // Track if we're actively collecting the value
 
         for ch in params_str.chars() {
             if in_quotes {
                 current_token.push(ch);
                 if ch == quote_char {
                     in_quotes = false;
+                    // If we were collecting a quoted value, we're done with this token after the quote
+                    if collecting_value {
+                        // Value is complete, reset state
+                        expecting_value = false;
+                        collecting_value = false;
+                    }
                 }
             } else if ch == '\'' || ch == '"' {
                 // Start of quoted section
                 in_quotes = true;
                 quote_char = ch;
                 current_token.push(ch);
+                // If we were expecting a value, mark that we're now collecting it
+                if expecting_value {
+                    collecting_value = true;
+                }
             } else if ch.is_whitespace() {
+                // If we're expecting a value but haven't started collecting it yet,
+                // skip the whitespace
+                if expecting_value && !collecting_value {
+                    continue;
+                }
+                // If we were collecting an unquoted value, we're done
+                if collecting_value {
+                    expecting_value = false;
+                    collecting_value = false;
+                }
                 // End of token (if not empty)
                 if !current_token.is_empty() {
                     // Use mem::take to avoid cloning
@@ -85,6 +107,18 @@ impl MacroProcessor {
             } else {
                 // Regular character
                 current_token.push(ch);
+
+                // If we were expecting a value, mark that we're now collecting it
+                if expecting_value && !collecting_value {
+                    collecting_value = true;
+                }
+
+                // Check if current token ends with := or =
+                // This indicates we're expecting a value next
+                if current_token.ends_with(":=") || current_token.ends_with('=') {
+                    expecting_value = true;
+                    collecting_value = false;
+                }
             }
         }
 
