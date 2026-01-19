@@ -1,6 +1,6 @@
 use super::interpreter::{
-    build_pyisheval_context, eval_boolean, eval_text_with_interpreter, evaluate_expression,
-    format_value_python_style, init_interpreter, remove_quotes,
+    build_pyisheval_context, eval_boolean, evaluate_expression, format_value_python_style,
+    init_interpreter, remove_quotes,
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
@@ -1481,12 +1481,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            // Create fresh interpreter for each iteration to prevent state leakage.
-            // Using a shared interpreter caused properties defined in macro scopes to persist
-            // after the scope was popped, violating Python xacro's scoping semantics.
-            let mut fresh_interp = init_interpreter();
-
-            let next = eval_text_with_interpreter(&result, properties, &mut fresh_interp)?;
+            // Use metadata-aware substitution (substitute_one_pass) instead of eval_text_with_interpreter
+            // This ensures boolean metadata is preserved during intermediate property evaluation
+            // Fix for: https://github.com/kaidokert/xacro/issues/XXX
+            // Example: tf_p="${p}/" where p has boolean metadata should preserve "True" not "1"
+            let next = self.substitute_one_pass(&result, properties)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
             if next == result {
