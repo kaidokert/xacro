@@ -284,16 +284,15 @@ pub fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
 /// Returns false if nodes only contain Text or Whitespace nodes.
 /// This is used to distinguish lazy properties (body-based) from value properties (text-only).
 pub fn has_structural_content(nodes: &[XMLNode]) -> bool {
-    nodes.is_empty()
-        || nodes.iter().any(|n| {
-            matches!(
-                n,
-                XMLNode::Element(_)
-                    | XMLNode::Comment(_)
-                    | XMLNode::CData(_)
-                    | XMLNode::ProcessingInstruction(_, _)
-            )
-        })
+    nodes.iter().any(|n| {
+        matches!(
+            n,
+            XMLNode::Element(_)
+                | XMLNode::Comment(_)
+                | XMLNode::CData(_)
+                | XMLNode::ProcessingInstruction(_, _)
+        )
+    })
 }
 
 #[cfg(test)]
