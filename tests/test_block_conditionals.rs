@@ -60,9 +60,23 @@ fn test_if_around_block_parameter_false() {
 </robot>"#;
 
     let result = std::panic::catch_unwind(|| run_xacro(input));
+
+    // Verify specific error: missing block parameter, not some unrelated panic
+    let err = result.expect_err("Should fail with missing block parameter when condition is false");
+
+    let panic_msg = if let Some(s) = err.downcast_ref::<&str>() {
+        *s
+    } else if let Some(s) = err.downcast_ref::<String>() {
+        s.as_str()
+    } else {
+        ""
+    };
+
     assert!(
-        result.is_err(),
-        "Should fail with missing block parameter when condition is false"
+        panic_msg.contains("Missing block parameter")
+            || panic_msg.contains("MissingBlockParameter"),
+        "Expected panic about missing block parameter, got: {}",
+        panic_msg
     );
 }
 
@@ -304,6 +318,52 @@ fn test_lazy_block_with_conditionals() {
     assert_eq!(get_attr(items[0], "id"), "1");
     assert_eq!(get_attr(items[1], "id"), "2");
     assert_eq!(get_attr(items[2], "id"), "3");
+}
+
+#[test]
+fn test_lazy_block_with_conditionals_disabled() {
+    // Test ** (lazy block) with conditionals disabled (False case)
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="**items">
+    <container>
+      <xacro:insert_block name="items"/>
+    </container>
+  </xacro:macro>
+
+  <xacro:arg name="include_second" default="False"/>
+
+  <xacro:test_macro>
+    <wrapper>
+      <item id="1"/>
+      <xacro:if value="${$(arg include_second)}">
+        <item id="2"/>
+      </xacro:if>
+      <item id="3"/>
+    </wrapper>
+  </xacro:test_macro>
+</robot>"#;
+
+    let output = run_xacro(input);
+    let root = parse_xml(&output);
+
+    let container = find_child(&root, "container");
+    // ** strips wrapper, so we should see items directly
+    let items: Vec<_> = container
+        .children
+        .iter()
+        .filter_map(|n| n.as_element())
+        .filter(|e| e.name == "item")
+        .collect();
+
+    assert_eq!(
+        items.len(),
+        2,
+        "Should have 2 items (conditional not expanded)"
+    );
+    assert_eq!(get_attr(items[0], "id"), "1");
+    assert_eq!(get_attr(items[1], "id"), "3");
+    // Item 2 should NOT be present
 }
 
 #[test]

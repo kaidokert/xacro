@@ -678,12 +678,10 @@ fn expand_macro_call(
 
     // Pre-process macro call children to expand conditionals (xacro:if, xacro:unless)
     // before collecting block parameters. This matches Python xacro's behavior:
-    // eval_all() processes conditionals at line 813, then collects blocks at line 816.
-    let processed_children = expand_children_list(call_elem.children.clone(), ctx)?;
-
-    // Create temporary element with processed children for argument collection
+    // conditionals are evaluated before block parameters are collected.
     let mut processed_elem = call_elem.clone();
-    processed_elem.children = processed_children;
+    processed_elem.children =
+        expand_children_list(core::mem::take(&mut processed_elem.children), ctx)?;
 
     // Collect macro arguments and blocks from processed element
     let (args, blocks) = MacroProcessor::collect_macro_args(&processed_elem, &macro_def)?;
