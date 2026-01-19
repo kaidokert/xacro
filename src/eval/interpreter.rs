@@ -129,6 +129,15 @@ impl DelimiterTracker {
             && !self.in_single_quote
             && !self.in_double_quote
     }
+
+    /// Check if we're inside string literals (quotes only, not structural delimiters)
+    ///
+    /// Used for math function preprocessing where we want to process functions inside
+    /// arithmetic parentheses like `m*(3*pow(r,2))` but skip functions inside strings
+    /// like `'print pow(2,3)'`.
+    fn in_string(&self) -> bool {
+        self.in_single_quote || self.in_double_quote
+    }
 }
 
 /// Find matching closing parenthesis, handling nested delimiters
@@ -242,6 +251,30 @@ fn preprocess_math_functions(
     interp: &mut Interpreter,
     context: &HashMap<String, Value>,
 ) -> Result<String, EvalError> {
+    // Local macro to reduce duplication in argument evaluation
+    macro_rules! eval_math_arg {
+        ($interp:expr, $context:expr, $arg_expr:expr, $func_name:expr, $arg_template:expr) => {
+            match $interp.eval_with_context($arg_expr, $context) {
+                Ok(Value::Number(n)) => n,
+                Ok(val) => {
+                    // Non-numeric value - log warning with actual value for debugging
+                    log::warn!(
+                        "[eval_math_arg] Expected numeric argument for {}({}), got {:?}. Skipping this match.",
+                        $func_name, $arg_expr, val
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    // Argument evaluation failed - propagate error instead of masking it
+                    return Err(EvalError::PyishEval {
+                        expr: format!($arg_template, $func_name, $arg_expr),
+                        source: e,
+                    });
+                }
+            }
+        };
+    }
+
     // First pass: Replace math.pi with pi, respecting string boundaries
     // Walk through string with DelimiterTracker to only replace outside quotes
     let bytes = expr.as_bytes();
@@ -257,8 +290,8 @@ fn preprocess_math_functions(
                 || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
 
-            // Only replace if we're at top level (not in quotes) and at word boundary
-            if tracker.at_top_level() && before_ok && after_ok {
+            // Only replace if we're not in a string literal and at word boundary
+            if !tracker.in_string() && before_ok && after_ok {
                 result.push_str("pi");
                 i += 7; // Skip "math.pi"
                 continue;
@@ -297,8 +330,16 @@ fn preprocess_math_functions(
         while i < result_bytes.len() {
             scan_tracker.process(result_bytes[i]);
 
-            // Only look for functions when at top level (not in strings)
-            if !scan_tracker.at_top_level() {
+            log::trace!(
+                "[scan] At pos {}, char: {}, in_string: {}",
+                i,
+                result_bytes[i] as char,
+                scan_tracker.in_string()
+            );
+
+            // Only look for functions when not inside string literals
+            // We DO want to process functions inside arithmetic parentheses like m*(3*pow(r,2))
+            if scan_tracker.in_string() {
                 i += 1;
                 continue;
             }
@@ -329,6 +370,8 @@ fn preprocess_math_functions(
                 if func_end <= result_bytes.len()
                     && &result_bytes[func_start..func_end] == func_bytes
                 {
+                    log::trace!("[scan] Potential match '{}' at pos {}", func, func_start);
+
                     // Look for '(' after function name (skip whitespace)
                     let mut paren_pos = func_end;
                     while paren_pos < result_bytes.len()
@@ -338,8 +381,16 @@ fn preprocess_math_functions(
                     }
 
                     if paren_pos < result_bytes.len() && result_bytes[paren_pos] == b'(' {
+                        log::trace!("[scan] Confirmed match '{}(' at pos {}", func, func_start);
                         found = Some((func, paren_pos, i));
                         break;
+                    } else {
+                        log::trace!(
+                            "[scan] No '(' after '{}' at pos {}, char at paren_pos: {:?}",
+                            func,
+                            func_start,
+                            result_bytes.get(paren_pos).map(|&b| b as char)
+                        );
                     }
                 }
             }
@@ -350,6 +401,22 @@ fn preprocess_math_functions(
             } else {
                 i += 1;
             }
+        }
+
+        if log::log_enabled!(log::Level::Debug) {
+            // Avoid logging excessively large expressions: log length and a truncated preview
+            let result_char_len = result.chars().count();
+            let max_preview_chars = 200;
+            let preview: String = result.chars().take(max_preview_chars).collect();
+            let truncated = result_char_len > max_preview_chars;
+
+            log::debug!(
+                "[preprocess_math_functions] Found {} function matches (len={}{}). Preview: {}",
+                function_matches.len(),
+                result_char_len,
+                if truncated { ", truncated" } else { "" },
+                preview,
+            );
         }
 
         if function_matches.is_empty() {
@@ -370,28 +437,44 @@ fn preprocess_math_functions(
             // Special handling for 2-argument functions (atan2, pow, log)
             // Note: log can take 1 or 2 arguments (natural log or log with base)
             if func_name == "atan2" || func_name == "pow" || func_name == "log" {
+                log::debug!(
+                    "[preprocess_math_functions] Found {}({}) at pos {}",
+                    func_name,
+                    arg,
+                    match_start
+                );
+
                 // Split arguments on comma while respecting nested parentheses
                 // This handles cases like pow(max(1, 2), 3) correctly
                 let args = split_args_balanced(arg);
 
                 // Handle 2-argument case
                 if args.len() == 2 {
-                    // Try to evaluate both arguments with context (needed for property references)
-                    if let (Ok(Value::Number(first)), Ok(Value::Number(second))) = (
-                        interp.eval_with_context(args[0].trim(), context),
-                        interp.eval_with_context(args[1].trim(), context),
-                    ) {
-                        let computed = match func_name {
-                            "atan2" => first.atan2(second),
-                            "pow" => first.powf(second),
-                            "log" => first.log(second), // log(x, base)
-                            _ => unreachable!(),
-                        };
-                        let replacement = format!("{}", computed);
-                        result.replace_range(match_start..=close_pos, &replacement);
-                        made_replacement = true;
-                        break;
-                    }
+                    log::debug!(
+                        "[preprocess_math_functions] Evaluating {} arg1: '{}' with context: {:?}",
+                        func_name,
+                        args[0].trim(),
+                        context.keys().collect::<Vec<_>>()
+                    );
+
+                    // Evaluate first argument - propagate errors immediately
+                    let first =
+                        eval_math_arg!(interp, context, args[0].trim(), func_name, "{}({}, ...)");
+
+                    // Evaluate second argument - propagate errors immediately
+                    let second =
+                        eval_math_arg!(interp, context, args[1].trim(), func_name, "{}(..., {})");
+
+                    let computed = match func_name {
+                        "atan2" => first.atan2(second),
+                        "pow" => first.powf(second),
+                        "log" => first.log(second), // log(x, base)
+                        _ => unreachable!(),
+                    };
+                    let replacement = format!("{}", computed);
+                    result.replace_range(match_start..=close_pos, &replacement);
+                    made_replacement = true;
+                    break;
                 }
 
                 // Validate argument count based on function requirements
@@ -416,45 +499,44 @@ fn preprocess_math_functions(
                 }
             }
 
-            // Try to evaluate the argument with context - only replace if successful
-            if let Ok(Value::Number(n)) = interp.eval_with_context(arg, context) {
-                // Validate domain for inverse trig functions (matches Python xacro behavior)
-                if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
-                    log::warn!(
-                        "{}({}) domain error: argument must be in [-1, 1], got {}",
-                        func_name,
-                        arg,
-                        n
-                    );
-                    continue; // Skip this match, try next one
-                }
+            // Evaluate the argument with context - propagate errors immediately
+            let n = eval_math_arg!(interp, context, arg, func_name, "{}({})");
 
-                // Call the appropriate Rust math function
-                let computed = match func_name {
-                    "cos" => n.cos(),
-                    "sin" => n.sin(),
-                    "tan" => n.tan(),
-                    "acos" => n.acos(),
-                    "asin" => n.asin(),
-                    "atan" => n.atan(),
-                    "sqrt" => n.sqrt(),
-                    "abs" => n.abs(),
-                    "floor" => n.floor(),
-                    "ceil" => n.ceil(),
-                    "log" => n.ln(), // Natural logarithm (Python's math.log defaults to ln)
-                    _ => unreachable!(
-                        "Function '{}' in SUPPORTED_MATH_FUNCS but not in match statement",
-                        func_name
-                    ),
-                };
-
-                let replacement = format!("{}", computed);
-                result.replace_range(match_start..=close_pos, &replacement);
-                made_replacement = true;
-                // A replacement was made, restart loop to rescan the string
-                break;
+            // Validate domain for inverse trig functions (matches Python xacro behavior)
+            if (func_name == "acos" || func_name == "asin") && !(-1.0..=1.0).contains(&n) {
+                log::warn!(
+                    "{}({}) domain error: argument must be in [-1, 1], got {}",
+                    func_name,
+                    arg,
+                    n
+                );
+                continue; // Skip this match, try next one
             }
-            // If eval fails or returns non-number, continue to next match
+
+            // Call the appropriate Rust math function
+            let computed = match func_name {
+                "cos" => n.cos(),
+                "sin" => n.sin(),
+                "tan" => n.tan(),
+                "acos" => n.acos(),
+                "asin" => n.asin(),
+                "atan" => n.atan(),
+                "sqrt" => n.sqrt(),
+                "abs" => n.abs(),
+                "floor" => n.floor(),
+                "ceil" => n.ceil(),
+                "log" => n.ln(), // Natural logarithm (Python's math.log defaults to ln)
+                _ => unreachable!(
+                    "Function '{}' in SUPPORTED_MATH_FUNCS but not in match statement",
+                    func_name
+                ),
+            };
+
+            let replacement = format!("{}", computed);
+            result.replace_range(match_start..=close_pos, &replacement);
+            made_replacement = true;
+            // A replacement was made, restart loop to rescan the string
+            break;
         }
 
         if !made_replacement {
@@ -463,6 +545,7 @@ fn preprocess_math_functions(
         }
     }
 
+    log::debug!("[preprocess_math_functions] Output: {}", result);
     Ok(result)
 }
 
