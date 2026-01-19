@@ -280,3 +280,47 @@ fn test_macro_param_with_arg_extension() {
     // Macro parameter should be formatted as "True" even when resolved from $(arg)
     assert_eq!(get_attr(box_elem, "size"), "True 1 1");
 }
+
+/// Test boolean metadata propagation through chained property definitions with string concatenation
+/// Regression test: boolean metadata was lost when a property was defined using an expression
+/// that concatenates another property with boolean metadata.
+#[test]
+fn test_boolean_metadata_chained_properties() {
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:arg name="prefix" default="True"/>
+  <xacro:property name="p" value="$(arg prefix)"/>
+  <xacro:property name="tf_p" value="${p}/"/>
+
+  <!-- Direct usage (should work) -->
+  <link name="${p}direct"/>
+
+  <!-- Chained usage with concatenation (regression case) -->
+  <link name="${tf_p}chained"/>
+</robot>"#;
+
+    let root = run_xacro_to_xml(input);
+    let links: Vec<_> = root
+        .children
+        .iter()
+        .filter_map(|n| n.as_element())
+        .filter(|e| e.name == "link")
+        .collect();
+
+    assert_eq!(links.len(), 2, "Expected 2 links");
+
+    // Direct reference should preserve boolean metadata
+    assert_eq!(
+        get_attr(links[0], "name"),
+        "Truedirect",
+        "Direct reference should output 'True'"
+    );
+
+    // Chained property with concatenation should preserve boolean metadata
+    // This was the regression case where True → 1
+    assert_eq!(
+        get_attr(links[1], "name"),
+        "True/chained",
+        "Chained property should preserve 'True' not '1'"
+    );
+}
