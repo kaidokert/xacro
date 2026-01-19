@@ -642,8 +642,8 @@ fn yaml_to_python_literal(
                 // Unknown tag - warn and pass through the value
                 _ => {
                     log::warn!(
-                        "Unknown YAML tag '{}' - value will be used without conversion",
-                        tag
+                        "Unknown YAML tag '!{}' - value will be used without conversion",
+                        tag.suffix
                     );
                     return yaml_to_python_literal(*inner, path);
                 }
@@ -659,7 +659,23 @@ fn yaml_to_python_literal(
                     let result = f * conversion_factor;
                     Ok(result.to_string())
                 }
-                // For non-numeric values with unit tags, evaluate the expression first
+                Yaml::Value(Scalar::String(s)) => {
+                    // Handle string values that might be numeric or expressions
+                    let trimmed = s.trim();
+                    // Try parsing as numeric first
+                    if let Ok(num) = trimmed.parse::<f64>() {
+                        let result = num * conversion_factor;
+                        Ok(result.to_string())
+                    } else {
+                        // Treat as expression - don't quote, just apply conversion
+                        if conversion_factor == 1.0 {
+                            Ok(trimmed.to_string())
+                        } else {
+                            Ok(format!("({})*{}", trimmed, conversion_factor))
+                        }
+                    }
+                }
+                // For other non-numeric values with unit tags, evaluate the expression first
                 _ => {
                     // Get the value as a string, which might be an expression
                     let value_str = yaml_to_python_literal(*inner, path)?;

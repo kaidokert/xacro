@@ -3,10 +3,9 @@
 /// Universal Robots xacro files use !degrees YAML tag to convert degree values to radians
 /// Example: max_position: !degrees 360.0  should become 6.283185307179586 (2*pi radians)
 ///
-/// Bug: https://github.com/kaidokert/xacro/issues/XXX
 mod common;
 use crate::common::*;
-use std::fs;
+use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
@@ -20,8 +19,15 @@ joint_limits:
     max_velocity: !degrees  180.0
     min_position: !degrees -360.0
 "#;
-    let yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
-    fs::write(yaml_file.path(), yaml_content).expect("Failed to write YAML file");
+    let mut yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
+    yaml_file
+        .as_file_mut()
+        .write_all(yaml_content.as_bytes())
+        .expect("Failed to write YAML file");
+    yaml_file
+        .as_file_mut()
+        .flush()
+        .expect("Failed to flush YAML file");
 
     let input = format!(
         r#"<?xml version="1.0"?>
@@ -80,8 +86,15 @@ joint_limits:
     max_position: !radians  3.141592653589793
     min_position: !radians -3.141592653589793
 "#;
-    let yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
-    fs::write(yaml_file.path(), yaml_content).expect("Failed to write YAML file");
+    let mut yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
+    yaml_file
+        .as_file_mut()
+        .write_all(yaml_content.as_bytes())
+        .expect("Failed to write YAML file");
+    yaml_file
+        .as_file_mut()
+        .flush()
+        .expect("Failed to flush YAML file");
 
     let input = format!(
         r#"<?xml version="1.0"?>
