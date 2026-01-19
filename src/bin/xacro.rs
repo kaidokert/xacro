@@ -148,21 +148,13 @@ fn main() -> anyhow::Result<()> {
         .build();
 
     if args.deps {
-        // Process file and get dependencies
+        // Process file and get dependencies (already deduplicated and sorted by library)
         let (_, includes) = processor
             .run_with_deps(&args.input)
             .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
 
-        // Deduplicate includes (matches Python xacro's use of set())
-        // This handles cases where a file might be included multiple times
-        let mut seen = std::collections::HashSet::new();
-        let unique_includes: Vec<_> = includes
-            .into_iter()
-            .filter(|p| seen.insert(p.clone()))
-            .collect();
-
         // Output space-separated list of included files (matches Python xacro behavior)
-        let deps_str = unique_includes
+        let deps_str = includes
             .iter()
             .map(|p| p.display().to_string())
             .collect::<Vec<_>>()

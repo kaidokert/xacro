@@ -151,7 +151,13 @@ impl XacroContext {
     }
 
     /// Get all included files (for --deps output)
+    ///
+    /// Returns a sorted, deduplicated list of all files included during processing.
+    /// Sorting ensures deterministic output (Python xacro's set() has non-deterministic
+    /// hash-based ordering). This improves on Python's behavior for reproducibility.
     pub fn get_all_includes(&self) -> Vec<PathBuf> {
-        self.all_includes.borrow().clone()
+        let mut includes = self.all_includes.borrow().clone();
+        includes.sort();
+        includes
     }
 }

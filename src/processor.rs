@@ -352,14 +352,8 @@ impl XacroProcessor {
         &self,
         path: P,
     ) -> Result<String, XacroError> {
-        let doc = XacroProcessor::parse_file(&path)?;
-        self.run_impl(
-            doc,
-            path.as_ref()
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new(".")),
-        )
-        .map(|(output, _)| output)
+        // Thin wrapper over run_with_deps that discards dependency list
+        self.run_with_deps(path).map(|(output, _)| output)
     }
 
     /// Process xacro content from a file path and return included files
@@ -389,9 +383,8 @@ impl XacroProcessor {
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
-        let doc = crate::parse::document::XacroDocument::parse(content.as_bytes())?;
-        // Use current directory as base path for any includes in test content
-        self.run_impl(doc, std::path::Path::new("."))
+        // Thin wrapper over run_from_string_with_deps that discards dependency list
+        self.run_from_string_with_deps(content)
             .map(|(output, _)| output)
     }
 
