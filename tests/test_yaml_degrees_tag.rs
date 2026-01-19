@@ -176,10 +176,10 @@ joint_limits:
     // 45*2 = 90 degrees = pi/2 radians = 1.5707963267948966
     let lower_val: f64 = lower
         .parse()
-        .unwrap_or_else(|_| panic!("Failed to parse lower '{}' as f64", lower));
+        .expect(&format!("Failed to parse lower '{}' as f64", lower));
     let upper_val: f64 = upper
         .parse()
-        .unwrap_or_else(|_| panic!("Failed to parse upper '{}' as f64", upper));
+        .expect(&format!("Failed to parse upper '{}' as f64", upper));
 
     let expected = std::f64::consts::PI / 2.0; // 90 degrees in radians
     let epsilon = 1e-6;
