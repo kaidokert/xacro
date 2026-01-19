@@ -1481,9 +1481,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         let mut iteration = 0;
 
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            // Use metadata-aware substitution (substitute_one_pass) instead of eval_text_with_interpreter
-            // This ensures boolean metadata is preserved during intermediate property evaluation
-            // Example: tf_p="${p}/" where p has boolean metadata should preserve "True" not "1"
+            // Use metadata-aware substitution (substitute_one_pass) instead of eval_text_with_interpreter.
+            // This ensures boolean metadata is preserved during intermediate property evaluation.
+            // Example: tf_p="${p}/" where p has boolean metadata should preserve "True" not "1".
+            // Note: substitute_one_pass creates a fresh interpreter internally, maintaining proper scoping.
             let next = self.substitute_one_pass(&result, properties)?;
 
             // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
