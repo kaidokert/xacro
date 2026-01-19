@@ -1483,7 +1483,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
             // Use metadata-aware substitution (substitute_one_pass) instead of eval_text_with_interpreter
             // This ensures boolean metadata is preserved during intermediate property evaluation
-            // Fix for: https://github.com/kaidokert/xacro/issues/XXX
             // Example: tf_p="${p}/" where p has boolean metadata should preserve "True" not "1"
             let next = self.substitute_one_pass(&result, properties)?;
 
