@@ -951,12 +951,17 @@ pub fn build_pyisheval_context(
             // Load dict/list/tuple literals into interpreter so lambdas can reference them
             // They'll be properly evaluated as Python expressions in the second pass
             if trimmed.starts_with('{') || trimmed.starts_with('[') || trimmed.starts_with('(') {
-                // Load into interpreter environment for lambda closure
+                // Try to load as Python literal into interpreter environment for lambda closure
                 if let Err(e) = interp.eval(&format!("{} = {}", name, trimmed)) {
                     log::warn!(
-                        "Could not load property '{}' with value '{}' into interpreter for lambdas: {}. Lambdas referencing it may fail.",
+                        "Could not load property '{}' with value '{}' into interpreter as Python literal: {}. \
+                         Loading as string fallback to prevent 'Undefined variable' in lambdas.",
                         name, value, e
                     );
+                    // Fallback: load as string literal so the variable is at least defined
+                    // This prevents "Undefined variable" errors in lambdas that reference it
+                    let escaped = escape_python_string(value);
+                    let _ = interp.eval(&format!("{} = '{}'", name, escaped));
                 }
                 continue;
             }
