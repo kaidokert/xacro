@@ -670,11 +670,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         name: String,
         value: String,
     ) {
-        // DEBUG: Logging escape hatch for property storage investigation
-        if std::env::var("RUST_XACRO_DEBUG_PROPERTIES").is_ok() {
-            eprintln!("[DEBUG] add_raw_property: {} = {:?}", name, value);
-        }
-
         #[cfg(feature = "compat")]
         {
             let metadata = self.compute_property_metadata(&value);
