@@ -542,8 +542,8 @@ fn expand_element(
                         name, e, raw_value
                     );
                     // Return error instead of silently falling through
-                    return Err(XacroError::Include(format!(
-                        "Corrupted lazy property '{}': failed to parse XML: {}",
+                    return Err(XacroError::InvalidXml(format!(
+                        "Corrupted lazy property '{}': failed to parse stored XML fragment: {}",
                         name, e
                     )));
                 }
