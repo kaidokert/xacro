@@ -133,7 +133,7 @@ impl FindExtension {
     ///
     /// Format: `pkg1=/path1<SEP>pkg2=/path2` where `<SEP>` is `:` on Unix, `;` on Windows.
     ///
-    /// ROS package names follow Python identifier rules: `[a-z][a-z0-9_]*`
+    /// ROS package names follow Python identifier rules: `[a-zA-Z][a-zA-Z0-9_]*`
     /// This allows us to identify package boundaries even when paths contain separators.
     ///
     /// Algorithm:
@@ -153,6 +153,11 @@ impl FindExtension {
 
         // Find all entry start positions: <separator><name>= or ^<name>=
         // These mark the beginning of each "name=path" entry
+        //
+        // Note: Entries with invalid package names are silently skipped,
+        // while entries with valid names are still parsed. This allows
+        // partial parsing of mixed valid/invalid input (e.g., "123foo=/bad:bar=/good"
+        // will parse only the "bar" entry).
         let mut entry_starts = Vec::new();
         let bytes = input.as_bytes();
 
@@ -173,6 +178,11 @@ impl FindExtension {
 
         // If we found no valid entries, fall back to simple split
         // This handles the common case where there's only one entry or simple paths
+        //
+        // Note: This fallback is used when the input contains NO valid ROS package
+        // name patterns (e.g., "123foo=/path" or "=/path"). In this case, paths
+        // with colons will NOT be correctly parsed and may be incorrectly split.
+        // This is acceptable since the input itself is malformed (invalid package names).
         if entry_starts.is_empty() {
             return input
                 .split(PATH_LIST_SEPARATOR)
