@@ -201,12 +201,8 @@ fn process_single_include(
         *ctx.base_path.borrow_mut() = new_base_path;
         ctx.include_stack.borrow_mut().push(file_path.clone());
 
-        // Track included file (deduplicate at library level for consistent behavior)
-        let mut all_includes = ctx.all_includes.borrow_mut();
-        if !all_includes.contains(&file_path) {
-            all_includes.push(file_path.clone());
-        }
-        drop(all_includes);
+        // Track included file. Deduplication is handled by get_all_includes().
+        ctx.all_includes.borrow_mut().push(file_path.clone());
 
         ctx.namespace_stack
             .borrow_mut()

@@ -1,5 +1,3 @@
-mod common;
-
 use assert_cmd::Command;
 use std::collections::HashSet;
 
