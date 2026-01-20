@@ -6,8 +6,11 @@
 /// Trait for handling custom YAML tags during parsing
 ///
 /// Implementors can provide custom behavior for YAML tags like `!degrees`, `!radians`, etc.
-/// The handler receives the raw string value from the YAML document and returns a Python
+/// The handler receives a string representation of the tagged value and returns a Python
 /// expression string that will be evaluated later.
+///
+/// **Important**: Handlers only receive scalar values (integers, floats, strings).
+/// Tags applied to sequences or mappings are not passed to handlers, matching Python xacro behavior.
 ///
 /// # Examples
 ///
@@ -37,7 +40,7 @@ pub trait YamlTagHandler {
     ///
     /// # Arguments
     /// * `tag` - The tag suffix (e.g., "degrees" from "!degrees")
-    /// * `raw_value` - The raw string representation of the value
+    /// * `raw_value` - The string representation of the scalar value (integer, float, or string text)
     ///
     /// # Returns
     /// * `Some(String)` - Python expression string to use as the value
@@ -48,6 +51,8 @@ pub trait YamlTagHandler {
     /// by pyisheval. For numeric literals, return the converted value as a string.
     /// For expressions (e.g., "45*2"), wrap them with conversion factor if needed.
     /// For string values, the handler is responsible for proper quoting if needed.
+    ///
+    /// Handlers only receive scalar values. Tags on sequences/mappings are filtered out upstream.
     fn handle_tag(
         &self,
         tag: &str,

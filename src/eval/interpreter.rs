@@ -648,16 +648,32 @@ fn yaml_to_python_literal(
             Ok(format!("{{{}}}", entries?.join(", ")))
         }
         Yaml::Tagged(tag, inner) => {
+            // Python xacro only supports tags on scalar values (not sequences/mappings)
+            // Check if inner is a complex type and handle accordingly
+            if matches!(&*inner, Yaml::Sequence(_) | Yaml::Mapping(_)) {
+                log::warn!(
+                    "YAML tag '!{}' applied to non-scalar value (sequence/mapping) at '{}' - Python xacro does not support this. Value will be used without conversion.",
+                    tag.suffix, path
+                );
+                // Convert to literal without applying tag handler
+                return yaml_to_python_literal(
+                    *inner,
+                    path,
+                    #[cfg(feature = "yaml")]
+                    yaml_tag_handler_registry,
+                );
+            }
+
             // Check if inner is a string scalar for fallback handling
             let is_string_scalar = matches!(&*inner, Yaml::Value(Scalar::String(_)));
 
-            // Extract raw string value for handler
+            // Extract raw string value for handler (only scalars reach here)
             let raw_value = match &*inner {
                 Yaml::Value(Scalar::Integer(i)) => i.to_string(),
                 Yaml::Value(Scalar::FloatingPoint(f)) => f.to_string(),
                 Yaml::Value(Scalar::String(s)) => s.to_string(),
                 _ => {
-                    // For complex values, convert to literal first and let handler process it
+                    // Should not reach here due to check above, but handle gracefully
                     yaml_to_python_literal(
                         *inner,
                         path,
@@ -667,7 +683,7 @@ fn yaml_to_python_literal(
                 }
             };
 
-            // Try registered handlers
+            // Try registered handlers (only for scalar values)
             #[cfg(feature = "yaml")]
             if let Some(registry) = yaml_tag_handler_registry {
                 if let Some(result) = registry.handle_tag(&tag.suffix, &raw_value) {
@@ -686,7 +702,7 @@ fn yaml_to_python_literal(
                 let escaped = escape_python_string(&raw_value);
                 Ok(format!("'{}'", escaped))
             } else {
-                // Numeric or complex values pass through unquoted
+                // Numeric values pass through unquoted
                 Ok(raw_value)
             }
         }

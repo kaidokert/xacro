@@ -351,3 +351,63 @@ test_values:
         link2_name
     );
 }
+
+#[test]
+#[cfg(feature = "yaml")]
+fn test_degrees_tag_without_ros_yaml_units_does_not_convert() {
+    // Verify that without with_ros_yaml_units(), the !degrees tag is NOT converted
+    // This proves the opt-in behavior works correctly
+    let yaml_content = r#"
+joint_limits:
+  shoulder_pan_joint:
+    max_position: !degrees  360.0
+    min_position: !degrees -360.0
+"#;
+    let mut yaml_file = NamedTempFile::new().expect("Failed to create temp YAML file");
+    yaml_file
+        .as_file_mut()
+        .write_all(yaml_content.as_bytes())
+        .expect("Failed to write YAML file");
+    yaml_file
+        .as_file_mut()
+        .flush()
+        .expect("Failed to flush YAML file");
+
+    let input = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="config" value="${{xacro.load_yaml('{}')}}" />
+  <xacro:property name="limits" value="${{config['joint_limits']['shoulder_pan_joint']}}" />
+
+  <!-- Without ROS YAML units, should output degrees unchanged -->
+  <joint name="shoulder_pan_joint" type="revolute">
+    <limit lower="${{limits['min_position']}}"
+           upper="${{limits['max_position']}}"/>
+  </joint>
+</robot>"#,
+        yaml_file.path().display()
+    );
+
+    // Use plain run_xacro (no ROS YAML units enabled)
+    let output = run_xacro(&input);
+    let root = parse_xml(&output);
+    let joint = find_child(&root, "joint");
+    let limit = find_child(joint, "limit");
+
+    let lower = get_attr(limit, "lower");
+    let upper = get_attr(limit, "upper");
+
+    // Values should remain in degrees (NOT converted to radians)
+    // -360 degrees should be -360, not -6.28...
+    //  360 degrees should be  360, not  6.28...
+    assert!(
+        lower.starts_with("-360"),
+        "Expected lower limit in degrees (-360), got: {}",
+        lower
+    );
+    assert!(
+        upper.starts_with("360"),
+        "Expected upper limit in degrees (360), got: {}",
+        upper
+    );
+}
