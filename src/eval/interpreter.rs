@@ -585,6 +585,7 @@ fn escape_python_string(s: &str) -> String {
 fn yaml_to_python_literal(
     value: Yaml,
     path: &str,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, crate::error::XacroError> {
     match value {
         Yaml::Value(scalar) => match scalar {
@@ -606,7 +607,7 @@ fn yaml_to_python_literal(
         Yaml::Sequence(seq) => {
             let elements: Result<Vec<String>, _> = seq
                 .into_iter()
-                .map(|v| yaml_to_python_literal(v, path))
+                .map(|v| yaml_to_python_literal(v, path, yaml_tag_handler_registry))
                 .collect();
             Ok(format!("[{}]", elements?.join(", ")))
         }
@@ -619,79 +620,97 @@ fn yaml_to_python_literal(
                             let escaped = escape_python_string(s);
                             format!("'{}'", escaped)
                         }
-                        _ => yaml_to_python_literal(k, path)?, // Non-string keys
+                        _ => yaml_to_python_literal(
+                            k,
+                            path,
+                            #[cfg(feature = "yaml")]
+                            yaml_tag_handler_registry,
+                        )?, // Non-string keys
                     };
-                    let value_str = yaml_to_python_literal(v, path)?;
+                    let value_str = yaml_to_python_literal(
+                        v,
+                        path,
+                        #[cfg(feature = "yaml")]
+                        yaml_tag_handler_registry,
+                    )?;
                     Ok(format!("{}: {}", key_str, value_str))
                 })
                 .collect();
             Ok(format!("{{{}}}", entries?.join(", ")))
         }
         Yaml::Tagged(tag, inner) => {
-            // Handle YAML custom tags for unit conversions
-            // Matches Python xacro's ConstructUnits behavior
-            let conversion_factor = match tag.suffix.as_str() {
-                // Angle units
-                "radians" => 1.0,
-                "degrees" => core::f64::consts::PI / 180.0,
-                // Length units
-                "meters" => 1.0,
-                "millimeters" => 0.001,
-                "foot" => 0.3048,
-                "inches" => 0.0254,
-                // Unknown tag - warn and pass through the value
-                _ => {
-                    log::warn!(
-                        "Unknown YAML tag '!{}' - value will be used without conversion",
-                        tag.suffix
-                    );
-                    return yaml_to_python_literal(*inner, path);
+            // Python xacro only supports tags on scalar values (not sequences/mappings)
+            // Check if inner is a complex type and handle accordingly
+            if matches!(&*inner, Yaml::Sequence(_) | Yaml::Mapping(_)) {
+                log::warn!(
+                    "YAML tag '!{}' applied to non-scalar value (sequence/mapping) at '{}' - Python xacro does not support this. Value will be used without conversion.",
+                    tag.suffix, path
+                );
+                // Convert to literal without applying tag handler
+                return yaml_to_python_literal(
+                    *inner,
+                    path,
+                    #[cfg(feature = "yaml")]
+                    yaml_tag_handler_registry,
+                );
+            }
+
+            // Check if inner is a string scalar for fallback handling
+            let is_string_scalar = matches!(&*inner, Yaml::Value(Scalar::String(_)));
+
+            // Extract raw string value for handler (only scalars reach here)
+            let raw_value = match &*inner {
+                Yaml::Value(Scalar::Integer(i)) => i.to_string(),
+                Yaml::Value(Scalar::FloatingPoint(f)) => f.to_string(),
+                Yaml::Value(Scalar::String(s)) => s.to_string(),
+                Yaml::Value(Scalar::Null) => "None".to_string(),
+                Yaml::Value(Scalar::Boolean(b)) => {
+                    if *b {
+                        "True".to_string()
+                    } else {
+                        "False".to_string()
+                    }
                 }
+                // Fallback for edge cases like Representation, Alias, BadValue
+                _ => yaml_to_python_literal(
+                    *inner,
+                    path,
+                    #[cfg(feature = "yaml")]
+                    yaml_tag_handler_registry,
+                )?,
             };
 
-            // Extract numeric value and apply conversion
-            match *inner {
-                Yaml::Value(Scalar::Integer(i)) => {
-                    let result = (i as f64) * conversion_factor;
-                    Ok(result.to_string())
+            // Try registered handlers (only for scalar values)
+            #[cfg(feature = "yaml")]
+            if let Some(registry) = yaml_tag_handler_registry {
+                if let Some(result) = registry.handle_tag(&tag.suffix, &raw_value) {
+                    return Ok(result);
                 }
-                Yaml::Value(Scalar::FloatingPoint(f)) => {
-                    let result = f * conversion_factor;
-                    Ok(result.to_string())
-                }
-                Yaml::Value(Scalar::String(s)) => {
-                    // Handle string values that might be numeric or expressions
-                    let trimmed = s.trim();
-                    // Try parsing as numeric first
-                    if let Ok(num) = trimmed.parse::<f64>() {
-                        let result = num * conversion_factor;
-                        Ok(result.to_string())
-                    } else {
-                        // Treat as expression - don't quote, just apply conversion
-                        if conversion_factor == 1.0 {
-                            Ok(trimmed.to_string())
-                        } else {
-                            Ok(format!("({})*{}", trimmed, conversion_factor))
-                        }
-                    }
-                }
-                // For other non-numeric values with unit tags, evaluate the expression first
-                _ => {
-                    // Get the value as a string, which might be an expression
-                    let value_str = yaml_to_python_literal(*inner, path)?;
-                    // Return as expression: value * conversion_factor
-                    // This allows expressions like "!degrees 45*2" to work
-                    if conversion_factor == 1.0 {
-                        Ok(value_str)
-                    } else {
-                        Ok(format!("({})*{}", value_str, conversion_factor))
-                    }
-                }
+            }
+
+            // No handler matched - warn and pass through value as-is
+            log::warn!(
+                "Unknown YAML tag '!{}' - value will be used without conversion",
+                tag.suffix
+            );
+
+            // If it's a string scalar, quote it properly for Python evaluation
+            if is_string_scalar {
+                let escaped = escape_python_string(&raw_value);
+                Ok(format!("'{}'", escaped))
+            } else {
+                // Numeric values pass through unquoted
+                Ok(raw_value)
             }
         }
         Yaml::Representation(repr, _style, _tag) => {
             // Handle unresolved representations - parse as scalar value
-            yaml_to_python_literal(Yaml::value_from_str(&repr), path)
+            yaml_to_python_literal(
+                Yaml::value_from_str(&repr),
+                path,
+                #[cfg(feature = "yaml")]
+                yaml_tag_handler_registry,
+            )
         }
         Yaml::Alias(_) => Err(crate::error::XacroError::YamlParseError {
             path: path.to_string(),
@@ -715,7 +734,10 @@ fn yaml_to_python_literal(
 ///
 /// # Errors
 /// Returns error if file cannot be read or YAML is invalid
-fn load_yaml_file(path: &str) -> Result<String, crate::error::XacroError> {
+fn load_yaml_file(
+    path: &str,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
+) -> Result<String, crate::error::XacroError> {
     // Read file contents
     let contents = std::fs::read_to_string(path).map_err(|source| {
         crate::error::XacroError::YamlLoadError {
@@ -741,7 +763,12 @@ fn load_yaml_file(path: &str) -> Result<String, crate::error::XacroError> {
             })?;
 
     // Convert to Python literal
-    yaml_to_python_literal(yaml_value, path)
+    yaml_to_python_literal(
+        yaml_value,
+        path,
+        #[cfg(feature = "yaml")]
+        yaml_tag_handler_registry,
+    )
 }
 
 #[cfg(feature = "yaml")]
@@ -785,6 +812,7 @@ fn preprocess_load_yaml(
     expr: &str,
     interp: &mut Interpreter,
     context: &HashMap<String, Value>,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, EvalError> {
     let regex = get_load_yaml_regex();
     let mut result = expr.to_string();
@@ -856,10 +884,13 @@ fn preprocess_load_yaml(
             };
 
             // Load YAML and convert to Python literal
-            let python_literal = load_yaml_file(&filename).map_err(|e| EvalError::PyishEval {
-                expr: format!("load_yaml('{}')", filename),
-                source: pyisheval::EvalError::ParseError(e.to_string()),
-            })?;
+            let python_literal =
+                load_yaml_file(&filename, yaml_tag_handler_registry).map_err(|e| {
+                    EvalError::PyishEval {
+                        expr: format!("load_yaml('{}')", filename),
+                        source: pyisheval::EvalError::ParseError(e.to_string()),
+                    }
+                })?;
 
             // Replace load_yaml(...) with dict literal (from start of match to closing paren)
             result.replace_range(whole_match.start()..=close_pos, &python_literal);
@@ -1273,10 +1304,13 @@ pub fn build_pyisheval_context(
 ///   1. pyisheval doesn't support object.method syntax
 ///   2. This is a debug-only function with no production use
 ///   3. We're not implementing the full debug functionality
-pub fn evaluate_expression(
+pub(crate) fn evaluate_expression_impl(
     interp: &mut Interpreter,
     expr: &str,
     context: &HashMap<String, Value>,
+    #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
+        &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
+    >,
 ) -> Result<Option<Value>, pyisheval::EvalError> {
     let trimmed_expr = expr.trim();
     if trimmed_expr == "xacro.print_location()" {
@@ -1296,26 +1330,57 @@ pub fn evaluate_expression(
     // Preprocess load_yaml() calls.
     // If the 'yaml' feature is enabled, this loads YAML files and replaces load_yaml()
     // with dict literals. Otherwise, it returns an error if load_yaml() is used.
-    let preprocessed =
-        preprocess_load_yaml(&preprocessed, interp, context).map_err(|e| match e {
-            EvalError::PyishEval { source, .. } => source,
-            _ => pyisheval::EvalError::ParseError(e.to_string()),
-        })?;
+    let preprocessed = preprocess_load_yaml(
+        &preprocessed,
+        interp,
+        context,
+        #[cfg(feature = "yaml")]
+        yaml_tag_handler_registry,
+    )
+    .map_err(|e| match e {
+        EvalError::PyishEval { source, .. } => source,
+        _ => pyisheval::EvalError::ParseError(e.to_string()),
+    })?;
 
     interp.eval_with_context(&preprocessed, context).map(Some)
 }
 
-/// Evaluate text containing ${...} expressions using a provided interpreter
+/// Evaluate a single expression using the given interpreter and context
 ///
-/// This version allows reusing an Interpreter instance for better performance
-/// when processing multiple text blocks with the same properties context.
+/// This is the public API for expression evaluation. For internal use with YAML tag
+/// handler registry, use `evaluate_expression_impl` instead.
 ///
-/// Takes a mutable reference to ensure lambdas are created in the same
-/// interpreter context where they'll be evaluated.
-pub fn eval_text_with_interpreter(
+/// # Arguments
+/// * `interp` - The interpreter instance
+/// * `expr` - The expression to evaluate
+/// * `context` - The evaluation context (properties as pyisheval Values)
+///
+/// # Returns
+/// * `Ok(Some(value))` - Normal expression evaluated successfully
+/// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
+/// * `Err(e)` - Evaluation error
+pub fn evaluate_expression(
+    interp: &mut Interpreter,
+    expr: &str,
+    context: &HashMap<String, Value>,
+) -> Result<Option<Value>, pyisheval::EvalError> {
+    evaluate_expression_impl(
+        interp,
+        expr,
+        context,
+        #[cfg(feature = "yaml")]
+        None,
+    )
+}
+
+/// Internal implementation of text evaluation with optional YAML tag handler registry
+fn eval_text_with_interpreter_impl(
     text: &str,
     properties: &HashMap<String, String>,
     interp: &mut Interpreter,
+    #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
+        &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
+    >,
 ) -> Result<String, EvalError> {
     // Build context for pyisheval (may fail if lambdas have errors)
     // This loads properties into the interpreter and evaluates lambda expressions
@@ -1334,7 +1399,13 @@ pub fn eval_text_with_interpreter(
             }
             TokenType::Expr => {
                 // Evaluate expression using centralized helper
-                match evaluate_expression(interp, &token_value, &context) {
+                match evaluate_expression_impl(
+                    interp,
+                    &token_value,
+                    &context,
+                    #[cfg(feature = "yaml")]
+                    yaml_tag_handler_registry,
+                ) {
                     Ok(Some(value)) => {
                         #[cfg(feature = "compat")]
                         let value_str = format_value_python_style(&value, false);
@@ -1367,6 +1438,27 @@ pub fn eval_text_with_interpreter(
     }
 
     Ok(result.join(""))
+}
+
+/// Evaluate text containing ${...} expressions using a provided interpreter
+///
+/// This version allows reusing an Interpreter instance for better performance
+/// when processing multiple text blocks with the same properties context.
+///
+/// Takes a mutable reference to ensure lambdas are created in the same
+/// interpreter context where they'll be evaluated.
+pub fn eval_text_with_interpreter(
+    text: &str,
+    properties: &HashMap<String, String>,
+    interp: &mut Interpreter,
+) -> Result<String, EvalError> {
+    eval_text_with_interpreter_impl(
+        text,
+        properties,
+        interp,
+        #[cfg(feature = "yaml")]
+        None,
+    )
 }
 
 /// Apply Python xacro's STRICT string truthiness rules

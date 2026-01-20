@@ -93,6 +93,9 @@ pub struct XacroProcessor {
     compat_mode: CompatMode,
     /// Extension handlers for $(command args...) resolution
     extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+    /// YAML tag handlers for custom tags (e.g., !degrees, !millimeters)
+    #[cfg(feature = "yaml")]
+    yaml_tag_handlers: Rc<crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 }
 
 /// Builder for configuring XacroProcessor with custom settings.
@@ -114,6 +117,8 @@ pub struct XacroBuilder {
     max_recursion_depth: usize,
     compat_mode: CompatMode,
     extensions: Option<Vec<Box<dyn ExtensionHandler>>>,
+    #[cfg(feature = "yaml")]
+    yaml_tag_handlers: Option<crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 }
 
 impl XacroBuilder {
@@ -124,6 +129,8 @@ impl XacroBuilder {
             max_recursion_depth: XacroContext::DEFAULT_MAX_DEPTH,
             compat_mode: CompatMode::none(),
             extensions: None, // None = use default extensions
+            #[cfg(feature = "yaml")]
+            yaml_tag_handlers: None, // None = empty registry (no default handlers)
         }
     }
 
@@ -277,6 +284,50 @@ impl XacroBuilder {
         self
     }
 
+    /// Register a YAML tag handler
+    ///
+    /// Handlers are tried in registration order. Register more specific handlers
+    /// before more general ones.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_yaml_tag_handler(Box::new(MyHandler))
+    ///     .build();
+    /// ```
+    #[cfg(feature = "yaml")]
+    pub fn with_yaml_tag_handler(
+        mut self,
+        handler: crate::eval::yaml_tag_handler::DynYamlTagHandler,
+    ) -> Self {
+        self.yaml_tag_handlers
+            .get_or_insert_with(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new)
+            .register(handler);
+        self
+    }
+
+    /// Enable ROS unit conversions (degrees, radians, millimeters, etc.)
+    ///
+    /// This is a convenience method for ROS users. Registers the RosUnitTagHandler
+    /// which handles standard ROS unit tags like !degrees, !millimeters, etc.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use xacro::XacroProcessor;
+    ///
+    /// let processor = XacroProcessor::builder()
+    ///     .with_ros_yaml_units()
+    ///     .build();
+    /// ```
+    #[cfg(feature = "yaml")]
+    pub fn with_ros_yaml_units(self) -> Self {
+        self.with_yaml_tag_handler(Box::new(
+            crate::extensions::ros_yaml_handlers::RosUnitTagHandler::new(),
+        ))
+    }
+
     /// Build the XacroProcessor with the configured settings.
     pub fn build(self) -> XacroProcessor {
         let extensions = Rc::new(self.extensions.unwrap_or_else(Self::default_extensions));
@@ -286,6 +337,8 @@ impl XacroBuilder {
             args: self.args,
             compat_mode: self.compat_mode,
             extensions,
+            #[cfg(feature = "yaml")]
+            yaml_tag_handlers: Rc::new(self.yaml_tag_handlers.unwrap_or_default()),
         }
     }
 
@@ -439,6 +492,8 @@ impl XacroProcessor {
             args_rc,
             self.compat_mode,
             self.extensions.clone(),
+            #[cfg(feature = "yaml")]
+            self.yaml_tag_handlers.clone(), // Rc clone is cheap
         );
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 

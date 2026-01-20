@@ -1,6 +1,6 @@
 use super::interpreter::{
-    build_pyisheval_context, eval_boolean, evaluate_expression, format_value_python_style,
-    init_interpreter, remove_quotes,
+    build_pyisheval_context, eval_boolean, format_value_python_style, init_interpreter,
+    remove_quotes,
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
@@ -106,6 +106,11 @@ pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Handlers are called in order until one returns Some(result)
     // Wrapped in Rc for efficient sharing without cloning
     extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+    // YAML tag handler registry for custom YAML tags (e.g., !degrees, !millimeters)
+    // Handlers are injected at runtime, not compile-time feature-gated
+    // Wrapped in Rc for efficient sharing without cloning (trait objects can't be cloned)
+    #[cfg(feature = "yaml")]
+    yaml_tag_handler_registry: Rc<crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
     // Python-compatible number formatting (compat feature)
     #[cfg(feature = "compat")]
     use_python_compat: bool,
@@ -296,20 +301,29 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
         let extensions = Rc::new(default_extensions());
-        Self::new_with_extensions(args, extensions)
+        Self::new_with_extensions(
+            args,
+            extensions,
+            #[cfg(feature = "yaml")]
+            Rc::new(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new()),
+        )
     }
 
     /// Create a new EvalContext with custom extensions
     ///
-    /// This constructor allows providing custom extension handlers,
+    /// This constructor allows providing custom extension handlers and YAML tag handlers,
     /// which is used when XacroProcessor is configured with custom extensions.
     ///
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
     /// * `extensions` - Custom extension handlers (wrapped in Rc for sharing)
+    /// * `yaml_tag_handlers` - YAML tag handler registry (wrapped in Rc for sharing)
     pub fn new_with_extensions(
         args: Rc<RefCell<HashMap<String, String>>>,
         extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+        #[cfg(feature = "yaml")] yaml_tag_handlers: Rc<
+            crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
+        >,
     ) -> Self {
         Self {
             raw_properties: RefCell::new(HashMap::new()),
@@ -318,6 +332,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             scope_stack: RefCell::new(Vec::new()),
             args,
             extensions,
+            #[cfg(feature = "yaml")]
+            yaml_tag_handler_registry: yaml_tag_handlers,
             #[cfg(feature = "compat")]
             use_python_compat: true, // Enabled by default when compat feature is active
             #[cfg(feature = "compat")]
@@ -1096,14 +1112,20 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 }
                 TokenType::Expr => {
                     // Evaluate expression using centralized helper with fresh interpreter
-                    let value_opt = evaluate_expression(&mut fresh_interp, &token_value, &context)
-                        .map_err(|e| XacroError::EvalError {
+                    let value_opt = crate::eval::interpreter::evaluate_expression_impl(
+                        &mut fresh_interp,
+                        &token_value,
+                        &context,
+                        #[cfg(feature = "yaml")]
+                        Some(&self.yaml_tag_handler_registry),
+                    )
+                    .map_err(|e| XacroError::EvalError {
+                        expr: token_value.clone(),
+                        source: crate::eval::EvalError::PyishEval {
                             expr: token_value.clone(),
-                            source: crate::eval::EvalError::PyishEval {
-                                expr: token_value.clone(),
-                                source: e,
-                            },
-                        })?;
+                            source: e,
+                        },
+                    })?;
 
                     // Handle result
                     match value_opt {
