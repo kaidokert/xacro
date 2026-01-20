@@ -8,17 +8,21 @@ fn test_deps_with_includes() {
         .run_with_deps("tests/data/include_test_multi_base.xacro")
         .expect("Failed to get deps");
 
-    // Should include both files
+    // Should include both files in sorted order (deterministic)
     assert_eq!(includes.len(), 2);
 
-    // Check that both files are in the list (order may vary)
+    // Assert exact sorted order (library guarantees sorted output)
     let include_strs: Vec<String> = includes.iter().map(|p| p.display().to_string()).collect();
-    assert!(include_strs
-        .iter()
-        .any(|s| s.contains("include_test_multi_wheels.xacro")));
-    assert!(include_strs
-        .iter()
-        .any(|s| s.contains("include_test_multi_arms.xacro")));
+    assert!(
+        include_strs[0].contains("include_test_multi_arms.xacro"),
+        "First include should be arms file, got: {:?}",
+        include_strs
+    );
+    assert!(
+        include_strs[1].contains("include_test_multi_wheels.xacro"),
+        "Second include should be wheels file, got: {:?}",
+        include_strs
+    );
 }
 
 #[test]
@@ -52,26 +56,19 @@ fn test_deps_with_nested_includes() {
         .run_with_deps("tests/data/include_test_nested_base.xacro")
         .expect("Failed to get deps for nested includes test");
 
-    // Should include exactly both arm and hand files
+    // Should include exactly both arm and hand files in sorted order (deterministic)
     assert_eq!(includes.len(), 2);
 
+    // Assert exact sorted order (library guarantees sorted output)
     let include_strs: Vec<String> = includes.iter().map(|p| p.display().to_string()).collect();
-
-    // Check for arm file
     assert!(
-        include_strs
-            .iter()
-            .any(|s| s.contains("include_test_nested_arm.xacro")),
-        "Should include arm file, got: {:?}",
+        include_strs[0].contains("include_test_nested_arm.xacro"),
+        "First include should be arm file, got: {:?}",
         include_strs
     );
-
-    // Check for hand file
     assert!(
-        include_strs
-            .iter()
-            .any(|s| s.contains("include_test_nested_hand.xacro")),
-        "Should include hand file, got: {:?}",
+        include_strs[1].contains("include_test_nested_hand.xacro"),
+        "Second include should be hand file, got: {:?}",
         include_strs
     );
 }
@@ -221,10 +218,10 @@ fn cli_deps_no_includes_empty_output() {
     let stdout = String::from_utf8(assert.get_output().stdout.clone())
         .expect("stdout should be valid UTF-8");
 
-    // Should output empty line (or just newline)
+    // Should output empty string (no trailing newline, matching Python xacro)
     assert_eq!(
-        stdout, "\n",
-        "Expected empty line for file with no includes, got: {:?}",
+        stdout, "",
+        "Expected empty output for file with no includes, got: {:?}",
         stdout
     );
 }

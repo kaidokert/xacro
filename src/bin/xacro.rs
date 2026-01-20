@@ -154,12 +154,13 @@ fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
 
         // Output space-separated list of included files (matches Python xacro behavior)
+        // Note: Python xacro outputs WITHOUT trailing newline
         let deps_str = includes
             .iter()
             .map(|p| p.display().to_string())
             .collect::<Vec<_>>()
             .join(" ");
-        println!("{}", deps_str);
+        print!("{}", deps_str);
         return Ok(());
     }
 
