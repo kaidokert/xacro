@@ -150,4 +150,15 @@ mod tests {
         let value: f64 = result.unwrap().parse().expect("Should be numeric");
         assert!((value - 0.3048).abs() < 1e-10);
     }
+
+    #[test]
+    fn test_empty_value_returns_none() {
+        let handler = RosUnitTagHandler::new();
+        // Empty string should return None (prevents invalid Python syntax)
+        assert_eq!(handler.handle_tag("degrees", ""), None);
+        // Whitespace-only should return None
+        assert_eq!(handler.handle_tag("degrees", "   "), None);
+        assert_eq!(handler.handle_tag("millimeters", " \t "), None);
+        assert_eq!(handler.handle_tag("radians", "\n"), None);
+    }
 }

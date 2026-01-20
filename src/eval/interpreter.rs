@@ -585,9 +585,7 @@ fn escape_python_string(s: &str) -> String {
 fn yaml_to_python_literal(
     value: Yaml,
     path: &str,
-    #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
-        &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
-    >,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, crate::error::XacroError> {
     match value {
         Yaml::Value(scalar) => match scalar {
@@ -609,14 +607,7 @@ fn yaml_to_python_literal(
         Yaml::Sequence(seq) => {
             let elements: Result<Vec<String>, _> = seq
                 .into_iter()
-                .map(|v| {
-                    yaml_to_python_literal(
-                        v,
-                        path,
-                        #[cfg(feature = "yaml")]
-                        yaml_tag_handler_registry,
-                    )
-                })
+                .map(|v| yaml_to_python_literal(v, path, yaml_tag_handler_registry))
                 .collect();
             Ok(format!("[{}]", elements?.join(", ")))
         }
@@ -745,9 +736,7 @@ fn yaml_to_python_literal(
 /// Returns error if file cannot be read or YAML is invalid
 fn load_yaml_file(
     path: &str,
-    #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
-        &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
-    >,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, crate::error::XacroError> {
     // Read file contents
     let contents = std::fs::read_to_string(path).map_err(|source| {
@@ -823,9 +812,7 @@ fn preprocess_load_yaml(
     expr: &str,
     interp: &mut Interpreter,
     context: &HashMap<String, Value>,
-    #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
-        &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
-    >,
+    yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, EvalError> {
     let regex = get_load_yaml_regex();
     let mut result = expr.to_string();
@@ -897,15 +884,13 @@ fn preprocess_load_yaml(
             };
 
             // Load YAML and convert to Python literal
-            let python_literal = load_yaml_file(
-                &filename,
-                #[cfg(feature = "yaml")]
-                yaml_tag_handler_registry,
-            )
-            .map_err(|e| EvalError::PyishEval {
-                expr: format!("load_yaml('{}')", filename),
-                source: pyisheval::EvalError::ParseError(e.to_string()),
-            })?;
+            let python_literal =
+                load_yaml_file(&filename, yaml_tag_handler_registry).map_err(|e| {
+                    EvalError::PyishEval {
+                        expr: format!("load_yaml('{}')", filename),
+                        source: pyisheval::EvalError::ParseError(e.to_string()),
+                    }
+                })?;
 
             // Replace load_yaml(...) with dict literal (from start of match to closing paren)
             result.replace_range(whole_match.start()..=close_pos, &python_literal);
