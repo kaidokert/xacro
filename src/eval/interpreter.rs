@@ -672,15 +672,21 @@ fn yaml_to_python_literal(
                 Yaml::Value(Scalar::Integer(i)) => i.to_string(),
                 Yaml::Value(Scalar::FloatingPoint(f)) => f.to_string(),
                 Yaml::Value(Scalar::String(s)) => s.to_string(),
-                _ => {
-                    // Handle Null and Boolean scalars (and any other edge cases)
-                    yaml_to_python_literal(
-                        *inner,
-                        path,
-                        #[cfg(feature = "yaml")]
-                        yaml_tag_handler_registry,
-                    )?
+                Yaml::Value(Scalar::Null) => "None".to_string(),
+                Yaml::Value(Scalar::Boolean(b)) => {
+                    if *b {
+                        "True".to_string()
+                    } else {
+                        "False".to_string()
+                    }
                 }
+                // Fallback for edge cases like Representation, Alias, BadValue
+                _ => yaml_to_python_literal(
+                    *inner,
+                    path,
+                    #[cfg(feature = "yaml")]
+                    yaml_tag_handler_registry,
+                )?,
             };
 
             // Try registered handlers (only for scalar values)
