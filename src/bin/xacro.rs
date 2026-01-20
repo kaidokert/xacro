@@ -127,11 +127,6 @@ fn main() -> anyhow::Result<()> {
         log::warn!("in-order processing became default in ROS Melodic. You can drop the option.");
     }
 
-    if args.deps {
-        // TODO: Implement dependency tracking
-        anyhow::bail!("--deps flag not yet implemented");
-    }
-
     // Parse mappings (key:=value arguments for xacro:arg)
     let mappings = args.parse_mappings();
 
@@ -151,6 +146,23 @@ fn main() -> anyhow::Result<()> {
         .with_extension(Box::new(xacro::extensions::ros::FindExtension::new()))
         .with_extension(Box::new(xacro::extensions::ros::OptEnvExtension::new()))
         .build();
+
+    if args.deps {
+        // Process file and get dependencies (already deduplicated and sorted by library)
+        let (_, includes) = processor
+            .run_with_deps(&args.input)
+            .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
+
+        // Output space-separated list of included files (matches Python xacro behavior)
+        // Note: Python xacro outputs WITHOUT trailing newline
+        let deps_str = includes
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        print!("{}", deps_str);
+        return Ok(());
+    }
 
     let result = processor
         .run(&args.input)

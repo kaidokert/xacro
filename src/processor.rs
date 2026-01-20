@@ -7,7 +7,7 @@ use crate::{
 use xmltree::XMLNode;
 
 use ::core::{cell::RefCell, str::FromStr};
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 use thiserror::Error;
 
 /// Error type for invalid compatibility mode strings
@@ -352,6 +352,19 @@ impl XacroProcessor {
         &self,
         path: P,
     ) -> Result<String, XacroError> {
+        // Thin wrapper over run_with_deps that discards dependency list
+        self.run_with_deps(path).map(|(output, _)| output)
+    }
+
+    /// Process xacro content from a file path and return included files
+    ///
+    /// Returns a tuple of (processed_output, included_files).
+    /// The included_files list contains paths to all files that were included
+    /// during processing via `<xacro:include>` directives.
+    pub fn run_with_deps<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+    ) -> Result<(String, Vec<PathBuf>), XacroError> {
         let doc = XacroProcessor::parse_file(&path)?;
         self.run_impl(
             doc,
@@ -370,6 +383,24 @@ impl XacroProcessor {
         &self,
         content: &str,
     ) -> Result<String, XacroError> {
+        // Thin wrapper over run_from_string_with_deps that discards dependency list
+        self.run_from_string_with_deps(content)
+            .map(|(output, _)| output)
+    }
+
+    /// Process xacro content from a string and return included files
+    ///
+    /// Returns a tuple of (processed_output, included_files).
+    /// The included_files list contains paths to all files that were included
+    /// during processing via `<xacro:include>` directives.
+    ///
+    /// # Note
+    /// Any `<xacro:include>` directives with relative paths will be resolved
+    /// relative to the current working directory.
+    pub fn run_from_string_with_deps(
+        &self,
+        content: &str,
+    ) -> Result<(String, Vec<PathBuf>), XacroError> {
         let doc = crate::parse::document::XacroDocument::parse(content.as_bytes())?;
         // Use current directory as base path for any includes in test content
         self.run_impl(doc, std::path::Path::new("."))
@@ -380,7 +411,7 @@ impl XacroProcessor {
         &self,
         mut doc: crate::parse::document::XacroDocument,
         base_path: &std::path::Path,
-    ) -> Result<String, XacroError> {
+    ) -> Result<(String, Vec<PathBuf>), XacroError> {
         // Extract xacro namespace from document root (if present)
         // Strategy:
         // 1. Try standard "xacro" prefix (e.g., xmlns:xacro="...")
@@ -436,7 +467,9 @@ impl XacroProcessor {
         // Final cleanup: check for unprocessed xacro elements and remove namespace
         Self::finalize_tree(&mut doc.root, &xacro_ns, &self.compat_mode)?;
 
-        XacroProcessor::serialize(&doc)
+        let output = XacroProcessor::serialize(&doc)?;
+        let includes = ctx.get_all_includes();
+        Ok((output, includes))
     }
 
     fn finalize_tree_children(
