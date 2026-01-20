@@ -4,6 +4,128 @@ use super::parsing::{
 use pyisheval::{Interpreter, Value};
 use std::collections::HashMap;
 
+/// Replace math.pi constants with pi outside string literals
+///
+/// Scans the expression and replaces `math.pi` with `pi` at word boundaries,
+/// respecting string literal boundaries using DelimiterTracker.
+fn replace_math_pi_constants(expr: &str) -> String {
+    let bytes = expr.as_bytes();
+    let mut result = String::with_capacity(expr.len());
+    let mut tracker = DelimiterTracker::new();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Check for math.pi (7 bytes)
+        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"math.pi" {
+            // Verify it's at a word boundary (not part of larger identifier)
+            let after_ok = i + 7 >= bytes.len()
+                || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+
+            // Only replace if we're not in a string literal and at word boundary
+            if !tracker.in_string() && before_ok && after_ok {
+                result.push_str("pi");
+                i += 7; // Skip "math.pi"
+                continue;
+            }
+        }
+
+        // Track delimiter state and append character
+        let ch = bytes[i];
+        tracker.process(ch);
+        result.push(ch as char);
+        i += 1;
+    }
+
+    result
+}
+
+/// Scan for math function calls in an expression
+///
+/// Returns a list of (match_start, func_name, paren_pos) tuples for all
+/// math function calls found outside string literals.
+fn scan_math_functions(expr: &str) -> Vec<(usize, &'static str, usize)> {
+    let result_bytes = expr.as_bytes();
+    let mut function_matches = Vec::new();
+    let mut scan_tracker = DelimiterTracker::new();
+    let mut i = 0;
+
+    while i < result_bytes.len() {
+        scan_tracker.process(result_bytes[i]);
+
+        log::trace!(
+            "[scan] At pos {}, char: {}, in_string: {}",
+            i,
+            result_bytes[i] as char,
+            scan_tracker.in_string()
+        );
+
+        // Only look for functions when not inside string literals
+        if scan_tracker.in_string() {
+            i += 1;
+            continue;
+        }
+
+        // Check for optional "math." prefix
+        let has_prefix = i + 5 <= result_bytes.len() && &result_bytes[i..i + 5] == b"math.";
+        let func_start = if has_prefix { i + 5 } else { i };
+
+        // Check word boundary before function name
+        if func_start > 0 {
+            let prev_ch = result_bytes[func_start - 1];
+            // Skip if part of larger identifier OR custom namespace (e.g., custom.sin)
+            if prev_ch.is_ascii_alphanumeric()
+                || prev_ch == b'_'
+                || (!has_prefix && prev_ch == b'.')
+            {
+                i += 1;
+                continue;
+            }
+        }
+
+        // Try to match supported functions
+        let mut found = None;
+        for &func in SUPPORTED_MATH_FUNCS {
+            let func_bytes = func.as_bytes();
+            let func_end = func_start + func_bytes.len();
+
+            if func_end <= result_bytes.len() && &result_bytes[func_start..func_end] == func_bytes {
+                log::trace!("[scan] Potential match '{}' at pos {}", func, func_start);
+
+                // Look for '(' after function name (skip whitespace)
+                let mut paren_pos = func_end;
+                while paren_pos < result_bytes.len()
+                    && result_bytes[paren_pos].is_ascii_whitespace()
+                {
+                    paren_pos += 1;
+                }
+
+                if paren_pos < result_bytes.len() && result_bytes[paren_pos] == b'(' {
+                    log::trace!("[scan] Confirmed match '{}(' at pos {}", func, func_start);
+                    found = Some((func, paren_pos, i));
+                    break;
+                } else {
+                    log::trace!(
+                        "[scan] No '(' after '{}' at pos {}, char at paren_pos: {:?}",
+                        func,
+                        func_start,
+                        result_bytes.get(paren_pos).map(|&b| b as char)
+                    );
+                }
+            }
+        }
+
+        if let Some((func_name, paren_pos, match_start)) = found {
+            function_matches.push((match_start, func_name, paren_pos));
+            i = paren_pos + 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    function_matches
+}
+
 /// Preprocess an expression to evaluate native math functions
 ///
 /// pyisheval doesn't support native math functions like cos(), sin(), tan().
@@ -51,35 +173,8 @@ pub(super) fn preprocess_math_functions(
         };
     }
 
-    // First pass: Replace math.pi with pi, respecting string boundaries
-    // Walk through string with DelimiterTracker to only replace outside quotes
-    let bytes = expr.as_bytes();
-    let mut result = String::with_capacity(expr.len());
-    let mut tracker = DelimiterTracker::new();
-    let mut i = 0;
-
-    while i < bytes.len() {
-        // Check for math.pi (7 bytes)
-        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"math.pi" {
-            // Verify it's at a word boundary (not part of larger identifier)
-            let after_ok = i + 7 >= bytes.len()
-                || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
-            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-
-            // Only replace if we're not in a string literal and at word boundary
-            if !tracker.in_string() && before_ok && after_ok {
-                result.push_str("pi");
-                i += 7; // Skip "math.pi"
-                continue;
-            }
-        }
-
-        // Track delimiter state and append character
-        let ch = bytes[i];
-        tracker.process(ch);
-        result.push(ch as char);
-        i += 1;
-    }
+    // First pass: Replace math.pi with pi
+    let mut result = replace_math_pi_constants(expr);
 
     // Keep replacing until no more matches (handle nested calls from inside out)
     let mut iteration = 0;
@@ -96,88 +191,8 @@ pub(super) fn preprocess_math_functions(
             });
         }
 
-        // Find all function matches using DelimiterTracker to respect string boundaries
-        // This prevents evaluating functions inside string literals like ${'Print cos(0)'}
-        let result_bytes = result.as_bytes();
-        let mut function_matches: Vec<(usize, &str, usize)> = Vec::new(); // (match_start, func_name, paren_pos)
-        let mut scan_tracker = DelimiterTracker::new();
-        let mut i = 0;
-
-        while i < result_bytes.len() {
-            scan_tracker.process(result_bytes[i]);
-
-            log::trace!(
-                "[scan] At pos {}, char: {}, in_string: {}",
-                i,
-                result_bytes[i] as char,
-                scan_tracker.in_string()
-            );
-
-            // Only look for functions when not inside string literals
-            // We DO want to process functions inside arithmetic parentheses like m*(3*pow(r,2))
-            if scan_tracker.in_string() {
-                i += 1;
-                continue;
-            }
-
-            // Check for optional "math." prefix
-            let has_prefix = i + 5 <= result_bytes.len() && &result_bytes[i..i + 5] == b"math.";
-            let func_start = if has_prefix { i + 5 } else { i };
-
-            // Check word boundary before function name
-            if func_start > 0 {
-                let prev_ch = result_bytes[func_start - 1];
-                // Skip if part of larger identifier OR custom namespace (e.g., custom.sin)
-                if prev_ch.is_ascii_alphanumeric()
-                    || prev_ch == b'_'
-                    || (!has_prefix && prev_ch == b'.')
-                {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            // Try to match supported functions
-            let mut found = None;
-            for &func in SUPPORTED_MATH_FUNCS {
-                let func_bytes = func.as_bytes();
-                let func_end = func_start + func_bytes.len();
-
-                if func_end <= result_bytes.len()
-                    && &result_bytes[func_start..func_end] == func_bytes
-                {
-                    log::trace!("[scan] Potential match '{}' at pos {}", func, func_start);
-
-                    // Look for '(' after function name (skip whitespace)
-                    let mut paren_pos = func_end;
-                    while paren_pos < result_bytes.len()
-                        && result_bytes[paren_pos].is_ascii_whitespace()
-                    {
-                        paren_pos += 1;
-                    }
-
-                    if paren_pos < result_bytes.len() && result_bytes[paren_pos] == b'(' {
-                        log::trace!("[scan] Confirmed match '{}(' at pos {}", func, func_start);
-                        found = Some((func, paren_pos, i));
-                        break;
-                    } else {
-                        log::trace!(
-                            "[scan] No '(' after '{}' at pos {}, char at paren_pos: {:?}",
-                            func,
-                            func_start,
-                            result_bytes.get(paren_pos).map(|&b| b as char)
-                        );
-                    }
-                }
-            }
-
-            if let Some((func_name, paren_pos, match_start)) = found {
-                function_matches.push((match_start, func_name, paren_pos));
-                i = paren_pos + 1;
-            } else {
-                i += 1;
-            }
-        }
+        // Find all function matches
+        let function_matches = scan_math_functions(&result);
 
         if log::log_enabled!(log::Level::Debug) {
             // Avoid logging excessively large expressions: log length and a truncated preview
