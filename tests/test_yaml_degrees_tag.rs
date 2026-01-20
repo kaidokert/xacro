@@ -45,7 +45,7 @@ joint_limits:
         yaml_file.path().display()
     );
 
-    let output = run_xacro(&input);
+    let output = run_xacro_with_yaml(&input);
     let root = parse_xml(&output);
     let joint = find_child(&root, "joint");
     let limit = find_child(joint, "limit");
@@ -110,7 +110,7 @@ joint_limits:
         yaml_file.path().display()
     );
 
-    let output = run_xacro(&input);
+    let output = run_xacro_with_yaml(&input);
     let root = parse_xml(&output);
     let joint = find_child(&root, "joint");
     let limit = find_child(joint, "limit");
@@ -165,7 +165,7 @@ joint_limits:
         yaml_file.path().display()
     );
 
-    let output = run_xacro(&input);
+    let output = run_xacro_with_yaml(&input);
     let root = parse_xml(&output);
     let joint = find_child(&root, "joint");
     let limit = find_child(joint, "limit");
@@ -238,7 +238,7 @@ dimensions:
         yaml_file.path().display()
     );
 
-    let output = run_xacro(&input);
+    let output = run_xacro_with_yaml(&input);
     let root = parse_xml(&output);
     let link = find_child(&root, "link");
     let visual = find_child(link, "visual");
@@ -319,7 +319,7 @@ test_values:
         yaml_file.path().display()
     );
 
-    let output = run_xacro(&input);
+    let output = run_xacro_with_yaml(&input);
     let root = parse_xml(&output);
 
     // First link should have mass with the numeric value unchanged

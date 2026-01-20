@@ -138,14 +138,20 @@ fn main() -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or_default();
 
-    // Build processor with mappings, compat mode, and ROS extensions
-    // ROS extensions are enabled by default in CLI for user convenience
-    let processor = xacro::XacroProcessor::builder()
+    // Build processor with mappings, compat mode, ROS extensions, and ROS YAML units
+    // ROS features are enabled by default in CLI for user convenience
+    let mut builder = xacro::XacroProcessor::builder()
         .with_args(mappings)
         .with_compat_mode(compat_mode)
         .with_extension(Box::new(xacro::extensions::ros::FindExtension::new()))
-        .with_extension(Box::new(xacro::extensions::ros::OptEnvExtension::new()))
-        .build();
+        .with_extension(Box::new(xacro::extensions::ros::OptEnvExtension::new()));
+
+    #[cfg(feature = "yaml")]
+    {
+        builder = builder.with_ros_yaml_units();
+    }
+
+    let processor = builder.build();
 
     if args.deps {
         // Process file and get dependencies (already deduplicated and sorted by library)

@@ -63,7 +63,12 @@ impl XacroContext {
         let extensions = Rc::new(Vec::new()); // Empty extensions for tests
 
         XacroContext {
-            properties: EvalContext::new_with_extensions(args.clone(), extensions),
+            properties: EvalContext::new_with_extensions(
+                args.clone(),
+                extensions,
+                #[cfg(feature = "yaml")]
+                Rc::new(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new()),
+            ),
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),
@@ -79,7 +84,7 @@ impl XacroContext {
 
     /// Create a new context with custom extensions
     ///
-    /// This constructor allows providing custom extension handlers.
+    /// This constructor allows providing custom extension handlers and YAML tag handlers.
     ///
     /// # Arguments
     /// * `base_path` - Base path for resolving relative includes
@@ -87,15 +92,24 @@ impl XacroContext {
     /// * `args` - Shared reference to CLI arguments (wrapped in Rc<RefCell<...>>)
     /// * `compat_mode` - Compatibility mode
     /// * `extensions` - Custom extension handlers (wrapped in Rc for sharing)
+    /// * `yaml_tag_handlers` - YAML tag handler registry (wrapped in Rc for sharing)
     pub fn new_with_extensions(
         base_path: PathBuf,
         xacro_ns: String,
         args: Rc<RefCell<HashMap<String, String>>>,
         compat_mode: CompatMode,
         extensions: Rc<Vec<Box<dyn ExtensionHandler>>>,
+        #[cfg(feature = "yaml")] yaml_tag_handlers: Rc<
+            crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
+        >,
     ) -> Self {
         XacroContext {
-            properties: EvalContext::new_with_extensions(args.clone(), extensions),
+            properties: EvalContext::new_with_extensions(
+                args.clone(),
+                extensions,
+                #[cfg(feature = "yaml")]
+                yaml_tag_handlers,
+            ),
             macros: RefCell::new(HashMap::new()),
             args,
             include_stack: RefCell::new(Vec::new()),

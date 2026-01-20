@@ -7,6 +7,9 @@
 pub mod core;
 pub mod ros;
 
+#[cfg(feature = "yaml")]
+pub mod ros_yaml_handlers;
+
 use ::core::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error as StdError;

@@ -74,6 +74,18 @@ pub fn test_xacro(input: &str) -> Result<String, XacroError> {
     XacroProcessor::new().run_from_string(input)
 }
 
+/// Process xacro string with ROS YAML units enabled, return Result.
+///
+/// Use this for tests that require ROS YAML tag handlers (!degrees, !millimeters, etc.)
+#[allow(dead_code)]
+#[cfg(feature = "yaml")]
+pub fn test_xacro_with_yaml(input: &str) -> Result<String, XacroError> {
+    XacroProcessor::builder()
+        .with_ros_yaml_units()
+        .build()
+        .run_from_string(input)
+}
+
 /// Process xacro string and expect success.
 ///
 /// Panics with a clear message if processing fails.
@@ -81,6 +93,15 @@ pub fn test_xacro(input: &str) -> Result<String, XacroError> {
 #[allow(dead_code)]
 pub fn run_xacro(input: &str) -> String {
     test_xacro(input).expect("Xacro processing should succeed")
+}
+
+/// Process xacro string with ROS YAML units and expect success.
+///
+/// Use this for tests that require ROS YAML tag handlers (!degrees, !millimeters, etc.)
+#[allow(dead_code)]
+#[cfg(feature = "yaml")]
+pub fn run_xacro_with_yaml(input: &str) -> String {
+    test_xacro_with_yaml(input).expect("Xacro processing with YAML should succeed")
 }
 
 /// Process xacro string and expect success with custom error message.
