@@ -59,6 +59,12 @@ impl YamlTagHandler for RosUnitTagHandler {
 
         let trimmed = raw_value.trim();
 
+        // Empty values cannot be converted (would generate invalid Python syntax like "()*0.017")
+        // Return None to let caller handle as empty string
+        if trimmed.is_empty() {
+            return None;
+        }
+
         // Try parsing as numeric literal first
         if let Ok(num) = trimmed.parse::<f64>() {
             let result = num * conversion_factor;

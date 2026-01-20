@@ -673,7 +673,7 @@ fn yaml_to_python_literal(
                 Yaml::Value(Scalar::FloatingPoint(f)) => f.to_string(),
                 Yaml::Value(Scalar::String(s)) => s.to_string(),
                 _ => {
-                    // Should not reach here due to check above, but handle gracefully
+                    // Handle Null and Boolean scalars (and any other edge cases)
                     yaml_to_python_literal(
                         *inner,
                         path,
