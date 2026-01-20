@@ -1,9 +1,11 @@
 # xacro
-A xml preprocessor for xacro files to generate URDF files
+
+An XML preprocessor for xacro files to generate URDF files
 
 Reference: http://wiki.ros.org/xacro
 
 ## Status
+
 Core xacro functionality implemented:
 - [X] macro
 - [X] include
@@ -16,6 +18,7 @@ Core xacro functionality implemented:
 - [X] Extensions: $(find), $(env), $(optenv), $(cwd)
 
 Not implemented:
+
 - [ ] element (dynamic XML generation)
 - [ ] attribute (dynamic attributes)
 
