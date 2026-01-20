@@ -50,39 +50,32 @@ fn test_deps_with_nested_includes() {
     // include_test_nested_base.xacro includes include_test_nested_arm.xacro
     // which in turn includes include_test_nested_hand.xacro
     let processor = xacro::XacroProcessor::new();
-    let result = processor.run_with_deps("tests/data/include_test_nested_base.xacro");
+    let (_, includes) = processor
+        .run_with_deps("tests/data/include_test_nested_base.xacro")
+        .expect("Failed to get deps for nested includes test");
 
-    match result {
-        Ok((_, includes)) => {
-            // Should include exactly both arm and hand files
-            assert_eq!(includes.len(), 2);
+    // Should include exactly both arm and hand files
+    assert_eq!(includes.len(), 2);
 
-            let include_strs: Vec<String> =
-                includes.iter().map(|p| p.display().to_string()).collect();
+    let include_strs: Vec<String> = includes.iter().map(|p| p.display().to_string()).collect();
 
-            // Check for arm file
-            assert!(
-                include_strs
-                    .iter()
-                    .any(|s| s.contains("include_test_nested_arm.xacro")),
-                "Should include arm file, got: {:?}",
-                include_strs
-            );
+    // Check for arm file
+    assert!(
+        include_strs
+            .iter()
+            .any(|s| s.contains("include_test_nested_arm.xacro")),
+        "Should include arm file, got: {:?}",
+        include_strs
+    );
 
-            // Check for hand file
-            assert!(
-                include_strs
-                    .iter()
-                    .any(|s| s.contains("include_test_nested_hand.xacro")),
-                "Should include hand file, got: {:?}",
-                include_strs
-            );
-        }
-        Err(e) => {
-            // If the test files don't exist, skip the test
-            eprintln!("Skipping nested includes test (missing test files): {}", e);
-        }
-    }
+    // Check for hand file
+    assert!(
+        include_strs
+            .iter()
+            .any(|s| s.contains("include_test_nested_hand.xacro")),
+        "Should include hand file, got: {:?}",
+        include_strs
+    );
 }
 
 #[test]
@@ -97,31 +90,26 @@ fn test_deps_deduplication() {
 </robot>"#;
 
     let processor = xacro::XacroProcessor::new();
-    let result = processor.run_from_string_with_deps(input);
+    let (_, includes) = processor
+        .run_from_string_with_deps(input)
+        .expect("Failed to get deps for deduplication test");
 
-    match result {
-        Ok((_, includes)) => {
-            // Library should deduplicate - file included twice but should appear only once
-            assert_eq!(
-                includes.len(),
-                1,
-                "File included twice should appear only once after deduplication, got: {:?}",
-                includes
-            );
+    // Library should deduplicate - file included twice but should appear only once
+    assert_eq!(
+        includes.len(),
+        1,
+        "File included twice should appear only once after deduplication, got: {:?}",
+        includes
+    );
 
-            // Verify it's the correct file
-            assert!(
-                includes[0]
-                    .to_string_lossy()
-                    .contains("include_test_component.xacro"),
-                "Expected include_test_component.xacro, got: {:?}",
-                includes[0]
-            );
-        }
-        Err(e) => {
-            eprintln!("Skipping deduplication test (missing test files): {}", e);
-        }
-    }
+    // Verify it's the correct file
+    assert!(
+        includes[0]
+            .to_string_lossy()
+            .contains("include_test_component.xacro"),
+        "Expected include_test_component.xacro, got: {:?}",
+        includes[0]
+    );
 }
 
 // CLI Integration Tests

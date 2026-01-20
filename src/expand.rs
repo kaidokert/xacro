@@ -158,6 +158,7 @@ impl XacroContext {
     pub fn get_all_includes(&self) -> Vec<PathBuf> {
         let mut includes = self.all_includes.borrow().clone();
         includes.sort();
+        includes.dedup(); // Safety: remove any duplicates after sorting
         includes
     }
 }
