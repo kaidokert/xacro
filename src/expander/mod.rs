@@ -45,18 +45,15 @@ pub fn expand_node(
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Check recursion depth at entry to catch infinite loops early
-    if *ctx.recursion_depth.borrow() > ctx.max_recursion_depth {
+    if *ctx.recursion_depth.borrow() >= ctx.max_recursion_depth {
         return Err(XacroError::MacroRecursionLimit {
             depth: *ctx.recursion_depth.borrow(),
             limit: ctx.max_recursion_depth,
         });
     }
 
-    // Increment depth for this call and create RAII guard for automatic decrement
-    *ctx.recursion_depth.borrow_mut() += 1;
-    let _depth_guard = DepthGuard {
-        depth: &ctx.recursion_depth,
-    };
+    // Create RAII guard (increments depth on construction, decrements on drop)
+    let _depth_guard = DepthGuard::new(&ctx.recursion_depth);
 
     // Process node (guard will decrement depth on scope exit, even if panic occurs)
     match node {

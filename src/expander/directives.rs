@@ -15,7 +15,7 @@ use crate::{
 use std::rc::Rc;
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{expand_children, expand_children_list, XacroContext};
 
 /// Handle xacro:property directive
 ///
@@ -147,18 +147,16 @@ pub(crate) fn handle_arg_directive(
     let name = ctx.properties.substitute_text(raw_name)?;
 
     // CLI arguments take precedence over defaults (The "Precedence Rake")
-    if !ctx.args.borrow().contains_key(&name) {
-        // Only set default if CLI didn't provide a value
-        if let Some(default_value) = elem.get_attribute("default") {
-            // Evaluate default with FULL substitution (may contain $(arg ...))
-            // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
-            let default = ctx.properties.substitute_all(default_value)?;
-            ctx.args.borrow_mut().insert(name.clone(), default);
-        }
-        // else: No default and no CLI value provided
-        // Don't insert anything - let it error with UndefinedArgument on first use
-        // This allows args to be declared without defaults, but requires CLI value
+    // Only set default if CLI didn't provide a value
+    if let Some(default_value) = elem.get_attribute("default") {
+        // Evaluate default with FULL substitution (may contain $(arg ...))
+        // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
+        let default = ctx.properties.substitute_all(default_value)?;
+        ctx.args.borrow_mut().entry(name.clone()).or_insert(default);
     }
+    // else: No default and no CLI value provided
+    // Don't insert anything - let it error with UndefinedArgument on first use
+    // This allows args to be declared without defaults, but requires CLI value
 
     // The directive consumes itself (doesn't appear in output)
     Ok(vec![])
@@ -248,7 +246,7 @@ pub(crate) fn handle_conditional_directive(
     let should_expand = if is_if { condition } else { !condition };
 
     if should_expand {
-        expand_children(elem, ctx)
+        expand_children(&elem, ctx)
     } else {
         Ok(vec![]) // Skip branch - LAZY!
     }
@@ -314,12 +312,12 @@ pub(crate) fn handle_insert_block_directive(
 /// Explicitly errors for known but unimplemented features.
 ///
 /// # Returns
-/// Ok(None) if not an unimplemented directive
+/// Ok(()) if not an unimplemented directive
 /// Err if it matches an unimplemented feature
 pub(crate) fn check_unimplemented_directive(
     elem: &Element,
     xacro_ns: &str,
-) -> Result<Option<()>, XacroError> {
+) -> Result<(), XacroError> {
     for feature in UNIMPLEMENTED_FEATURES {
         // Strip "xacro:" prefix to get element name
         let directive = feature.strip_prefix("xacro:").unwrap_or(feature);
@@ -337,5 +335,5 @@ pub(crate) fn check_unimplemented_directive(
             )));
         }
     }
-    Ok(None)
+    Ok(())
 }

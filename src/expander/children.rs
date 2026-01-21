@@ -18,10 +18,10 @@ use super::*;
 /// # Returns
 /// Expanded child nodes
 pub(crate) fn expand_children(
-    elem: Element,
+    elem: &Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
-    expand_children_list(elem.children, ctx)
+    expand_children_list(elem.children.clone(), ctx)
 }
 
 /// Expand a list of child nodes
