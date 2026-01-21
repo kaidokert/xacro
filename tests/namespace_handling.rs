@@ -589,6 +589,7 @@ fn test_include_macro_with_properties_across_namespace_variants() {
 </robot>"#
     )
     .expect("Failed to write to temp file");
+    included_file.flush().expect("Failed to flush temp file");
 
     let included_path = included_file
         .path()
