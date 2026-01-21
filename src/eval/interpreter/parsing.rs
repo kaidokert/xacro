@@ -38,7 +38,8 @@ pub(super) fn eval_literal(value: &str) -> Value {
     // Try float parsing (handles both integers and floats, including with underscores)
     // Python allows numeric literals with underscores like 1_000 or 1_000_000
     // PEP 515: Underscores must be between digits only (no leading/trailing/consecutive)
-    if value.contains('_') {
+    let has_underscores = value.contains('_');
+    if has_underscores {
         // Validate underscore placement per PEP 515
         let bytes = value.as_bytes();
         let mut valid = true;
@@ -65,13 +66,18 @@ pub(super) fn eval_literal(value: &str) -> Value {
     }
 
     // Rust's f64::parse() doesn't support underscores, so strip them first
-    let numeric_candidate = value.replace('_', "");
-    if let Ok(f) = numeric_candidate.parse::<f64>() {
+    // Avoid allocation when there are no underscores
+    if has_underscores {
+        let numeric_candidate = value.replace('_', "");
+        if let Ok(f) = numeric_candidate.parse::<f64>() {
+            return Value::Number(f);
+        }
+    } else if let Ok(f) = value.parse::<f64>() {
         return Value::Number(f);
     }
 
     // Skip strings with underscores that weren't valid numbers
-    if value.contains('_') {
+    if has_underscores {
         return Value::StringLit(value.to_string());
     }
 
