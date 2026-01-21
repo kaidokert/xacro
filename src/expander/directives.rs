@@ -15,7 +15,7 @@ use crate::{
 use std::rc::Rc;
 use xmltree::{Element, XMLNode};
 
-use super::{expand_children, expand_children_list, XacroContext};
+use super::{expand_children_list, XacroContext};
 
 /// Handle xacro:property directive
 ///
@@ -67,8 +67,8 @@ pub(crate) fn handle_property_directive(
             ctx.properties
                 .define_property(name.clone(), raw_value, scope);
         } else {
-            // Eagerly evaluate for parent/global scope
-            let evaluated = ctx.properties.substitute_text(&raw_value)?;
+            // Eagerly evaluate for parent/global scope (both ${...} and $(...))
+            let evaluated = ctx.properties.substitute_all(&raw_value)?;
             ctx.properties
                 .define_property(name.clone(), evaluated, scope);
         }
@@ -250,7 +250,7 @@ pub(crate) fn handle_conditional_directive(
     let should_expand = if is_if { condition } else { !condition };
 
     if should_expand {
-        expand_children(&elem, ctx)
+        expand_children_list(elem.children, ctx)
     } else {
         Ok(vec![]) // Skip branch - LAZY!
     }

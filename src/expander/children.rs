@@ -3,26 +3,9 @@
 //! This module provides utilities for expanding child nodes of elements.
 
 use crate::error::XacroError;
-use xmltree::{Element, XMLNode};
+use xmltree::XMLNode;
 
 use super::{expand_node, XacroContext};
-
-/// Expand all children of an element
-///
-/// Helper that unpacks the element's children and delegates to expand_children_list.
-///
-/// # Arguments
-/// * `elem` - Element whose children should be expanded
-/// * `ctx` - XacroContext with properties, macros, and stacks
-///
-/// # Returns
-/// Expanded child nodes
-pub(crate) fn expand_children(
-    elem: &Element,
-    ctx: &XacroContext,
-) -> Result<Vec<XMLNode>, XacroError> {
-    expand_children_list(elem.children.clone(), ctx)
-}
 
 /// Expand a list of child nodes
 ///
