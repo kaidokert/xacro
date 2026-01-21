@@ -1,0 +1,73 @@
+//! RAII Guards for Panic-Safe Stack Management
+//!
+//! These guards ensure that pushed state (scopes, stacks, depth counters) is
+//! always popped/restored when the guard goes out of scope, even if a panic
+//! occurs during expansion. This prevents the XacroContext from being left in
+//! a corrupted state.
+
+use crate::eval::EvalContext;
+use core::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use xmltree::XMLNode;
+
+/// RAII guard for recursion depth tracking
+///
+/// Automatically decrements recursion_depth when dropped, ensuring correct
+/// depth tracking even if expansion panics.
+pub(crate) struct DepthGuard<'a> {
+    pub(crate) depth: &'a RefCell<usize>,
+}
+
+impl Drop for DepthGuard<'_> {
+    fn drop(&mut self) {
+        *self.depth.borrow_mut() -= 1;
+    }
+}
+
+/// RAII guard for include stack, base path, and namespace stack
+///
+/// Automatically restores base_path and pops include_stack and namespace_stack when dropped,
+/// ensuring correct file context and per-file namespace isolation even if include expansion panics.
+pub(crate) struct IncludeGuard<'a> {
+    pub(crate) base_path: &'a RefCell<PathBuf>,
+    pub(crate) include_stack: &'a RefCell<Vec<PathBuf>>,
+    pub(crate) namespace_stack: &'a RefCell<Vec<(PathBuf, String)>>,
+    pub(crate) old_base_path: PathBuf,
+}
+
+impl Drop for IncludeGuard<'_> {
+    fn drop(&mut self) {
+        *self.base_path.borrow_mut() = self.old_base_path.clone();
+        self.include_stack.borrow_mut().pop();
+        self.namespace_stack.borrow_mut().pop();
+    }
+}
+
+/// RAII guard for property scopes
+///
+/// Automatically pops property scope when dropped, ensuring correct variable
+/// shadowing even if macro expansion panics.
+pub(crate) struct ScopeGuard<'a> {
+    pub(crate) properties: &'a EvalContext,
+}
+
+impl Drop for ScopeGuard<'_> {
+    fn drop(&mut self) {
+        self.properties.pop_scope();
+    }
+}
+
+/// RAII guard for block stacks
+///
+/// Automatically pops block stack when dropped, ensuring correct block
+/// resolution even if macro expansion panics.
+pub(crate) struct BlockGuard<'a> {
+    pub(crate) blocks: &'a RefCell<Vec<HashMap<String, Vec<XMLNode>>>>,
+}
+
+impl Drop for BlockGuard<'_> {
+    fn drop(&mut self) {
+        self.blocks.borrow_mut().pop();
+    }
+}

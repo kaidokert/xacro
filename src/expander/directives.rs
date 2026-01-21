@@ -1,0 +1,341 @@
+//! Directive handlers for xacro elements
+//!
+//! This module handles all xacro directive processing:
+//! - xacro:property - Property definitions with scope support
+//! - xacro:arg - Command-line argument definitions
+//! - xacro:macro - Macro definitions
+//! - xacro:if / xacro:unless - Conditional expansion
+//! - xacro:insert_block - Block parameter insertion
+
+use crate::{
+    error::{XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
+    eval::PropertyScope,
+    parse::{macro_def::MacroDefinition, macro_def::MacroProcessor},
+};
+use std::rc::Rc;
+use xmltree::{Element, XMLNode};
+
+use super::*;
+
+/// Handle xacro:property directive
+///
+/// Supports:
+/// - value attribute: Always sets property
+/// - default attribute: Sets only if not already defined
+/// - Lazy properties: XML body content (stored with '**' prefix)
+/// - Scope attribute: local (default), parent, global
+///
+/// # Returns
+/// Empty vec (property definitions produce no output)
+pub(crate) fn handle_property_directive(
+    elem: Element,
+    ctx: &XacroContext,
+) -> Result<Vec<XMLNode>, XacroError> {
+    // Extract property name (required) and substitute expressions
+    let name = ctx
+        .properties
+        .substitute_text(elem.get_attribute("name").ok_or_else(|| {
+            XacroError::MissingAttribute {
+                element: "xacro:property".to_string(),
+                attribute: "name".to_string(),
+            }
+        })?)?;
+
+    // Parse scope attribute (default: local)
+    let scope = match elem.get_attribute("scope").map(|s| s.as_str()) {
+        None => PropertyScope::Local, // Default
+        Some("parent") => PropertyScope::Parent,
+        Some("global") => PropertyScope::Global,
+        Some(other) => {
+            return Err(XacroError::InvalidScopeAttribute {
+                property: name.clone(),
+                scope: other.to_string(),
+            })
+        }
+    };
+
+    // Get value and default attributes
+    let value_attr = elem.get_attribute("value");
+    let default_attr = elem.get_attribute("default");
+
+    // Helper closure to define property with scope-aware evaluation
+    let define_property = |raw_value: String| -> Result<(), XacroError> {
+        // ALWAYS use define_property - it handles all scopes correctly
+        // Local properties use lazy evaluation (raw_value as-is)
+        // Parent/Global properties use eager evaluation (substitute first)
+        if scope == PropertyScope::Local {
+            ctx.properties
+                .define_property(name.clone(), raw_value, scope);
+        } else {
+            // Eagerly evaluate for parent/global scope
+            let evaluated = ctx.properties.substitute_text(&raw_value)?;
+            ctx.properties
+                .define_property(name.clone(), evaluated, scope);
+        }
+        Ok(())
+    };
+
+    // Determine what to do based on attributes
+    match (value_attr, default_attr) {
+        // value always sets the property
+        (Some(value), _) => {
+            define_property(value.clone())?;
+        }
+        // default only sets if property not already defined
+        (None, Some(default_value)) => {
+            // Check if property already exists in target scope
+            if !ctx.properties.has_property_in_scope(&name, scope) {
+                define_property(default_value.clone())?;
+            }
+            // else: property already defined in target scope, keep existing value
+        }
+        // Neither value nor default - check for lazy property (body-based)
+        (None, None) => {
+            // Rule: Text-only properties are NOT created (matches Python xacro)
+            // Valid if: (empty) OR (has at least one Element, Comment, CDATA, or PI child)
+            let has_content = crate::parse::xml::has_structural_content(&elem.children);
+            let is_text_only = !elem.children.is_empty() && !has_content;
+
+            if is_text_only {
+                // Text-only or whitespace-only - skip definition (matches Python xacro)
+                return Ok(vec![]);
+            }
+
+            // Create lazy property (empty or has structural content)
+            // Prefix with '**' to distinguish from regular value properties (matches Python xacro)
+            let lazy_name = format!("**{}", name);
+
+            // For non-local scopes, eagerly expand children before storing
+            if scope == PropertyScope::Local {
+                // Serialize children to raw XML string (NO substitution yet - lazy evaluation)
+                let content = crate::parse::xml::serialize_nodes(&elem.children)?;
+                ctx.properties.define_property(lazy_name, content, scope);
+            } else {
+                // Eagerly expand children for parent/global scope
+                let expanded_nodes = expand_children_list(elem.children, ctx)?;
+                let content = crate::parse::xml::serialize_nodes(&expanded_nodes)?;
+                ctx.properties.define_property(lazy_name, content, scope);
+            }
+        }
+    }
+
+    // Property definitions don't produce output
+    Ok(vec![])
+}
+
+/// Handle xacro:arg directive
+///
+/// Defines command-line arguments with optional defaults.
+/// CLI arguments always take precedence over defaults.
+///
+/// # Returns
+/// Empty vec (arg definitions produce no output)
+pub(crate) fn handle_arg_directive(
+    elem: Element,
+    ctx: &XacroContext,
+) -> Result<Vec<XMLNode>, XacroError> {
+    // Extract raw name attribute (required)
+    let raw_name = elem
+        .get_attribute("name")
+        .ok_or_else(|| XacroError::MissingAttribute {
+            element: "xacro:arg".to_string(),
+            attribute: "name".to_string(),
+        })?;
+
+    // Evaluate name with properties only (no extensions in arg names)
+    // This prevents circular dependencies: $(arg ${x}) where x="..."
+    let name = ctx.properties.substitute_text(raw_name)?;
+
+    // CLI arguments take precedence over defaults (The "Precedence Rake")
+    if !ctx.args.borrow().contains_key(&name) {
+        // Only set default if CLI didn't provide a value
+        if let Some(default_value) = elem.get_attribute("default") {
+            // Evaluate default with FULL substitution (may contain $(arg ...))
+            // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
+            let default = ctx.properties.substitute_all(default_value)?;
+            ctx.args.borrow_mut().insert(name.clone(), default);
+        }
+        // else: No default and no CLI value provided
+        // Don't insert anything - let it error with UndefinedArgument on first use
+        // This allows args to be declared without defaults, but requires CLI value
+    }
+
+    // The directive consumes itself (doesn't appear in output)
+    Ok(vec![])
+}
+
+/// Handle xacro:macro directive
+///
+/// Defines a macro with parameters and block parameters.
+/// Macro names are NOT evaluated during definition.
+///
+/// # Returns
+/// Empty vec (macro definitions produce no output)
+pub(crate) fn handle_macro_directive(
+    elem: Element,
+    ctx: &XacroContext,
+) -> Result<Vec<XMLNode>, XacroError> {
+    // Extract macro name (raw, no substitution)
+    // Python xacro does NOT evaluate expressions in macro names during definition
+    // This allows names like "${ns}/box_inertia" where ns is undefined at definition time
+    let name = elem
+        .get_attribute("name")
+        .ok_or_else(|| XacroError::MissingAttribute {
+            element: "xacro:macro".to_string(),
+            attribute: "name".to_string(),
+        })?
+        .to_string();
+
+    // Parse params attribute (optional - treat missing as empty string)
+    let params_str = elem.get_attribute("params").map_or("", |s| s.as_str());
+    let (params_map, param_order, block_params_set, lazy_block_params_set) =
+        if ctx.compat_mode.duplicate_params {
+            MacroProcessor::parse_params_compat(params_str)?
+        } else {
+            MacroProcessor::parse_params(params_str)?
+        };
+
+    // Create macro definition
+    let macro_def = MacroDefinition {
+        name: name.clone(),
+        params: params_map,
+        param_order,
+        block_params: block_params_set,
+        lazy_block_params: lazy_block_params_set,
+        content: elem.clone(),
+    };
+
+    // Add to context (wrapped in Rc for shared ownership)
+    ctx.macros
+        .borrow_mut()
+        .insert(name.clone(), Rc::new(macro_def));
+
+    // Macro definitions don't produce output
+    Ok(vec![])
+}
+
+/// Handle xacro:if and xacro:unless directives
+///
+/// Conditionally expands children based on boolean value attribute.
+/// - xacro:if: expands if value is true
+/// - xacro:unless: expands if value is false
+///
+/// # Arguments
+/// * `elem` - The conditional element
+/// * `ctx` - XacroContext
+/// * `is_if` - true for xacro:if, false for xacro:unless
+///
+/// # Returns
+/// Expanded children if condition met, empty vec otherwise
+pub(crate) fn handle_conditional_directive(
+    elem: Element,
+    ctx: &XacroContext,
+    is_if: bool,
+) -> Result<Vec<XMLNode>, XacroError> {
+    let tag_name = if is_if { "xacro:if" } else { "xacro:unless" };
+
+    let value = elem
+        .get_attribute("value")
+        .ok_or_else(|| XacroError::MissingAttribute {
+            element: tag_name.to_string(),
+            attribute: "value".to_string(),
+        })?;
+
+    // Evaluate condition using scope-aware property resolution
+    let condition = ctx.properties.eval_boolean(value)?;
+
+    // For 'if': expand if true; for 'unless': expand if false
+    let should_expand = if is_if { condition } else { !condition };
+
+    if should_expand {
+        expand_children(elem, ctx)
+    } else {
+        Ok(vec![]) // Skip branch - LAZY!
+    }
+}
+
+/// Handle xacro:insert_block directive
+///
+/// Inserts a block parameter or lazy property.
+/// Precedence: lazy properties (XML body) FIRST, then block parameters.
+///
+/// # Returns
+/// Expanded nodes from the block/property
+pub(crate) fn handle_insert_block_directive(
+    elem: Element,
+    ctx: &XacroContext,
+) -> Result<Vec<XMLNode>, XacroError> {
+    // Extract block name and substitute expressions
+    let name = ctx
+        .properties
+        .substitute_text(elem.get_attribute("name").ok_or_else(|| {
+            XacroError::MissingAttribute {
+                element: "xacro:insert_block".to_string(),
+                attribute: "name".to_string(),
+            }
+        })?)?;
+
+    // PRECEDENCE ORDER (matches Python xacro behavior):
+    // 1. LAZY properties FIRST (properties with XML body content)
+    //    Lazy properties are stored with '**' prefix (matches Python xacro)
+    //    Search all scopes (local to global) for lazy properties
+    let lazy_name = format!("**{}", name);
+    if let Some(raw_value) = ctx.properties.lookup_raw_value(&lazy_name) {
+        // Found lazy property - parse and expand
+        match crate::parse::xml::parse_xml_fragment(&raw_value) {
+            Ok(nodes) => {
+                let expanded = expand_children_list(nodes, ctx)?;
+                return Ok(expanded);
+            }
+            Err(e) => {
+                // Lazy properties are written by this code path and should always be valid XML.
+                // A parse failure here likely indicates a bug or data corruption.
+                log::error!(
+                    "Failed to parse stored lazy property '{}' as XML fragment: {}. Raw value: '{}'",
+                    name, e, raw_value
+                );
+                // Return error instead of silently falling through
+                return Err(XacroError::InvalidXml(format!(
+                    "Corrupted lazy property '{}': failed to parse stored XML fragment: {}",
+                    name, e
+                )));
+            }
+        }
+    }
+
+    // 2. Block stack SECOND (macro block parameters)
+    // This searches all parent scopes
+    // If not found, propagate the UndefinedBlock error
+    ctx.lookup_block(&name)
+}
+
+/// Check if element is an unimplemented directive and error
+///
+/// Explicitly errors for known but unimplemented features.
+///
+/// # Returns
+/// Ok(None) if not an unimplemented directive
+/// Err if it matches an unimplemented feature
+pub(crate) fn check_unimplemented_directive(
+    elem: &Element,
+    xacro_ns: &str,
+) -> Result<Option<()>, XacroError> {
+    for feature in UNIMPLEMENTED_FEATURES {
+        // Strip "xacro:" prefix to get element name
+        let directive = feature.strip_prefix("xacro:").unwrap_or(feature);
+        if crate::parse::xml::is_xacro_element(elem, directive, xacro_ns) {
+            return Err(XacroError::UnimplementedFeature(format!(
+                "<xacro:{}>\n\
+                 This element was not processed. Either:\n\
+                 1. The feature is not implemented yet (known unimplemented: {})\n\
+                 2. There's a bug in the processor\n\
+                 \n\
+                 Currently implemented: {}",
+                elem.name,
+                UNIMPLEMENTED_FEATURES.join(", "),
+                IMPLEMENTED_FEATURES.join(", ")
+            )));
+        }
+    }
+    Ok(None)
+}
