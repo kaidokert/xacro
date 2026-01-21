@@ -37,12 +37,14 @@ pub(super) fn eval_literal(value: &str) -> Value {
 
     // Try float parsing (handles both integers and floats, including with underscores)
     // Python allows numeric literals with underscores like 1_000 or 1_000_000
-    if let Ok(f) = value.parse::<f64>() {
+    // Rust's f64::parse() doesn't support underscores, so strip them first
+    let numeric_candidate = value.replace('_', "");
+    if let Ok(f) = numeric_candidate.parse::<f64>() {
         return Value::Number(f);
     }
 
     // Skip strings with underscores (likely variable names, not literals)
-    // This check must come AFTER numeric parsing to allow 1_000 to be parsed as a number
+    // This check comes after numeric parsing so 1_000 is parsed as a number
     if value.contains('_') {
         return Value::StringLit(value.to_string());
     }
