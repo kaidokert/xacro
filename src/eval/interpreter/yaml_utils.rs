@@ -39,13 +39,13 @@ pub(super) fn yaml_to_python_literal(
             Scalar::Integer(i) => Ok(i.to_string()),
             Scalar::FloatingPoint(f) => Ok(f.to_string()),
             Scalar::String(s) => {
-                // Try to parse as numeric first
+                // Try to parse as numeric first (e.g., "123" → 123, "3.14" → 3.14)
                 if let Ok(num) = s.parse::<f64>() {
                     Ok(num.to_string())
                 } else {
-                    // Non-numeric strings are treated as raw expressions (no quoting)
-                    // This allows YAML strings to contain xacro variable references
-                    Ok(s.to_string())
+                    // Non-numeric strings are quoted for Python evaluation
+                    let escaped = escape_python_string(&s);
+                    Ok(format!("'{}'", escaped))
                 }
             }
         },
