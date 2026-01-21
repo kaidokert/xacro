@@ -43,13 +43,24 @@ pub(crate) struct IncludeGuard<'a> {
     pub(crate) include_stack: &'a RefCell<Vec<PathBuf>>,
     pub(crate) namespace_stack: &'a RefCell<Vec<(PathBuf, String)>>,
     pub(crate) old_base_path: PathBuf,
+    pub(crate) include_stack_len: usize,
+    pub(crate) namespace_stack_len: usize,
 }
 
 impl Drop for IncludeGuard<'_> {
     fn drop(&mut self) {
         *self.base_path.borrow_mut() = self.old_base_path.clone();
-        self.include_stack.borrow_mut().pop();
-        self.namespace_stack.borrow_mut().pop();
+
+        // Only pop if stacks grew (handles partial state from panics during push)
+        let mut include = self.include_stack.borrow_mut();
+        if include.len() > self.include_stack_len {
+            include.pop();
+        }
+
+        let mut namespace = self.namespace_stack.borrow_mut();
+        if namespace.len() > self.namespace_stack_len {
+            namespace.pop();
+        }
     }
 }
 

@@ -147,16 +147,20 @@ pub(crate) fn handle_arg_directive(
     let name = ctx.properties.substitute_text(raw_name)?;
 
     // CLI arguments take precedence over defaults (The "Precedence Rake")
-    // Only set default if CLI didn't provide a value
-    if let Some(default_value) = elem.get_attribute("default") {
-        // Evaluate default with FULL substitution (may contain $(arg ...))
-        // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
-        let default = ctx.properties.substitute_all(default_value)?;
-        ctx.args.borrow_mut().entry(name.clone()).or_insert(default);
+    // Check if CLI provided a value BEFORE evaluating default expression
+    // (avoids errors in unused default expressions with undefined references)
+    if !ctx.args.borrow().contains_key(&name) {
+        // Only set default if CLI didn't provide a value
+        if let Some(default_value) = elem.get_attribute("default") {
+            // Evaluate default with FULL substitution (may contain $(arg ...))
+            // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
+            let default = ctx.properties.substitute_all(default_value)?;
+            ctx.args.borrow_mut().insert(name.clone(), default);
+        }
+        // else: No default and no CLI value provided
+        // Don't insert anything - let it error with UndefinedArgument on first use
+        // This allows args to be declared without defaults, but requires CLI value
     }
-    // else: No default and no CLI value provided
-    // Don't insert anything - let it error with UndefinedArgument on first use
-    // This allows args to be declared without defaults, but requires CLI value
 
     // The directive consumes itself (doesn't appear in output)
     Ok(vec![])

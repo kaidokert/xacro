@@ -5,7 +5,7 @@
 use crate::error::XacroError;
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{expand_node, XacroContext};
 
 /// Expand all children of an element
 ///

@@ -69,25 +69,27 @@ fn process_single_include(
     let mut new_base_path = file_path.clone();
     new_base_path.pop();
 
-    // Update state in separate scope to release borrows
-    {
-        *ctx.base_path.borrow_mut() = new_base_path;
-        ctx.include_stack.borrow_mut().push(file_path.clone());
-
-        // Track included file. Deduplication is handled by get_all_includes().
-        ctx.all_includes.borrow_mut().push(file_path.clone());
-
-        ctx.namespace_stack
-            .borrow_mut()
-            .push((file_path.clone(), included_ns));
-    }
-
+    // Create RAII guard BEFORE state mutations to ensure cleanup on panic
+    // Capture current stack lengths to detect partial pushes
     let _include_guard = IncludeGuard {
         base_path: &ctx.base_path,
         include_stack: &ctx.include_stack,
         namespace_stack: &ctx.namespace_stack,
         old_base_path,
+        include_stack_len: ctx.include_stack.borrow().len(),
+        namespace_stack_len: ctx.namespace_stack.borrow().len(),
     };
+
+    // Now perform state updates (guard will restore state on panic)
+    *ctx.base_path.borrow_mut() = new_base_path;
+    ctx.include_stack.borrow_mut().push(file_path.clone());
+
+    // Track included file. Deduplication is handled by get_all_includes().
+    ctx.all_includes.borrow_mut().push(file_path.clone());
+
+    ctx.namespace_stack
+        .borrow_mut()
+        .push((file_path.clone(), included_ns));
 
     // Expand children and return
     expand_children_list(included_root.children, ctx)
