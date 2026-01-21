@@ -26,6 +26,22 @@ pub(super) fn yaml_to_python_literal(
     path: &str,
     yaml_tag_handler_registry: Option<&crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
 ) -> Result<String, crate::error::XacroError> {
+    // Helper to format f64 values as valid Python literals, handling inf/nan
+    // Note: inf and nan are injected as variables in the context (see init_interpreter)
+    let format_f64 = |num: f64| -> String {
+        if num.is_nan() {
+            "nan".to_string()
+        } else if num.is_infinite() {
+            if num.is_sign_negative() {
+                "-inf".to_string()
+            } else {
+                "inf".to_string()
+            }
+        } else {
+            num.to_string()
+        }
+    };
+
     match value {
         Yaml::Value(scalar) => match scalar {
             Scalar::Null => Ok("None".to_string()),
@@ -37,11 +53,11 @@ pub(super) fn yaml_to_python_literal(
                 }
             }
             Scalar::Integer(i) => Ok(i.to_string()),
-            Scalar::FloatingPoint(f) => Ok(f.to_string()),
+            Scalar::FloatingPoint(f) => Ok(format_f64(*f)),
             Scalar::String(s) => {
                 // Try to parse as numeric first (e.g., "123" → 123, "3.14" → 3.14)
                 if let Ok(num) = s.parse::<f64>() {
-                    Ok(num.to_string())
+                    Ok(format_f64(num))
                 } else {
                     // Non-numeric strings are quoted for Python evaluation
                     let escaped = escape_python_string(&s);
