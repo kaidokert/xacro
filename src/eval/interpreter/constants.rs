@@ -1,5 +1,5 @@
 /// Built-in math constants (name, value) that are pre-initialized
-/// Users can override these, but will receive a warning
+/// Users can override these, but will receive a warning when re-assigning
 ///
 /// Note: `inf` and `nan` are NOT included because pyisheval cannot parse them:
 /// - `inf` is not a valid Python literal (Python uses `float('inf')`)

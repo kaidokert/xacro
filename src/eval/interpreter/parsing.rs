@@ -35,14 +35,16 @@ pub(super) fn eval_literal(value: &str) -> Value {
         return Value::StringLit(unquoted.to_string());
     }
 
-    // Skip strings with underscores (likely variable names, not literals)
-    if value.contains('_') {
-        return Value::StringLit(value.to_string());
-    }
-
-    // Try float parsing (handles both integers and floats)
+    // Try float parsing (handles both integers and floats, including with underscores)
+    // Python allows numeric literals with underscores like 1_000 or 1_000_000
     if let Ok(f) = value.parse::<f64>() {
         return Value::Number(f);
+    }
+
+    // Skip strings with underscores (likely variable names, not literals)
+    // This check must come AFTER numeric parsing to allow 1_000 to be parsed as a number
+    if value.contains('_') {
+        return Value::StringLit(value.to_string());
     }
 
     // Try boolean (matches Python xacro's get_boolean_value logic)

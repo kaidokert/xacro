@@ -39,8 +39,14 @@ pub(super) fn yaml_to_python_literal(
             Scalar::Integer(i) => Ok(i.to_string()),
             Scalar::FloatingPoint(f) => Ok(f.to_string()),
             Scalar::String(s) => {
-                let escaped = escape_python_string(&s);
-                Ok(format!("'{}'", escaped))
+                // Try to parse as numeric first
+                if let Ok(num) = s.parse::<f64>() {
+                    Ok(num.to_string())
+                } else {
+                    // Non-numeric strings are treated as raw expressions (no quoting)
+                    // This allows YAML strings to contain xacro variable references
+                    Ok(s.to_string())
+                }
             }
         },
         Yaml::Sequence(seq) => {
@@ -59,19 +65,9 @@ pub(super) fn yaml_to_python_literal(
                             let escaped = escape_python_string(s);
                             format!("'{}'", escaped)
                         }
-                        _ => yaml_to_python_literal(
-                            k,
-                            path,
-                            #[cfg(feature = "yaml")]
-                            yaml_tag_handler_registry,
-                        )?, // Non-string keys
+                        _ => yaml_to_python_literal(k, path, yaml_tag_handler_registry)?, // Non-string keys
                     };
-                    let value_str = yaml_to_python_literal(
-                        v,
-                        path,
-                        #[cfg(feature = "yaml")]
-                        yaml_tag_handler_registry,
-                    )?;
+                    let value_str = yaml_to_python_literal(v, path, yaml_tag_handler_registry)?;
                     Ok(format!("{}: {}", key_str, value_str))
                 })
                 .collect();
@@ -86,12 +82,7 @@ pub(super) fn yaml_to_python_literal(
                     tag.suffix, path
                 );
                 // Convert to literal without applying tag handler
-                return yaml_to_python_literal(
-                    *inner,
-                    path,
-                    #[cfg(feature = "yaml")]
-                    yaml_tag_handler_registry,
-                );
+                return yaml_to_python_literal(*inner, path, yaml_tag_handler_registry);
             }
 
             // Check if inner is a string scalar for fallback handling
@@ -111,16 +102,10 @@ pub(super) fn yaml_to_python_literal(
                     }
                 }
                 // Fallback for edge cases like Representation, Alias, BadValue
-                _ => yaml_to_python_literal(
-                    *inner,
-                    path,
-                    #[cfg(feature = "yaml")]
-                    yaml_tag_handler_registry,
-                )?,
+                _ => yaml_to_python_literal(*inner, path, yaml_tag_handler_registry)?,
             };
 
             // Try registered handlers (only for scalar values)
-            #[cfg(feature = "yaml")]
             if let Some(registry) = yaml_tag_handler_registry {
                 if let Some(result) = registry.handle_tag(&tag.suffix, &raw_value) {
                     return Ok(result);
@@ -144,12 +129,7 @@ pub(super) fn yaml_to_python_literal(
         }
         Yaml::Representation(repr, _style, _tag) => {
             // Handle unresolved representations - parse as scalar value
-            yaml_to_python_literal(
-                Yaml::value_from_str(&repr),
-                path,
-                #[cfg(feature = "yaml")]
-                yaml_tag_handler_registry,
-            )
+            yaml_to_python_literal(Yaml::value_from_str(&repr), path, yaml_tag_handler_registry)
         }
         Yaml::Alias(_) => Err(crate::error::XacroError::YamlParseError {
             path: path.to_string(),
@@ -202,12 +182,7 @@ pub(super) fn load_yaml_file(
             })?;
 
     // Convert to Python literal
-    yaml_to_python_literal(
-        yaml_value,
-        path,
-        #[cfg(feature = "yaml")]
-        yaml_tag_handler_registry,
-    )
+    yaml_to_python_literal(yaml_value, path, yaml_tag_handler_registry)
 }
 
 #[cfg(feature = "yaml")]
@@ -295,11 +270,11 @@ pub(super) fn preprocess_load_yaml(
             let filename_arg = &result[paren_pos + 1..close_pos];
 
             // Evaluate filename argument (could be a variable or string literal)
-            let filename = if filename_arg.starts_with('\'') || filename_arg.starts_with('"') {
-                // String literal - strip quotes
-                filename_arg
-                    .trim_matches(|c| c == '\'' || c == '"')
-                    .to_string()
+            let filename = if (filename_arg.starts_with('\'') && filename_arg.ends_with('\''))
+                || (filename_arg.starts_with('"') && filename_arg.ends_with('"'))
+            {
+                // String literal - strip surrounding quotes (exactly one char from each end)
+                filename_arg[1..filename_arg.len() - 1].to_string()
             } else {
                 // Variable or expression - evaluate it
                 match interp.eval_with_context(filename_arg, context) {
@@ -350,17 +325,17 @@ pub(super) fn preprocess_load_yaml(
 ///
 /// Checks if load_yaml is used and returns a helpful error message.
 /// Uses regex with word boundaries to avoid false positives on similar identifiers.
-/// Signature matches the enabled version for consistency.
 pub(super) fn preprocess_load_yaml(
     expr: &str,
     _interp: &mut Interpreter,
     _context: &HashMap<String, Value>,
 ) -> Result<String, super::EvalError> {
     // Use regex with word boundaries to robustly detect load_yaml and xacro.load_yaml
+    // Pattern matches the enabled version for consistency: function name up to opening paren
     // This avoids false positives on similar-looking identifiers like "my_load_yaml"
     static LOAD_YAML_REGEX: OnceLock<Regex> = OnceLock::new();
     let regex = LOAD_YAML_REGEX.get_or_init(|| {
-        Regex::new(r"\b(?:xacro\.)?load_yaml\b").expect("load_yaml regex should be valid")
+        Regex::new(r"\b(?:xacro\.)?load_yaml\s*\(").expect("load_yaml regex should be valid")
     });
 
     if regex.is_match(expr) {

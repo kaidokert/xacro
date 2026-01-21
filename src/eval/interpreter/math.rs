@@ -12,6 +12,7 @@ fn replace_math_pi_constants(expr: &str) -> String {
     let bytes = expr.as_bytes();
     let mut result = String::with_capacity(expr.len());
     let mut tracker = DelimiterTracker::new();
+    let mut last_copy = 0; // Track last copied position
     let mut i = 0;
 
     while i < bytes.len() {
@@ -19,24 +20,30 @@ fn replace_math_pi_constants(expr: &str) -> String {
         if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"math.pi" {
             // Verify it's at a word boundary (not part of larger identifier)
             let after_ok = i + 7 >= bytes.len()
-                || !bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_';
-            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+                || (!bytes[i + 7].is_ascii_alphanumeric() && bytes[i + 7] != b'_');
+            let before_ok =
+                i == 0 || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
 
             // Only replace if we're not in a string literal and at word boundary
             if !tracker.in_string() && before_ok && after_ok {
+                // Copy everything from last position to current match
+                result.push_str(&expr[last_copy..i]);
+                // Add replacement
                 result.push_str("pi");
-                i += 7; // Skip "math.pi"
+                // Skip "math.pi" and update last_copy
+                i += 7;
+                last_copy = i;
                 continue;
             }
         }
 
-        // Track delimiter state and append character
-        let ch = bytes[i];
-        tracker.process(ch);
-        result.push(ch as char);
+        // Track delimiter state for current byte
+        tracker.process(bytes[i]);
         i += 1;
     }
 
+    // Copy remaining portion
+    result.push_str(&expr[last_copy..]);
     result
 }
 
@@ -150,6 +157,8 @@ pub(super) fn preprocess_math_functions(
     context: &HashMap<String, Value>,
 ) -> Result<String, super::EvalError> {
     // Local macro to reduce duplication in argument evaluation
+    // NOTE: This macro calls `continue` on non-numeric values, which skips to the next
+    // iteration of the calling loop. Only use within loop contexts where this behavior is desired.
     macro_rules! eval_math_arg {
         ($interp:expr, $context:expr, $arg_expr:expr, $func_name:expr, $arg_template:expr) => {
             match $interp.eval_with_context($arg_expr, $context) {

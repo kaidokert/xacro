@@ -1,7 +1,7 @@
-use super::init::*;
-use super::math::*;
-use super::parsing::*;
-use super::yaml_utils::*;
+use super::init::{format_value_python_style, init_interpreter, EvalError};
+use super::math::preprocess_math_functions;
+use super::parsing::{escape_python_string, eval_literal, remove_quotes};
+use super::yaml_utils::preprocess_load_yaml;
 use crate::eval::lexer::{Lexer, TokenType};
 use log;
 use pyisheval::{EvalError as PyEvalError, Interpreter, Value};
@@ -506,6 +506,9 @@ pub fn eval_boolean(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::interpreter::parsing::{
+        find_matching_paren, split_args_balanced, SUPPORTED_MATH_FUNCS,
+    };
 
     // TEST 1: Backward compatibility - simple property substitution
     #[test]
