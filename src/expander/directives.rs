@@ -204,7 +204,7 @@ pub(crate) fn handle_macro_directive(
         param_order,
         block_params: block_params_set,
         lazy_block_params: lazy_block_params_set,
-        content: elem.clone(),
+        content: elem,
     };
 
     // Add to context (wrapped in Rc for shared ownership)

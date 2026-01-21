@@ -20,7 +20,7 @@ pub(crate) struct DepthGuard<'a> {
 }
 
 impl<'a> DepthGuard<'a> {
-    /// Creates a new DepthGuard and increments the depth counter atomically
+    /// Creates a new DepthGuard and increments the depth counter
     pub(crate) fn new(depth: &'a RefCell<usize>) -> Self {
         *depth.borrow_mut() += 1;
         Self { depth }

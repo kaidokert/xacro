@@ -668,7 +668,7 @@ fn test_recursion_depth_boundary() {
     <link name="link_${n}"/>
   </xacro:macro>
 
-  <!-- This should succeed: enters expand_node 9 times (just under limit) -->
+  <!-- This should succeed: recursion depth for n=2 is well under the limit -->
   <xacro:chain n="2"/>
 </robot>"#;
 
