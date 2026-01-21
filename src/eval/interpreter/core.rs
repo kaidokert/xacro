@@ -1524,6 +1524,19 @@ mod tests {
     }
 
     #[test]
+    fn test_eval_literal_numeric_looking_underscore_string() {
+        // Regression test: "36_11" should NOT be parsed as number (which would become 3611)
+        // Python xacro explicitly skips numeric parsing for ANY value with underscores
+        // to preserve identifiers like tag36_11_00333 in filenames
+        let result = eval_literal("36_11");
+        assert_eq!(
+            result,
+            Value::StringLit("36_11".to_string()),
+            "Numeric-looking string with underscore should remain string, not be parsed as number"
+        );
+    }
+
+    #[test]
     fn test_eval_literal_unparseable_string() {
         let result = eval_literal("hello");
         assert_eq!(

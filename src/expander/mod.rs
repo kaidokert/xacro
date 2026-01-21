@@ -10,11 +10,16 @@
 //! - Borrow-safe: Free functions with Rc for shared ownership
 //! - Scope support: Macro parameters shadow global properties
 
-use crate::{error::XacroError, parse::xml::is_xacro_element};
+use crate::{
+    error::XacroError,
+    parse::xml::{is_known_xacro_uri, is_xacro_element},
+};
 use xmltree::{Element, XMLNode};
 
 mod children;
 mod directives;
+#[cfg(test)]
+mod directives_tests;
 mod guards;
 mod include;
 mod macro_call;
@@ -67,6 +72,31 @@ pub fn expand_node(
     }
 }
 
+/// Extract directive name from element if it's a xacro directive
+///
+/// Returns Some(name) if element is a xacro directive, None otherwise.
+/// Accepts both exact namespace match and any known xacro URI variant.
+fn extract_directive_name<'a>(
+    elem: &'a Element,
+    xacro_ns: &str,
+) -> Option<&'a str> {
+    let elem_ns = elem.namespace.as_deref();
+
+    // Require that document declared a xacro namespace
+    if xacro_ns.is_empty() {
+        return None;
+    }
+
+    // Accept exact match with current namespace OR any known xacro URI
+    // This ensures directives from included files with different namespace variants
+    // (e.g., http://ros.org/wiki/xacro vs http://www.ros.org/wiki/xacro) are recognized
+    if elem_ns == Some(xacro_ns) || elem_ns.is_some_and(is_known_xacro_uri) {
+        Some(&elem.name)
+    } else {
+        None
+    }
+}
+
 /// Expand an element node
 fn expand_element(
     mut elem: Element,
@@ -74,42 +104,20 @@ fn expand_element(
 ) -> Result<Vec<XMLNode>, XacroError> {
     let xacro_ns = ctx.current_xacro_ns();
 
-    // 1. Property definitions (no output)
-    if is_xacro_element(&elem, "property", &xacro_ns) {
-        return handle_property_directive(elem, ctx);
+    // Try directive registry first (O(1) HashMap lookup)
+    if let Some(directive_name) = extract_directive_name(&elem, &xacro_ns) {
+        let registry = get_directive_registry();
+        if let Some(handler) = registry.get(directive_name) {
+            return handler.handle(elem, ctx);
+        }
     }
 
-    // 1b. Argument definitions (no output)
-    if is_xacro_element(&elem, "arg", &xacro_ns) {
-        return handle_arg_directive(elem, ctx);
-    }
-
-    // 2. Macro definitions (no output)
-    if is_xacro_element(&elem, "macro", &xacro_ns) {
-        return handle_macro_directive(elem, ctx);
-    }
-
-    // 3. Conditionals (LAZY evaluation) - consolidated if/unless
-    let is_if = is_xacro_element(&elem, "if", &xacro_ns);
-    let is_unless = is_xacro_element(&elem, "unless", &xacro_ns);
-
-    if is_if || is_unless {
-        return handle_conditional_directive(elem, ctx, is_if);
-    }
-
-    // 4. Include directive (LAZY - only evaluated if reached)
+    // Include directive (not in registry yet - kept separate for now)
     if is_xacro_element(&elem, "include", &xacro_ns) {
         return handle_include_directive(elem, ctx);
     }
 
-    // 5. Block insertion
-    // Recursion depth is checked at expand_node entry (catches circular block references)
-    if is_xacro_element(&elem, "insert_block", &xacro_ns) {
-        return handle_insert_block_directive(elem, ctx);
-    }
-
-    // 6. Check for known but unimplemented xacro directives
-    // These should error explicitly rather than silently pass through as literal XML
+    // Check for known but unimplemented xacro directives
     check_unimplemented_directive(&elem, &xacro_ns)?;
 
     // 7. Macro calls (with re-scan for nested macros)

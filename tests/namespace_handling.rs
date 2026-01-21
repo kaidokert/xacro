@@ -541,3 +541,84 @@ fn test_custom_namespace_attribute_prefix_preserved() {
     // Property substitution should still work
     assert_xacro_contains!(output, "0.5 0.5 0.5");
 }
+
+/// Test that properties defined inside macros work across namespace variants
+///
+/// This tests lazy macro evaluation: when a macro from an included file with
+/// a different namespace variant (e.g., http://ros.org/wiki/xacro without www)
+/// is called from the main file (e.g., http://www.ros.org/wiki/xacro with www),
+/// the properties inside that macro body should still be recognized and processed.
+///
+/// Timeline:
+/// 1. Include file with macro (namespace: http://ros.org/wiki/xacro)
+/// 2. Macro body stored as raw XML (lazy evaluation)
+/// 3. Include ends, namespace stack pops to main file (http://www.ros.org/wiki/xacro)
+/// 4. Macro called from main file
+/// 5. During expansion, properties inside macro have original namespace
+/// 6. Directive dispatch must check is_known_xacro_uri(), not just exact match
+///
+#[test]
+fn test_include_macro_with_properties_across_namespace_variants() {
+    use std::io::Write;
+
+    // Create included file with different namespace variant
+    let mut included_file = tempfile::Builder::new()
+        .suffix(".xacro")
+        .tempfile()
+        .expect("Failed to create temp file");
+
+    // Included file: namespace http://ros.org/wiki/xacro (different from main)
+    // Defines macro with properties INSIDE macro body
+    write!(
+        included_file,
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:macro name="test_macro" params="parent">
+    <!-- Properties defined INSIDE macro body (lazy evaluation) -->
+    <xacro:property name="foo" value="2.0"/>
+    <xacro:property name="bar" value="3.0"/>
+
+    <link name="${{parent}}_child">
+      <visual>
+        <geometry>
+          <box size="${{foo}} ${{bar}} 0.5"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:macro>
+</robot>"#
+    )
+    .expect("Failed to write to temp file");
+    included_file.flush().expect("Failed to flush temp file");
+
+    let included_path = included_file
+        .path()
+        .to_str()
+        .expect("Path is not valid UTF-8");
+
+    // Main file: namespace http://www.ros.org/wiki/xacro (WITH www, different variant)
+    let main_xml = format!(
+        r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="{}"/>
+
+  <!-- Call macro from included file -->
+  <xacro:test_macro parent="base"/>
+</robot>"#,
+        included_path
+    );
+
+    // This MUST work! Properties inside macro from included file should be processed
+    let output = run_xacro_expect(
+        &main_xml,
+        "Properties inside macros from included files with different namespace variants should work",
+    );
+
+    // Verify the macro was expanded and properties were resolved
+    assert_xacro_contains!(output, r#"name="base_child""#);
+    assert_xacro_contains!(output, r#"size="2.0 3.0 0.5""#);
+
+    // No xacro elements should remain
+    assert_xacro_not_contains!(output, "xacro:property");
+    assert_xacro_not_contains!(output, "xacro:macro");
+}
