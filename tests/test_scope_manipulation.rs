@@ -295,18 +295,10 @@ fn test_scope_invalid_value_error() {
     );
 }
 
-// TODO: This test is disabled because it reveals a known limitation:
-// Properties defined inside macros are currently accessible outside the macro.
-// This does NOT match Python xacro behavior (confirmed: Python xacro properly
-// scopes local properties and errors on access outside the macro).
-//
-// Fixing this requires broader architectural changes to the scope stack system
-// to properly isolate macro-local properties. This is tracked as a known
-// limitation and should be addressed in a future PR focused on scope isolation.
 #[test]
-#[ignore]
 fn test_scope_local_default() {
-    // Test that properties without scope attribute default to local
+    // Test that properties without scope attribute default to local scope
+    // and are NOT accessible outside the macro (matches Python xacro behavior)
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro name="test">
@@ -324,12 +316,11 @@ fn test_scope_local_default() {
         result.is_err(),
         "Should error when accessing local-scoped property outside macro"
     );
+    let err_msg = result.unwrap_err().to_string();
     assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Undefined property"),
-        "Error should mention undefined property"
+        err_msg.to_lowercase().contains("undefined"),
+        "Error should mention undefined property/variable, got: {}",
+        err_msg
     );
 }
 

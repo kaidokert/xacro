@@ -1,6 +1,6 @@
 use super::interpreter::{
-    build_pyisheval_context, eval_boolean, format_value_python_style, init_interpreter,
-    remove_quotes,
+    build_pyisheval_context, constants::BUILTIN_CONSTANTS, eval_boolean, format_value_python_style,
+    init_interpreter, remove_quotes,
 };
 use super::lexer::{Lexer, TokenType};
 use crate::error::XacroError;
@@ -14,29 +14,6 @@ use std::sync::OnceLock;
 /// Cached regex for extracting variable names from expressions
 /// Compiled once and reused across all property reference extractions
 static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Built-in math constants (name, value) that are pre-initialized
-/// Users can override these, but will receive a warning
-///
-/// Note: `inf` and `nan` are NOT included because pyisheval cannot parse them:
-/// - `inf` is not a valid Python literal (Python uses `float('inf')`)
-/// - `nan` is not a valid Python literal (Python uses `float('nan')`)
-/// - Large exponents like `9e999` fail parsing ("Unexpected trailing input")
-/// - pyisheval doesn't expose an API to inject values without parsing
-///
-/// Instead, `inf` and `nan` are injected directly into the pyisheval context
-/// HashMap in `build_pyisheval_context()` to bypass parsing limitations.
-///
-/// LIMITATION: Lambda expressions that reference properties with `nan` values will
-/// fail with "undefined variable" errors because pyisheval cannot create NaN
-/// (0.0/0.0 triggers DivisionByZero). Properties with `inf` values work correctly
-/// (created using 10**400 arithmetic).
-pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
-    ("pi", core::f64::consts::PI),
-    ("e", core::f64::consts::E),
-    ("tau", core::f64::consts::TAU),
-    ("M_PI", core::f64::consts::PI), // Legacy alias
-];
 
 /// Truncate text to a safe length (100 chars) respecting UTF-8 boundaries
 ///

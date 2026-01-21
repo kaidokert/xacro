@@ -1,0 +1,4 @@
+positive_inf: .inf
+negative_inf: -.inf
+not_a_number: .nan
+normal_float: 3.14

@@ -241,6 +241,45 @@ mod load_yaml_tests {
         .expect("load_yaml null value access should succeed");
         assert_eq!(value, "0", "null value should evaluate to 0 (None)");
     }
+
+    #[test]
+    fn test_load_yaml_inf_nan_values() {
+        let props = HashMap::new();
+
+        // Test positive infinity - evaluates to Python inf
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['positive_inf']}",
+            &props,
+        );
+        // Python's float('inf') evaluates to inf, which is a valid value
+        assert!(
+            result.is_ok(),
+            "positive_inf should evaluate successfully, got: {:?}",
+            result
+        );
+
+        // Test negative infinity
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['negative_inf']}",
+            &props,
+        );
+        assert!(result.is_ok(), "negative_inf should evaluate successfully");
+
+        // Test NaN
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['not_a_number']}",
+            &props,
+        );
+        assert!(result.is_ok(), "not_a_number should evaluate successfully");
+
+        // Test normal float still works
+        let value = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['normal_float']}",
+            &props,
+        )
+        .expect("normal_float should succeed");
+        assert_eq!(value, "3.14", "normal float should be '3.14'");
+    }
 }
 
 #[cfg(not(feature = "yaml"))]
