@@ -172,10 +172,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         value: String,
         metadata: PropertyMetadata,
     ) {
-        // Warn if user is overriding a built-in math constant (only if it's already defined)
-        if self.raw_properties.borrow().contains_key(&name)
-            && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
-        {
+        // Warn if user is defining a property with the same name as a built-in math constant
+        if BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str()) {
             log::warn!(
                 "Property '{}' overrides built-in math constant. \
                  This may cause unexpected behavior. \
@@ -199,10 +197,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         value: String,
         _metadata: (),
     ) {
-        // Warn if user is overriding a built-in math constant (only if it's already defined)
-        if self.raw_properties.borrow().contains_key(&name)
-            && BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str())
-        {
+        // Warn if user is defining a property with the same name as a built-in math constant
+        if BUILTIN_CONSTANTS.iter().any(|(k, _)| *k == name.as_str()) {
             log::warn!(
                 "Property '{}' overrides built-in math constant. \
                  This may cause unexpected behavior. \

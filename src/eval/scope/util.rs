@@ -460,4 +460,121 @@ mod tests {
         assert!(ids.contains("x"));
         assert!(!ids.contains("path"));
     }
+
+    // Tests for truncate_snippet
+
+    #[test]
+    fn test_truncate_snippet_short_string() {
+        let text = "Short string";
+        assert_eq!(truncate_snippet(text), "Short string");
+    }
+
+    #[test]
+    fn test_truncate_snippet_exactly_100_chars() {
+        let text = "a".repeat(100);
+        assert_eq!(truncate_snippet(&text), text);
+    }
+
+    #[test]
+    fn test_truncate_snippet_longer_than_100_chars() {
+        let text = "a".repeat(150);
+        let result = truncate_snippet(&text);
+        assert!(result.ends_with("..."));
+        assert!(result.len() <= 103); // 100 chars + "..."
+    }
+
+    #[test]
+    fn test_truncate_snippet_utf8_boundary() {
+        // Create a string with multibyte UTF-8 characters near the boundary
+        let mut text = "a".repeat(98);
+        text.push_str("🦀"); // 4-byte emoji
+        text.push_str(&"x".repeat(10));
+        let result = truncate_snippet(&text);
+        assert!(result.ends_with("..."));
+        // Should not panic on UTF-8 boundary
+        assert!(result.is_char_boundary(result.len() - 3));
+    }
+
+    // Tests for is_lambda_parameter
+
+    #[test]
+    fn test_is_lambda_parameter_single_param() {
+        assert!(is_lambda_parameter("lambda x: x + 1", "x"));
+        assert!(!is_lambda_parameter("lambda x: x + 1", "y"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_multiple_params() {
+        assert!(is_lambda_parameter("lambda a, b, c: a + b", "a"));
+        assert!(is_lambda_parameter("lambda a, b, c: a + b", "b"));
+        assert!(is_lambda_parameter("lambda a, b, c: a + b", "c"));
+        assert!(!is_lambda_parameter("lambda a, b, c: a + b", "d"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_with_spaces() {
+        assert!(is_lambda_parameter("lambda  x , y  : x + y", "x"));
+        assert!(is_lambda_parameter("lambda  x , y  : x + y", "y"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_not_lambda() {
+        assert!(!is_lambda_parameter("x + y", "x"));
+        assert!(!is_lambda_parameter("def foo(x): return x", "x"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_word_boundary() {
+        // "notlambda" should not be detected as lambda
+        assert!(!is_lambda_parameter("notlambda x: x", "x"));
+        // "lambda_var" should not be detected as lambda
+        assert!(!is_lambda_parameter("lambda_var: something", "var"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_no_colon() {
+        assert!(!is_lambda_parameter("lambda x", "x"));
+    }
+
+    #[test]
+    fn test_is_lambda_parameter_underscore_names() {
+        assert!(is_lambda_parameter("lambda _x, __y: _x + __y", "_x"));
+        assert!(is_lambda_parameter("lambda _x, __y: _x + __y", "__y"));
+    }
+
+    // Tests for is_simple_identifier
+
+    #[test]
+    fn test_is_simple_identifier_valid() {
+        assert!(is_simple_identifier("x"));
+        assert!(is_simple_identifier("my_var"));
+        assert!(is_simple_identifier("var123"));
+        assert!(is_simple_identifier("_private"));
+        assert!(is_simple_identifier("__dunder__"));
+    }
+
+    #[test]
+    fn test_is_simple_identifier_invalid() {
+        assert!(!is_simple_identifier("x + y"));
+        assert!(!is_simple_identifier("data['key']"));
+        assert!(!is_simple_identifier("obj.attr"));
+        assert!(!is_simple_identifier("123abc")); // starts with number
+        assert!(!is_simple_identifier("")); // empty
+        assert!(!is_simple_identifier("x-y")); // hyphen not allowed
+    }
+
+    #[test]
+    fn test_is_simple_identifier_keywords() {
+        assert!(!is_simple_identifier("True"));
+        assert!(!is_simple_identifier("False"));
+        assert!(!is_simple_identifier("None"));
+        assert!(!is_simple_identifier("lambda"));
+        assert!(!is_simple_identifier("if"));
+    }
+
+    #[test]
+    fn test_is_simple_identifier_numbers() {
+        assert!(!is_simple_identifier("123"));
+        assert!(!is_simple_identifier("3.14"));
+    }
 }
