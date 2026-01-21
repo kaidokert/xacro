@@ -649,6 +649,61 @@ fn test_custom_max_recursion_depth() {
     );
 }
 
+/// Test exact recursion depth boundary (catches off-by-one errors)
+#[test]
+fn test_recursion_depth_boundary() {
+    // Create processor with limit of 10
+    // max_recursion_depth=10 means "fail when depth reaches 10"
+    // Use limit=10 to give enough room for a few recursive macro calls
+    let processor = XacroProcessor::builder().with_max_depth(10).build();
+
+    // Simple recursive macro that should succeed at depth 9 but fail at depth 10
+    // Each macro call only generates one element, so depth tracks macro recursion closely
+    let input_at_limit = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="chain" params="n">
+    <xacro:if value="${n > 0}">
+      <xacro:chain n="${n - 1}"/>
+    </xacro:if>
+    <link name="link_${n}"/>
+  </xacro:macro>
+
+  <!-- This should succeed: recursion depth for n=2 is well under the limit -->
+  <xacro:chain n="2"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input_at_limit);
+    assert!(
+        result.is_ok(),
+        "Should succeed with n=2 under limit of 10, got: {:?}",
+        result.err()
+    );
+
+    // This should fail by hitting the limit
+    let input_over_limit = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="chain" params="n">
+    <xacro:if value="${n > 0}">
+      <xacro:chain n="${n - 1}"/>
+    </xacro:if>
+    <link name="link_${n}"/>
+  </xacro:macro>
+
+  <!-- This should fail: enters expand_node more than 10 times -->
+  <xacro:chain n="10"/>
+</robot>"#;
+
+    let result = processor.run_from_string(input_over_limit);
+    assert!(result.is_err(), "Should fail with n=10 over limit of 10");
+
+    let err = result.err().unwrap();
+    assert!(
+        matches!(err, xacro::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 10),
+        "Should be MacroRecursionLimit with limit=10, got: {:?}",
+        err
+    );
+}
+
 /// Test that circular block references are detected and cause an error
 #[test]
 fn test_circular_block_references() {
