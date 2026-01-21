@@ -11,6 +11,55 @@ use crate::extensions::extension_utils;
 use std::collections::HashMap;
 
 impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
+    /// Generic iterative substitution helper
+    ///
+    /// Applies a processing function iteratively until no more substitutions are possible
+    /// or the maximum depth is reached. This eliminates code duplication across multiple
+    /// substitution methods.
+    ///
+    /// # Arguments
+    /// * `text` - Input text to process
+    /// * `should_continue` - Predicate to check if processing should continue
+    /// * `process_fn` - Function to apply one processing pass
+    ///
+    /// # Returns
+    /// Fully processed text
+    fn substitute_iteratively<F, P>(
+        &self,
+        text: &str,
+        should_continue: F,
+        process_fn: P,
+    ) -> Result<String, XacroError>
+    where
+        F: Fn(&str) -> bool,
+        P: Fn(&str) -> Result<String, XacroError>,
+    {
+        let mut result = text.to_string();
+        let mut iteration = 0;
+
+        while should_continue(&result) && iteration < MAX_SUBSTITUTION_DEPTH {
+            let next = process_fn(&result)?;
+
+            // Short-circuit: if result didn't change, we're done
+            if next == result {
+                break;
+            }
+
+            result = next;
+            iteration += 1;
+        }
+
+        // Check if we hit the depth limit with remaining substitutions
+        if iteration >= MAX_SUBSTITUTION_DEPTH && should_continue(&result) {
+            return Err(XacroError::MaxSubstitutionDepth {
+                depth: MAX_SUBSTITUTION_DEPTH,
+                snippet: truncate_snippet(&result),
+            });
+        }
+
+        Ok(result)
+    }
+
     /// Perform one pass of substitution with metadata-aware formatting
     ///
     /// This is similar to eval_text_with_interpreter but uses property metadata
@@ -109,39 +158,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         text: &str,
     ) -> Result<String, XacroError> {
-        // Iterative substitution: keep evaluating as long as ${...} expressions or $(...) extensions remain
-        // Note: contains() checks are conservative (may have false positives like "$( not-an-extension)"),
-        // but the loop short-circuits when result doesn't change, avoiding unnecessary iterations.
-        let mut result = text.to_string();
-        let mut iteration = 0;
-
-        while (result.contains("${") || result.contains("$(")) && iteration < MAX_SUBSTITUTION_DEPTH
-        {
-            // Build context with only the properties referenced in this iteration
-            // This is more efficient than resolving all properties upfront
-            let properties = self.build_eval_context(&result)?;
-
-            // Use metadata-aware substitution
-            let next = self.substitute_one_pass(&result, &properties)?;
-
-            // Short-circuit: if result didn't change, we're done (no valid expressions/extensions found)
-            if next == result {
-                break;
-            }
-
-            result = next;
-            iteration += 1;
-        }
-
-        // If we hit the limit with remaining placeholders, this indicates a problem
-        if iteration >= MAX_SUBSTITUTION_DEPTH && (result.contains("${") || result.contains("$(")) {
-            return Err(XacroError::MaxSubstitutionDepth {
-                depth: MAX_SUBSTITUTION_DEPTH,
-                snippet: truncate_snippet(&result),
-            });
-        }
-
-        Ok(result)
+        self.substitute_iteratively(
+            text,
+            |s| s.contains("${") || s.contains("$("),
+            |result| {
+                // Build context with only the properties referenced in this iteration
+                let properties = self.build_eval_context(result)?;
+                // Use metadata-aware substitution
+                self.substitute_one_pass(result, &properties)
+            },
+        )
     }
 
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
@@ -307,18 +333,15 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// It iterates until no more substitutions are possible or max depth is reached.
     ///
     /// **Evaluation order** (critical for nested cases):
-    /// 1. Tokenize text into Text/Extension/Expression tokens
-    /// 2. For Extension tokens: resolve immediately (lookup in args/find/env)
-    /// 3. For Expression tokens:
-    ///    a. First resolve any `$(...)` inside the expression
-    ///    b. Then evaluate the expression with pyisheval
-    /// 4. Repeat until no changes or max depth reached
+    /// 1. Resolve all extensions `$(...)` in the text
+    /// 2. Evaluate all expressions `${...}` in the text
+    /// 3. Repeat until no changes or max depth reached
     ///
     /// **Example**: `${$(arg count) * 2}` where count=5
-    /// - Iteration 1: Expression token `$(arg count) * 2`
-    ///   - Resolve extension: `5 * 2`
-    ///   - Evaluate: `10`
-    /// - Iteration 2: Text token `10` (no changes, done)
+    /// - Iteration 1:
+    ///   - Resolve extensions: `${5 * 2}`
+    ///   - Evaluate expressions: `10`
+    /// - Iteration 2: No changes (done)
     ///
     /// # Arguments
     /// * `text` - Text containing any combination of `$()` and `${}`
@@ -334,72 +357,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         text: &str,
     ) -> Result<String, XacroError> {
-        let mut result = text.to_string();
-        let mut iteration = 0;
-
-        // Keep iterating while we have either ${} or $() remaining
-        while (result.contains("${") || result.contains("$(")) && iteration < MAX_SUBSTITUTION_DEPTH
-        {
-            let lexer = Lexer::new(&result);
-            let mut changed = false;
-            let mut new_result = String::new();
-
-            for (token_type, content) in lexer {
-                match token_type {
-                    TokenType::Text => {
-                        new_result.push_str(&content);
-                    }
-                    TokenType::Extension => {
-                        // Resolve extension immediately
-                        let resolved = self.resolve_extension(&content)?;
-                        new_result.push_str(&resolved);
-                        changed = true;
-                    }
-                    TokenType::Expr => {
-                        // First resolve any extensions INSIDE the expression
-                        let expr_with_extensions_resolved =
-                            self.substitute_extensions_only(&content)?;
-
-                        // Then evaluate the expression (which may still contain properties)
-                        // Wrap in ${...} and use substitute_text for evaluation + formatting
-                        let wrapped_expr = format!("${{{}}}", expr_with_extensions_resolved);
-                        let eval_result = self.substitute_text(&wrapped_expr)?;
-
-                        // Mark changed if evaluation produced different output than input
-                        // IMPORTANT: Compare eval_result with wrapped_expr (e.g., "${0}" vs "0")
-                        // not with expr_with_extensions_resolved (e.g., "0" vs "0"), otherwise
-                        // simple literals like ${0} would incorrectly skip substitution
-                        if eval_result != wrapped_expr {
-                            changed = true;
-                        }
-                        new_result.push_str(&eval_result);
-                    }
-                    TokenType::DollarDollarBrace => {
-                        // Preserve escape sequence
-                        new_result.push('$');
-                        new_result.push_str(&content);
-                    }
-                }
-            }
-
-            // If nothing changed, we're done
-            if !changed {
-                break;
-            }
-
-            result = new_result;
-            iteration += 1;
-        }
-
-        // Check if we hit the depth limit with remaining substitutions
-        if iteration >= MAX_SUBSTITUTION_DEPTH && (result.contains("${") || result.contains("$(")) {
-            return Err(XacroError::MaxSubstitutionDepth {
-                depth: MAX_SUBSTITUTION_DEPTH,
-                snippet: truncate_snippet(&result),
-            });
-        }
-
-        Ok(result)
+        self.substitute_iteratively(
+            text,
+            |s| s.contains("${") || s.contains("$("),
+            |s| {
+                // First resolve all extensions
+                let with_extensions = self.substitute_extensions_only(s)?;
+                // Then evaluate all expressions
+                self.substitute_text(&with_extensions)
+            },
+        )
     }
 
     /// Evaluate a boolean expression using scope-aware resolution
@@ -447,36 +414,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
-        // Iterative substitution: keep evaluating as long as ${...} expressions remain
-        // This handles cases where property values themselves contain expressions
-        // Example: full_name = "link_${name}" where name = "base" → "link_base"
-        let mut result = text.to_string();
-        let mut iteration = 0;
-
-        while result.contains("${") && iteration < MAX_SUBSTITUTION_DEPTH {
-            // Use metadata-aware substitution (substitute_one_pass) instead of eval_text_with_interpreter.
-            // This ensures boolean metadata is preserved during intermediate property evaluation.
-            // Example: tf_p="${p}/" where p has boolean metadata should preserve "True" not "1".
-            // Note: substitute_one_pass creates a fresh interpreter internally, maintaining proper scoping.
-            let next = self.substitute_one_pass(&result, properties)?;
-
-            // If result didn't change, we're done (avoids infinite loop on unresolvable expressions)
-            if next == result {
-                break;
-            }
-
-            result = next;
-            iteration += 1;
-        }
-
-        // If we hit the limit with remaining placeholders, this indicates a problem
-        if iteration >= MAX_SUBSTITUTION_DEPTH && result.contains("${") {
-            return Err(XacroError::MaxSubstitutionDepth {
-                depth: MAX_SUBSTITUTION_DEPTH,
-                snippet: truncate_snippet(&result),
-            });
-        }
-
-        Ok(result)
+        self.substitute_iteratively(
+            text,
+            |s| s.contains("${"),
+            |result| self.substitute_one_pass(result, properties),
+        )
     }
 }

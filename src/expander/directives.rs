@@ -12,10 +12,147 @@ use crate::{
     eval::PropertyScope,
     parse::{macro_def::MacroDefinition, macro_def::MacroProcessor},
 };
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use xmltree::{Element, XMLNode};
 
 use super::{expand_children_list, XacroContext};
+
+// =============================================================================
+// DirectiveHandler Trait and Registry
+// =============================================================================
+
+/// Trait for directive handlers that process xacro elements
+///
+/// This enables extensible directive dispatch via a registry pattern.
+/// Each directive (property, arg, macro, if, etc.) implements this trait.
+pub(crate) trait DirectiveHandler: Send + Sync {
+    /// Handle the directive element
+    ///
+    /// # Arguments
+    /// * `elem` - The xacro directive element to process
+    /// * `ctx` - XacroContext with properties, macros, and stacks
+    ///
+    /// # Returns
+    /// Expanded nodes (may be empty for definitions like property/arg/macro)
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError>;
+}
+
+/// Global directive handler registry (initialized once on first access)
+static DIRECTIVE_REGISTRY: OnceLock<HashMap<&'static str, Box<dyn DirectiveHandler>>> =
+    OnceLock::new();
+
+/// Get the directive handler registry
+///
+/// Lazily initializes the registry on first call, then returns cached reference.
+/// Uses OnceLock for thread-safe lazy initialization without runtime overhead.
+pub(crate) fn get_directive_registry() -> &'static HashMap<&'static str, Box<dyn DirectiveHandler>>
+{
+    DIRECTIVE_REGISTRY.get_or_init(|| {
+        let mut registry: HashMap<&'static str, Box<dyn DirectiveHandler>> = HashMap::new();
+
+        // Register all built-in directive handlers
+        registry.insert("property", Box::new(PropertyDirective));
+        registry.insert("arg", Box::new(ArgDirective));
+        registry.insert("macro", Box::new(MacroDirective));
+        registry.insert("if", Box::new(IfDirective));
+        registry.insert("unless", Box::new(UnlessDirective));
+        registry.insert("insert_block", Box::new(InsertBlockDirective));
+
+        registry
+    })
+}
+
+// =============================================================================
+// Directive Handler Implementations
+// =============================================================================
+
+/// Property directive handler
+struct PropertyDirective;
+
+impl DirectiveHandler for PropertyDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_property_directive(elem, ctx)
+    }
+}
+
+/// Arg directive handler
+struct ArgDirective;
+
+impl DirectiveHandler for ArgDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_arg_directive(elem, ctx)
+    }
+}
+
+/// Macro directive handler
+struct MacroDirective;
+
+impl DirectiveHandler for MacroDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_macro_directive(elem, ctx)
+    }
+}
+
+/// If directive handler
+struct IfDirective;
+
+impl DirectiveHandler for IfDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_conditional_directive(elem, ctx, true)
+    }
+}
+
+/// Unless directive handler
+struct UnlessDirective;
+
+impl DirectiveHandler for UnlessDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_conditional_directive(elem, ctx, false)
+    }
+}
+
+/// Insert block directive handler
+struct InsertBlockDirective;
+
+impl DirectiveHandler for InsertBlockDirective {
+    fn handle(
+        &self,
+        elem: Element,
+        ctx: &XacroContext,
+    ) -> Result<Vec<XMLNode>, XacroError> {
+        handle_insert_block_directive(elem, ctx)
+    }
+}
+
+// =============================================================================
+// Original Function-Based Handlers (kept for backward compatibility)
+// =============================================================================
 
 /// Handle xacro:property directive
 ///
