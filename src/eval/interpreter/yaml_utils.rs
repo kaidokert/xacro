@@ -107,7 +107,7 @@ pub(super) fn yaml_to_python_literal(
             // Extract raw string value for handler (only scalars reach here)
             let raw_value = match &*inner {
                 Yaml::Value(Scalar::Integer(i)) => i.to_string(),
-                Yaml::Value(Scalar::FloatingPoint(f)) => f.to_string(),
+                Yaml::Value(Scalar::FloatingPoint(f)) => format_f64(**f),
                 Yaml::Value(Scalar::String(s)) => s.to_string(),
                 Yaml::Value(Scalar::Null) => "None".to_string(),
                 Yaml::Value(Scalar::Boolean(b)) => {
@@ -286,8 +286,9 @@ pub(super) fn preprocess_load_yaml(
             let filename_arg = &result[paren_pos + 1..close_pos];
 
             // Evaluate filename argument (could be a variable or string literal)
-            let filename = if (filename_arg.starts_with('\'') && filename_arg.ends_with('\''))
-                || (filename_arg.starts_with('"') && filename_arg.ends_with('"'))
+            let filename = if filename_arg.len() >= 2
+                && ((filename_arg.starts_with('\'') && filename_arg.ends_with('\''))
+                    || (filename_arg.starts_with('"') && filename_arg.ends_with('"')))
             {
                 // String literal - strip surrounding quotes (exactly one char from each end)
                 filename_arg[1..filename_arg.len() - 1].to_string()
