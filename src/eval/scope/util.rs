@@ -18,12 +18,18 @@ static VAR_REGEX: OnceLock<Regex> = OnceLock::new();
 /// Used for error messages to prevent overwhelming output while ensuring
 /// we don't break in the middle of a multi-byte UTF-8 character.
 pub(super) fn truncate_snippet(text: &str) -> String {
-    if text.len() > 100 {
-        let mut end_idx = 100;
-        while !text.is_char_boundary(end_idx) {
-            end_idx -= 1;
-        }
-        format!("{}...", &text[..end_idx])
+    const CHAR_LIMIT: usize = 100;
+
+    let char_count = text.chars().count();
+    if char_count > CHAR_LIMIT {
+        // Find the byte index of the 100th character
+        let byte_idx = text
+            .char_indices()
+            .nth(CHAR_LIMIT)
+            .map(|(idx, _)| idx)
+            .unwrap_or(text.len());
+
+        format!("{}...", &text[..byte_idx])
     } else {
         text.to_string()
     }
@@ -493,6 +499,17 @@ mod tests {
         assert!(result.ends_with("..."));
         // Should not panic on UTF-8 boundary
         assert!(result.is_char_boundary(result.len() - 3));
+    }
+
+    #[test]
+    fn test_truncate_snippet_counts_chars_not_bytes() {
+        // 50 emoji = 200 bytes but only 50 characters
+        let text = "🦀".repeat(120); // 120 chars, 480 bytes
+        let result = truncate_snippet(&text);
+        assert!(result.ends_with("..."));
+        // Should truncate at 100 chars (not 100 bytes)
+        let result_without_ellipsis = &result[..result.len() - 3];
+        assert_eq!(result_without_ellipsis.chars().count(), 100);
     }
 
     // Tests for is_lambda_parameter
