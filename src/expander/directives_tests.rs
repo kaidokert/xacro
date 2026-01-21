@@ -146,31 +146,76 @@ mod directive_unit_tests {
     #[test]
     fn test_property_directive_parent_scope() {
         let ctx = mock_xacro_context();
+        let initial_depth = ctx.properties.scope_depth();
+
         // Push a new scope
         ctx.properties.push_scope(std::collections::HashMap::new());
+        let new_depth = ctx.properties.scope_depth();
+        assert_eq!(new_depth, initial_depth + 1, "Should have pushed one scope");
 
         let elem = element_from_xml(r#"<property name="x" value="42" scope="parent"/>"#);
 
         let result = handle_property_directive(elem, &ctx);
 
         assert!(result.is_ok(), "Parent scope property should succeed");
-        // Property should be in parent scope (depth 0), not current scope (depth 1)
-        // We can't easily verify this without additional test helpers, so just check it succeeded
+        assert_eq!(
+            result.unwrap().len(),
+            0,
+            "Property directive produces no output"
+        );
+
+        // Verify property was stored and can be looked up
+        assert_eq!(
+            ctx.properties.lookup_raw_value("x"),
+            Some("42".to_string()),
+            "Property should be stored with correct value"
+        );
+
+        // Verify it's accessible from current scope
+        assert!(
+            ctx.properties.has_property("x"),
+            "Property should be accessible from current scope"
+        );
     }
 
     #[test]
     fn test_property_directive_global_scope() {
         let ctx = mock_xacro_context();
+        let initial_depth = ctx.properties.scope_depth();
+
         // Push multiple scopes
         ctx.properties.push_scope(std::collections::HashMap::new());
         ctx.properties.push_scope(std::collections::HashMap::new());
+        let final_depth = ctx.properties.scope_depth();
+        assert_eq!(
+            final_depth,
+            initial_depth + 2,
+            "Should have pushed two scopes"
+        );
 
         let elem = element_from_xml(r#"<property name="x" value="42" scope="global"/>"#);
 
         let result = handle_property_directive(elem, &ctx);
 
         assert!(result.is_ok(), "Global scope property should succeed");
-        // Property should be in global scope (depth 0)
+        assert_eq!(
+            result.unwrap().len(),
+            0,
+            "Property directive produces no output"
+        );
+
+        // Verify property was stored in global scope
+        assert_eq!(
+            ctx.properties.lookup_raw_value("x"),
+            Some("42".to_string()),
+            "Property should be in global scope with correct value"
+        );
+
+        // Verify it's accessible from nested scope
+        assert!(
+            ctx.properties.has_property("x"),
+            "Property should be accessible from nested scope"
+        );
     }
 
     // =============================================================================
@@ -646,8 +691,43 @@ mod directive_unit_tests {
         );
     }
 
-    // Note: Testing successful insert_block requires setting up the block stack,
-    // which is more complex and better tested via integration tests.
+    #[test]
+    fn test_insert_block_happy_path() {
+        let ctx = mock_xacro_context();
+
+        // Set up a block in the block stack
+        let mut blocks = std::collections::HashMap::new();
+        let block_content = vec![
+            xmltree::XMLNode::Element(element_from_xml(r#"<link name="test_link"/>"#)),
+            xmltree::XMLNode::Element(element_from_xml(r#"<joint name="test_joint"/>"#)),
+        ];
+        blocks.insert("my_block".to_string(), block_content.clone());
+        ctx.block_stack.borrow_mut().push(blocks);
+
+        let elem = element_from_xml(r#"<insert_block name="my_block"/>"#);
+
+        let result = handle_insert_block_directive(elem, &ctx);
+
+        assert!(
+            result.is_ok(),
+            "Insert block with defined name should succeed"
+        );
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 2, "Should return both elements from block");
+
+        // Verify content matches what we inserted
+        if let xmltree::XMLNode::Element(ref e) = nodes[0] {
+            assert_eq!(e.name, "link", "First element should be link");
+        } else {
+            panic!("Expected first node to be an Element");
+        }
+
+        if let xmltree::XMLNode::Element(ref e) = nodes[1] {
+            assert_eq!(e.name, "joint", "Second element should be joint");
+        } else {
+            panic!("Expected second node to be an Element");
+        }
+    }
 
     // =============================================================================
     // Tests for check_unimplemented_directive
@@ -675,4 +755,164 @@ mod directive_unit_tests {
 
     // Note: Testing actual unimplemented directives requires adding them to
     // UNIMPLEMENTED_FEATURES list, which would be artificial for testing.
+
+    // =============================================================================
+    // Tests for directive registry dispatch (via expand_element)
+    // =============================================================================
+
+    /// Helper to create an element with xacro namespace
+    fn xacro_element_from_xml(xml: &str) -> Element {
+        // Wrap in robot element with xacro namespace declaration
+        let wrapped = format!(
+            r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro">{}</robot>"#,
+            xml
+        );
+        let robot = Element::parse(wrapped.as_bytes()).expect("Test XML should be valid");
+        // Return the first child (the actual element we want to test)
+        if let xmltree::XMLNode::Element(elem) = &robot.children[0] {
+            elem.clone()
+        } else {
+            panic!("Expected element child");
+        }
+    }
+
+    #[test]
+    fn test_registry_dispatch_property() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(r#"<xacro:property name="x" value="42"/>"#);
+
+        // Use expand_element to test registry dispatch
+        let result = expand_element(elem, &ctx);
+
+        assert!(
+            result.is_ok(),
+            "Property directive via registry should succeed"
+        );
+        assert_eq!(result.unwrap().len(), 0, "Property produces no output");
+        assert_eq!(
+            ctx.properties.lookup_raw_value("x"),
+            Some("42".to_string()),
+            "Property should be stored via registry dispatch"
+        );
+    }
+
+    #[test]
+    fn test_registry_dispatch_arg() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(r#"<xacro:arg name="my_arg" default="value"/>"#);
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(result.is_ok(), "Arg directive via registry should succeed");
+        assert_eq!(result.unwrap().len(), 0, "Arg produces no output");
+    }
+
+    #[test]
+    fn test_registry_dispatch_conditional_true() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(
+            r#"<xacro:if value="true"><link name="conditional"/></xacro:if>"#,
+        );
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(
+            result.is_ok(),
+            "Conditional directive via registry should succeed"
+        );
+        let nodes = result.unwrap();
+        assert_eq!(
+            nodes.len(),
+            1,
+            "Should include content when condition is true"
+        );
+    }
+
+    #[test]
+    fn test_registry_dispatch_conditional_false() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(
+            r#"<xacro:unless value="true"><link name="conditional"/></xacro:unless>"#,
+        );
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(
+            result.is_ok(),
+            "Conditional directive via registry should succeed"
+        );
+        let nodes = result.unwrap();
+        assert_eq!(
+            nodes.len(),
+            0,
+            "Should skip content when unless condition is true"
+        );
+    }
+
+    #[test]
+    fn test_registry_dispatch_macro_definition() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(
+            r#"<xacro:macro name="test_macro" params="x"><link name="${x}"/></xacro:macro>"#,
+        );
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(
+            result.is_ok(),
+            "Macro definition via registry should succeed"
+        );
+        assert_eq!(
+            result.unwrap().len(),
+            0,
+            "Macro definition produces no output"
+        );
+
+        // Verify macro was registered
+        assert!(
+            ctx.macros.borrow().contains_key("test_macro"),
+            "Macro should be registered via registry dispatch"
+        );
+    }
+
+    #[test]
+    fn test_registry_dispatch_insert_block() {
+        let ctx = mock_xacro_context();
+
+        // Set up a block
+        let mut blocks = std::collections::HashMap::new();
+        blocks.insert(
+            "my_block".to_string(),
+            vec![xmltree::XMLNode::Element(element_from_xml(
+                r#"<link name="from_block"/>"#,
+            ))],
+        );
+        ctx.block_stack.borrow_mut().push(blocks);
+
+        let elem = xacro_element_from_xml(r#"<xacro:insert_block name="my_block"/>"#);
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(result.is_ok(), "Insert_block via registry should succeed");
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1, "Should return block content");
+    }
+
+    #[test]
+    fn test_registry_dispatch_regular_element() {
+        let ctx = mock_xacro_context();
+        let elem = xacro_element_from_xml(r#"<link name="test"/>"#);
+
+        let result = expand_element(elem, &ctx);
+
+        assert!(result.is_ok(), "Regular element should be processed");
+        let nodes = result.unwrap();
+        assert_eq!(nodes.len(), 1, "Regular element should return itself");
+
+        if let xmltree::XMLNode::Element(e) = &nodes[0] {
+            assert_eq!(e.name, "link", "Element name should be preserved");
+        } else {
+            panic!("Expected element node");
+        }
+    }
 }

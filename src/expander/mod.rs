@@ -10,7 +10,10 @@
 //! - Borrow-safe: Free functions with Rc for shared ownership
 //! - Scope support: Macro parameters shadow global properties
 
-use crate::{error::XacroError, parse::xml::is_xacro_element};
+use crate::{
+    error::XacroError,
+    parse::xml::{is_known_xacro_uri, is_xacro_element},
+};
 use xmltree::{Element, XMLNode};
 
 mod children;
@@ -72,14 +75,22 @@ pub fn expand_node(
 /// Extract directive name from element if it's a xacro directive
 ///
 /// Returns Some(name) if element is a xacro directive, None otherwise.
+/// Accepts both exact namespace match and any known xacro URI variant.
 fn extract_directive_name<'a>(
     elem: &'a Element,
     xacro_ns: &str,
 ) -> Option<&'a str> {
-    // Check if element is in the xacro namespace
     let elem_ns = elem.namespace.as_deref();
 
-    if elem_ns == Some(xacro_ns) {
+    // Require that document declared a xacro namespace
+    if xacro_ns.is_empty() {
+        return None;
+    }
+
+    // Accept exact match with current namespace OR any known xacro URI
+    // This ensures directives from included files with different namespace variants
+    // (e.g., http://ros.org/wiki/xacro vs http://www.ros.org/wiki/xacro) are recognized
+    if elem_ns == Some(xacro_ns) || elem_ns.is_some_and(is_known_xacro_uri) {
         Some(&elem.name)
     } else {
         None
