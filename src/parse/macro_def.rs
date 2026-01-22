@@ -18,13 +18,13 @@ pub(crate) enum ParamDefault {
 }
 
 // Type aliases to simplify complex return types
-pub(crate) type ParamsMap = HashMap<String, ParamDefault>;
+pub(super) type ParamsMap = HashMap<String, ParamDefault>;
 pub(crate) type ParamOrder = Vec<String>;
 pub(crate) type BlockParamsSet = HashSet<String>;
 pub(crate) type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet, BlockParamsSet);
 
-pub(crate) type MacroArgs = HashMap<String, String>;
-pub(crate) type MacroBlocks = HashMap<String, Element>;
+pub(super) type MacroArgs = HashMap<String, String>;
+pub(super) type MacroBlocks = HashMap<String, Element>;
 pub(crate) type CollectedArgs = (MacroArgs, MacroBlocks);
 
 #[derive(Debug, Clone)]

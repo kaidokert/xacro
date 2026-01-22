@@ -8,14 +8,14 @@ use xmltree::{Element, XMLNode};
 /// This is the most common xacro namespace URI. The xacro processor dynamically
 /// extracts the actual namespace from each document's root element (xmlns:xacro="..."),
 /// so this constant serves as a reference value for external crates or testing.
-pub(crate) const XACRO_NAMESPACE: &str = "http://www.ros.org/wiki/xacro";
+pub(super) const XACRO_NAMESPACE: &str = "http://www.ros.org/wiki/xacro";
 
 /// Known xacro namespace URIs used in the wild
 ///
 /// Used for fallback namespace detection and validation. The processor will recognize
 /// any of these URIs as valid xacro namespaces, allowing compatibility with different
 /// namespace variants used across the ROS ecosystem.
-pub(crate) const KNOWN_XACRO_URIS: &[&str] = &[
+pub(super) const KNOWN_XACRO_URIS: &[&str] = &[
     "http://www.ros.org/wiki/xacro",
     "http://ros.org/wiki/xacro",
     "http://wiki.ros.org/xacro",
@@ -29,7 +29,7 @@ pub(crate) const KNOWN_XACRO_URIS: &[&str] = &[
 /// Namespace-aware: identifies xacro namespaces by URI, not prefix.
 /// Used when "xacro" prefix is not found, allowing documents with
 /// non-standard prefixes (e.g., xmlns:foo="http://www.ros.org/wiki/xacro") to be recognized.
-pub(crate) fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
+pub(super) fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
     ns.0.values()
         .find(|uri| KNOWN_XACRO_URIS.contains(&uri.as_str()))
         .map(|s| s.to_string())
