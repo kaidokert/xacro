@@ -1,8 +1,16 @@
+//! File inclusion integration tests
+//!
+//! Tests for file inclusion, missing file handling, nesting, and dependency tracking.
+
 mod common;
 use crate::common::*;
 use std::fs;
 use std::path::PathBuf;
 use xacro::XacroProcessor;
+
+// ============================================================================
+// Nested Include Tests
+// ============================================================================
 
 /// Test cross-namespace macro expansion
 ///
