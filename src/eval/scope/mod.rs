@@ -44,7 +44,9 @@ mod util;
 use self::metadata::PropertyMetadata;
 use self::util::*;
 use super::interpreter::constants::BUILTIN_CONSTANTS;
-use crate::extensions::{core::default_extensions, ExtensionHandler};
+#[cfg(test)]
+use crate::extensions::core::default_extensions;
+use crate::extensions::ExtensionHandler;
 use core::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -95,8 +97,9 @@ pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
 }
 
 impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
+    #[cfg(test)]
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         // Create with empty args map
         Self::new_with_args(Rc::new(RefCell::new(HashMap::new())))
     }
@@ -110,7 +113,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `args` - Shared reference to the arguments map (CLI + XML args)
-    pub fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
         let extensions = Rc::new(default_extensions());
         Self::new_with_extensions(
             args,
@@ -211,7 +215,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         self.evaluated_cache.borrow_mut().remove(&name);
     }
 
-    pub fn add_raw_property(
+    #[cfg(test)]
+    pub(crate) fn add_raw_property(
         &self,
         name: String,
         value: String,
@@ -238,7 +243,8 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Returns
     /// true if the property is defined (either in a macro scope or globally), false otherwise
-    pub fn has_property(
+    #[cfg(test)]
+    pub(crate) fn has_property(
         &self,
         name: &str,
     ) -> bool {

@@ -7,20 +7,6 @@ use log;
 use pyisheval::{EvalError as PyEvalError, Interpreter, Value};
 use std::collections::HashMap;
 
-/// Evaluate text containing ${...} expressions
-///
-/// Examples:
-///   "hello ${name}" with {name: "world"} → "hello world"
-///   "${2 + 3}" → "5"
-///   "${width * 2}" with {width: "0.5"} → "1"
-pub fn eval_text(
-    text: &str,
-    properties: &HashMap<String, String>,
-) -> Result<String, EvalError> {
-    let mut interp = init_interpreter();
-    eval_text_with_interpreter(text, properties, &mut interp)
-}
-
 /// Build a pyisheval context HashMap from properties
 ///
 /// Converts string properties to pyisheval Values, parsing numbers when possible.
@@ -293,34 +279,6 @@ pub(crate) fn evaluate_expression_impl(
     interp.eval_with_context(&preprocessed, context).map(Some)
 }
 
-/// Evaluate a single expression using the given interpreter and context
-///
-/// This is the public API for expression evaluation. For internal use with YAML tag
-/// handler registry, use `evaluate_expression_impl` instead.
-///
-/// # Arguments
-/// * `interp` - The interpreter instance
-/// * `expr` - The expression to evaluate
-/// * `context` - The evaluation context (properties as pyisheval Values)
-///
-/// # Returns
-/// * `Ok(Some(value))` - Normal expression evaluated successfully
-/// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
-/// * `Err(e)` - Evaluation error
-pub fn evaluate_expression(
-    interp: &mut Interpreter,
-    expr: &str,
-    context: &HashMap<String, Value>,
-) -> Result<Option<Value>, pyisheval::EvalError> {
-    evaluate_expression_impl(
-        interp,
-        expr,
-        context,
-        #[cfg(feature = "yaml")]
-        None,
-    )
-}
-
 /// Internal implementation of text evaluation with optional YAML tag handler registry
 fn eval_text_with_interpreter_impl(
     text: &str,
@@ -509,6 +467,45 @@ mod tests {
     use crate::eval::interpreter::parsing::{
         find_matching_paren, split_args_balanced, SUPPORTED_MATH_FUNCS,
     };
+
+    /// Test helper: Evaluate text containing ${...} expressions
+    ///
+    /// Examples:
+    ///   "hello ${name}" with {name: "world"} → "hello world"
+    ///   "${2 + 3}" → "5"
+    ///   "${width * 2}" with {width: "0.5"} → "1"
+    fn eval_text(
+        text: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<String, EvalError> {
+        let mut interp = init_interpreter();
+        eval_text_with_interpreter(text, properties, &mut interp)
+    }
+
+    /// Test helper: Evaluate a single expression using the given interpreter and context
+    ///
+    /// # Arguments
+    /// * `interp` - The interpreter instance
+    /// * `expr` - The expression to evaluate
+    /// * `context` - The evaluation context (properties as pyisheval Values)
+    ///
+    /// # Returns
+    /// * `Ok(Some(value))` - Normal expression evaluated successfully
+    /// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
+    /// * `Err(e)` - Evaluation error
+    fn evaluate_expression(
+        interp: &mut Interpreter,
+        expr: &str,
+        context: &HashMap<String, Value>,
+    ) -> Result<Option<Value>, pyisheval::EvalError> {
+        evaluate_expression_impl(
+            interp,
+            expr,
+            context,
+            #[cfg(feature = "yaml")]
+            None,
+        )
+    }
 
     // TEST 1: Backward compatibility - simple property substitution
     #[test]
@@ -1600,5 +1597,361 @@ mod tests {
         // Compare properties with different values (returns 0 for false comparison)
         let result = eval_text("${enabled == disabled}", &props).unwrap();
         assert_eq!(result, "0", "1.0 should not equal 0.0");
+    }
+
+    // Tests for pow() function
+    #[test]
+    fn test_pow_function() {
+        let props = HashMap::new();
+        let result = eval_text("${pow(2, 3)}", &props).expect("pow should work");
+        assert_eq!(result, "8");
+
+        let result = eval_text("${pow(10, 0.5)}", &props).expect("pow with fractional exp");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value - 10.0_f64.sqrt()).abs() < 1e-10, "sqrt(10) mismatch");
+    }
+
+    // Tests for log() function
+    #[test]
+    fn test_log_function() {
+        let props = HashMap::new();
+        let result = eval_text("${log(1)}", &props).expect("log should work");
+        assert_eq!(result, "0", "ln(1) = 0");
+
+        // ln(e) should be 1, using the built-in 'e' constant
+        let result = eval_text("${log(e)}", &props).expect("log(e)");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value - 1.0).abs() < 1e-10, "ln(e) = 1");
+
+        // Test log with base (log(100, 10) = 2)
+        let result = eval_text("${log(100, 10)}", &props).expect("log(100, 10)");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value - 2.0).abs() < 1e-10, "log_10(100) = 2");
+
+        // Test log with base 2 (log(8, 2) = 3)
+        let result = eval_text("${log(8, 2)}", &props).expect("log(8, 2)");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value - 3.0).abs() < 1e-10, "log_2(8) = 3");
+    }
+
+    // Tests for math. prefix functions
+    #[test]
+    fn test_math_prefix_functions() {
+        let props = HashMap::new();
+
+        // Test math.pow
+        let result = eval_text("${math.pow(2, 3)}", &props).expect("math.pow");
+        assert_eq!(result, "8");
+
+        // Test math.log
+        let result = eval_text("${math.log(1)}", &props).expect("math.log");
+        assert_eq!(result, "0");
+
+        // Test math.atan2
+        let result = eval_text("${math.atan2(1, 0)}", &props).expect("math.atan2");
+        let value: f64 = result.parse().expect("parse float");
+        assert!(
+            (value - std::f64::consts::FRAC_PI_2).abs() < 1e-10,
+            "atan2(1,0) = π/2"
+        );
+
+        // Test math.sqrt
+        let result = eval_text("${math.sqrt(4)}", &props).expect("math.sqrt");
+        assert_eq!(result, "2");
+    }
+
+    // Tests for math.pi constant
+    #[test]
+    fn test_math_pi_constant_access() {
+        let props = HashMap::new();
+
+        // Test math.pi
+        let result = eval_text("${math.pi}", &props).expect("math.pi");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value - std::f64::consts::PI).abs() < 1e-10, "math.pi = π");
+
+        // Test math.pi in expression
+        let result = eval_text("${-math.pi / 2}", &props).expect("-math.pi / 2");
+        let value: f64 = result.parse().expect("parse float");
+        assert!((value + std::f64::consts::FRAC_PI_2).abs() < 1e-10, "-π/2");
+    }
+
+    // ========================================================================
+    // Tests for load_yaml() functionality
+    // ========================================================================
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_nested_dict() {
+        let props = HashMap::new();
+
+        // Access nested dict values
+        let value = eval_text(
+            "${load_yaml('tests/data/test_config.yaml')['robot']['chassis']['length']}",
+            &props,
+        )
+        .expect("load_yaml nested access should succeed");
+
+        assert_eq!(value, "0.5", "chassis length should be 0.5");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_with_xacro_prefix() {
+        let props = HashMap::new();
+
+        // Test xacro.load_yaml() syntax
+        let value = eval_text(
+            "${xacro.load_yaml('tests/data/test_config.yaml')['count']}",
+            &props,
+        )
+        .expect("xacro.load_yaml should succeed");
+
+        assert_eq!(value, "5", "count should be 5");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_array_access() {
+        let props = HashMap::new();
+
+        // Access array elements
+        let value = eval_text(
+            "${load_yaml('tests/data/test_config.yaml')['joints'][0]}",
+            &props,
+        )
+        .expect("load_yaml array access should succeed");
+
+        assert_eq!(value, "joint1", "first joint should be joint1");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_deep_nesting() {
+        let props = HashMap::new();
+
+        // Access deeply nested value
+        let value = eval_text(
+            "${load_yaml('tests/data/test_config.yaml')['nested']['level1']['level2']['value']}",
+            &props,
+        )
+        .expect("load_yaml deep nesting should succeed");
+
+        assert_eq!(value, "deep_value", "deep nested value should match");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_in_arithmetic() {
+        let props = HashMap::new();
+
+        // Use loaded value in arithmetic expression
+        let value = eval_text(
+            "${load_yaml('tests/data/test_config.yaml')['robot']['wheel']['radius'] * 2}",
+            &props,
+        )
+        .expect("load_yaml in arithmetic should succeed");
+
+        assert_eq!(value, "0.2", "radius * 2 should be 0.2");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_multiple_calls() {
+        let props = HashMap::new();
+
+        // Multiple load_yaml calls in same expression
+        let value = eval_text(
+            "${load_yaml('tests/data/test_config.yaml')['robot']['chassis']['length'] + \
+             load_yaml('tests/data/test_config.yaml')['robot']['chassis']['width']}",
+            &props,
+        )
+        .expect("multiple load_yaml calls should succeed");
+
+        assert_eq!(value, "0.8", "0.5 + 0.3 should be 0.8");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_extract_and_store() {
+        let mut props = HashMap::new();
+        let mut interp = init_interpreter();
+
+        // Extract a specific value from YAML and store it
+        let wheel_base = eval_text_with_interpreter(
+            "${load_yaml('tests/data/test_config.yaml')['robot']['wheel']['base']}",
+            &props,
+            &mut interp,
+        )
+        .expect("load_yaml should succeed");
+
+        // Store the extracted value
+        props.insert("wheel_base".to_string(), wheel_base);
+
+        // Now use the stored value in calculations
+        let value = eval_text_with_interpreter("${wheel_base * 2}", &props, &mut interp)
+            .expect("stored value calculation should succeed");
+
+        assert_eq!(value, "0.8", "wheel_base * 2 should be 0.8");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_file_not_found() {
+        let props = HashMap::new();
+
+        // Try to load non-existent file
+        let result = eval_text("${load_yaml('tests/data/nonexistent.yaml')}", &props);
+
+        assert!(result.is_err(), "should error on missing file");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Failed to load YAML") || err_msg.contains("No such file"),
+            "error should mention file loading failure, got: {}",
+            err_msg
+        );
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_invalid_yaml() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create temporary file with invalid YAML
+        let mut temp_file = NamedTempFile::new().expect("create temp file");
+        write!(temp_file, "invalid: yaml:\n  - bad\n  syntax").expect("write temp file");
+        let temp_path = temp_file.path().to_string_lossy().replace('\\', "/");
+
+        let props = HashMap::new();
+        let result = eval_text(&format!("${{load_yaml('{}')}}", temp_path), &props);
+
+        assert!(result.is_err(), "should error on invalid YAML");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Failed to parse YAML") || err_msg.contains("parse"),
+            "error should mention YAML parsing failure, got: {}",
+            err_msg
+        );
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_with_property_filename() {
+        let mut props = HashMap::new();
+        props.insert(
+            "config_file".to_string(),
+            "tests/data/test_config.yaml".to_string(),
+        );
+
+        // Variable filenames are now supported
+        let value = eval_text("${load_yaml(config_file)['count']}", &props)
+            .expect("variable filename should work");
+
+        assert_eq!(value, "5", "count should be 5");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_argument_with_parentheses_in_string() {
+        use std::io::Write;
+        use tempfile::Builder;
+
+        let props = HashMap::new();
+
+        // Create a temp YAML file whose path literal includes parentheses
+        // This truly tests that find_matching_paren handles parens in the argument
+        let mut temp = Builder::new()
+            .prefix("config(")
+            .suffix(").yaml")
+            .tempfile()
+            .expect("create temp yaml");
+        write!(temp, "robot:\n  chassis:\n    width: 0.3\n").expect("write temp yaml");
+        let path = temp.path().to_string_lossy().replace('\\', "/");
+
+        // The fix ensures we use find_matching_paren instead of regex capture [^()]+?
+        // This allows proper handling when the argument contains parentheses
+        let expr = format!("${{load_yaml('{}')['robot']['chassis']['width']}}", path);
+        let value = eval_text(&expr, &props).expect("load_yaml argument parsing should succeed");
+
+        assert_eq!(
+            value, "0.3",
+            "should correctly parse load_yaml argument even with potential paren complexity"
+        );
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_null_value() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().expect("create temp file");
+        write!(temp_file, "~").expect("write temp file");
+        let temp_path = temp_file.path().to_string_lossy().replace('\\', "/");
+
+        let props = HashMap::new();
+        let value = eval_text(&format!("${{load_yaml('{}') + 5}}", &temp_path), &props)
+            .expect("load_yaml with null should succeed");
+        assert_eq!(value, "5", "null (None) + 5 should be 5");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_null_in_dict() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().expect("create temp file");
+        write!(temp_file, "value: null\nother: 10").expect("write temp file");
+        let temp_path = temp_file.path().to_string_lossy().replace('\\', "/");
+
+        let props = HashMap::new();
+        let value = eval_text(
+            &format!("${{load_yaml('{}')['value']}}", &temp_path),
+            &props,
+        )
+        .expect("load_yaml null value access should succeed");
+        assert_eq!(value, "0", "null value should evaluate to 0 (None)");
+    }
+
+    #[cfg(feature = "yaml")]
+    #[test]
+    fn test_load_yaml_inf_nan_values() {
+        let props = HashMap::new();
+
+        // Test positive infinity - evaluates to Python inf
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['positive_inf']}",
+            &props,
+        );
+        // Python's float('inf') evaluates to inf, which is a valid value
+        assert!(
+            result.is_ok(),
+            "positive_inf should evaluate successfully, got: {:?}",
+            result
+        );
+
+        // Test negative infinity
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['negative_inf']}",
+            &props,
+        );
+        assert!(result.is_ok(), "negative_inf should evaluate successfully");
+
+        // Test NaN
+        let result = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['not_a_number']}",
+            &props,
+        );
+        assert!(result.is_ok(), "not_a_number should evaluate successfully");
+
+        // Test normal float still works
+        let value = eval_text(
+            "${load_yaml('tests/data/test_inf_nan.yaml')['normal_float']}",
+            &props,
+        )
+        .expect("normal_float should succeed");
+        assert_eq!(value, "3.14", "normal float should be '3.14'");
     }
 }

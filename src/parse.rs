@@ -2,14 +2,13 @@ pub mod document;
 pub mod macro_def;
 pub mod xml;
 
-pub use document::*;
-pub use macro_def::*;
-pub use xml::*;
+// Re-export only what's used internally
+pub(crate) use document::*;
 #[cfg(test)]
 mod macro_tests {
     use std::collections::{HashMap, HashSet};
 
-    use super::*;
+    use super::macro_def::{Element, MacroDefinition, MacroProcessor, ParamDefault};
 
     use crate::XacroError;
     use xmltree::XMLNode;

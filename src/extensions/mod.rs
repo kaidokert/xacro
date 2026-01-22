@@ -10,6 +10,10 @@ pub mod ros;
 #[cfg(feature = "yaml")]
 pub mod ros_yaml_handlers;
 
+// Re-export YAML tag handler types for public API
+#[cfg(feature = "yaml")]
+pub use crate::eval::yaml_tag_handler::{DynYamlTagHandler, YamlTagHandler};
+
 use ::core::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error as StdError;

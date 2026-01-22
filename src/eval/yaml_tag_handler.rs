@@ -80,19 +80,6 @@ impl YamlTagHandlerRegistry {
         }
     }
 
-    /// Create a registry with ROS unit handlers pre-registered
-    ///
-    /// This is a convenience method for ROS users. Library users who want a pure
-    /// XML macro processor should use `new()` and register only their custom handlers.
-    #[cfg(feature = "yaml")]
-    pub fn with_ros_units() -> Self {
-        let mut registry = Self::new();
-        registry.register(Box::new(
-            crate::extensions::ros_yaml_handlers::RosUnitTagHandler::new(),
-        ));
-        registry
-    }
-
     /// Register a YAML tag handler
     ///
     /// Handlers are tried in registration order. Register more specific handlers
@@ -124,15 +111,5 @@ impl YamlTagHandlerRegistry {
             }
         }
         None
-    }
-
-    /// Check if the registry has any handlers
-    pub fn is_empty(&self) -> bool {
-        self.handlers.is_empty()
-    }
-
-    /// Get the number of registered handlers
-    pub fn len(&self) -> usize {
-        self.handlers.len()
     }
 }

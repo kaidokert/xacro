@@ -300,7 +300,7 @@ impl XacroBuilder {
     #[cfg(feature = "yaml")]
     pub fn with_yaml_tag_handler(
         mut self,
-        handler: crate::eval::yaml_tag_handler::DynYamlTagHandler,
+        handler: crate::extensions::DynYamlTagHandler,
     ) -> Self {
         self.yaml_tag_handlers
             .get_or_insert_with(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new)
