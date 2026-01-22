@@ -162,9 +162,7 @@ pub(crate) fn expand_macro_call(
     ctx.properties.push_scope(HashMap::new());
 
     // Create guard immediately after push to ensure cleanup on any error path
-    let _scope_guard = ScopeGuard {
-        properties: &ctx.properties,
-    };
+    let _scope_guard = ScopeGuard::new(&ctx.properties);
 
     for param_name in &macro_def.param_order {
         if macro_def.block_params.contains(param_name) {
@@ -231,9 +229,7 @@ pub(crate) fn expand_macro_call(
 
     // Push pre-expanded blocks to block stack (blocks were expanded before entering macro scope)
     ctx.block_stack.borrow_mut().push(expanded_blocks);
-    let _block_guard = BlockGuard {
-        blocks: &ctx.block_stack,
-    };
+    let _block_guard = BlockGuard::new(&ctx.block_stack);
 
     // Clone macro content and recursively expand each child
     let content = macro_def.content.clone();
