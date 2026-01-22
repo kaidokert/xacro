@@ -8,7 +8,7 @@ pub mod error;
 mod eval;
 mod expand;
 mod expander;
-pub mod extensions; // Public: ExtensionHandler trait for custom extensions
+pub mod extensions;
 mod parse;
 pub mod processor;
 
@@ -19,7 +19,58 @@ pub use error::XacroError;
 pub use eval::scope::PropertyScope;
 pub use processor::{CompatMode, XacroBuilder, XacroProcessor};
 
+/// Process a xacro file from the filesystem.
+///
+/// This is a convenience function that creates a default [`XacroProcessor`]
+/// and processes the given file path.
+///
+/// For more control over processing (arguments, compatibility modes, extensions),
+/// use [`XacroProcessor::builder()`] instead.
+///
+/// # Examples
+///
+/// ```no_run
+/// # fn main() -> Result<(), xacro::XacroError> {
+/// let urdf = xacro::process_file("robot.xacro")?;
+/// println!("{}", urdf);
+/// # Ok(())
+/// # }
+/// ```
 pub fn process_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroError> {
     let processor = XacroProcessor::new();
     processor.run(path)
+}
+
+/// Process xacro content from a string.
+///
+/// This is a convenience function that creates a default [`XacroProcessor`]
+/// and processes the given xacro content string.
+///
+/// For more control over processing (arguments, compatibility modes, extensions),
+/// use [`XacroProcessor::builder()`] instead.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> Result<(), xacro::XacroError> {
+/// let xacro_content = r#"<?xml version="1.0"?>
+/// <robot name="test" xmlns:xacro="http://www.ros.org/wiki/xacro">
+///   <xacro:property name="width" value="0.5"/>
+///   <link name="base">
+///     <visual>
+///       <geometry>
+///         <box size="${width} 0.5 0.5"/>
+///       </geometry>
+///     </visual>
+///   </link>
+/// </robot>"#;
+///
+/// let urdf = xacro::process_string(xacro_content)?;
+/// assert!(urdf.contains("0.5 0.5 0.5"));
+/// # Ok(())
+/// # }
+/// ```
+pub fn process_string(content: &str) -> Result<String, XacroError> {
+    let processor = XacroProcessor::new();
+    processor.run_from_string(content)
 }

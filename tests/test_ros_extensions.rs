@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use xacro::{extensions::ros::*, XacroProcessor};
+use xacro::{extensions::*, XacroProcessor};
 
 static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
