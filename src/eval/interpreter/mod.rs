@@ -9,7 +9,9 @@ pub mod yaml_utils;
 pub(crate) use parsing::{find_matching_paren, remove_quotes};
 
 // Re-export public init utilities
-pub(crate) use init::{format_value_python_style, init_interpreter, EvalError};
+pub(crate) use init::{format_value_python_style, init_interpreter};
+// Re-export EvalError as pub so it can be exposed through error module
+pub use init::EvalError;
 
 // Re-export public core evaluation functions
 pub(crate) use core::{build_pyisheval_context, eval_boolean};

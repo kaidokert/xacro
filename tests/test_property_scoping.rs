@@ -9,6 +9,7 @@
 
 mod common;
 use crate::common::*;
+use xacro::error::EvalError;
 
 // ============================================================================
 // Test 1: Local properties should NOT leak outside macro
@@ -226,19 +227,27 @@ fn test_property_cleanup_after_macro_expansion() {
     // Verify we get an error related to undefined 'temp'
     // The error is wrapped: XacroError::EvalError -> EvalError::PyishEval -> pyisheval::EvalError
     let err = result.unwrap_err();
-    match err {
-        xacro::XacroError::EvalError { expr, source } => {
-            assert_eq!(expr, "temp", "Expression should be 'temp'");
-            match source {
-                xacro::eval::EvalError::PyishEval { expr, .. } => {
-                    assert_eq!(expr, "temp", "Inner expression should be 'temp'");
-                    // Can't pattern match deeper into pyisheval::EvalError (external crate)
-                    // but we've verified it's a pyisheval error about 'temp'
-                }
-                other => panic!("Expected PyishEval error, got: {:?}", other),
-            }
+
+    assert!(
+        matches!(err, xacro::XacroError::EvalError { .. }),
+        "Expected XacroError::EvalError, got: {:?}",
+        err
+    );
+
+    if let xacro::XacroError::EvalError { expr, source } = err {
+        assert_eq!(expr, "temp", "Expression should be 'temp'");
+
+        assert!(
+            matches!(source, EvalError::PyishEval { .. }),
+            "Expected EvalError::PyishEval, got: {:?}",
+            source
+        );
+
+        if let EvalError::PyishEval { expr, .. } = source {
+            assert_eq!(expr, "temp", "Inner expression should be 'temp'");
+            // Can't pattern match deeper into pyisheval::EvalError (external crate)
+            // but we've verified it's a pyisheval error about 'temp'
         }
-        other => panic!("Expected EvalError, got: {:?}", other),
     }
 }
 

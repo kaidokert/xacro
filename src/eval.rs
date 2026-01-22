@@ -5,8 +5,10 @@ pub mod scope;
 #[cfg(feature = "yaml")]
 pub mod yaml_tag_handler;
 
-pub(crate) use interpreter::*;
 pub(crate) use scope::*;
+
+// Re-export EvalError publicly so it can be accessed from error module
+pub use interpreter::EvalError;
 #[cfg(test)]
 mod property_tests {
 

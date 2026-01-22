@@ -186,6 +186,7 @@ pub enum XacroError {
 }
 
 // Implement From trait for EvalError to avoid duplicated error mapping
+pub use crate::eval::EvalError;
 impl From<crate::eval::EvalError> for XacroError {
     fn from(e: crate::eval::EvalError) -> Self {
         XacroError::EvalError {
