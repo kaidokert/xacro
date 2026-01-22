@@ -3,13 +3,13 @@
 #![warn(clippy::alloc_instead_of_core)]
 #![warn(clippy::std_instead_of_core)]
 
-pub mod directives;
+mod directives;
 pub mod error;
-pub mod eval;
-pub mod expand;
-pub mod expander;
-pub mod extensions;
-pub mod parse;
+mod eval;
+mod expand;
+mod expander;
+pub mod extensions; // Public: ExtensionHandler trait for custom extensions
+mod parse;
 pub mod processor;
 
 #[cfg(test)]

@@ -7,20 +7,6 @@ use log;
 use pyisheval::{EvalError as PyEvalError, Interpreter, Value};
 use std::collections::HashMap;
 
-/// Evaluate text containing ${...} expressions
-///
-/// Examples:
-///   "hello ${name}" with {name: "world"} → "hello world"
-///   "${2 + 3}" → "5"
-///   "${width * 2}" with {width: "0.5"} → "1"
-pub fn eval_text(
-    text: &str,
-    properties: &HashMap<String, String>,
-) -> Result<String, EvalError> {
-    let mut interp = init_interpreter();
-    eval_text_with_interpreter(text, properties, &mut interp)
-}
-
 /// Build a pyisheval context HashMap from properties
 ///
 /// Converts string properties to pyisheval Values, parsing numbers when possible.
@@ -293,34 +279,6 @@ pub(crate) fn evaluate_expression_impl(
     interp.eval_with_context(&preprocessed, context).map(Some)
 }
 
-/// Evaluate a single expression using the given interpreter and context
-///
-/// This is the public API for expression evaluation. For internal use with YAML tag
-/// handler registry, use `evaluate_expression_impl` instead.
-///
-/// # Arguments
-/// * `interp` - The interpreter instance
-/// * `expr` - The expression to evaluate
-/// * `context` - The evaluation context (properties as pyisheval Values)
-///
-/// # Returns
-/// * `Ok(Some(value))` - Normal expression evaluated successfully
-/// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
-/// * `Err(e)` - Evaluation error
-pub fn evaluate_expression(
-    interp: &mut Interpreter,
-    expr: &str,
-    context: &HashMap<String, Value>,
-) -> Result<Option<Value>, pyisheval::EvalError> {
-    evaluate_expression_impl(
-        interp,
-        expr,
-        context,
-        #[cfg(feature = "yaml")]
-        None,
-    )
-}
-
 /// Internal implementation of text evaluation with optional YAML tag handler registry
 fn eval_text_with_interpreter_impl(
     text: &str,
@@ -509,6 +467,45 @@ mod tests {
     use crate::eval::interpreter::parsing::{
         find_matching_paren, split_args_balanced, SUPPORTED_MATH_FUNCS,
     };
+
+    /// Test helper: Evaluate text containing ${...} expressions
+    ///
+    /// Examples:
+    ///   "hello ${name}" with {name: "world"} → "hello world"
+    ///   "${2 + 3}" → "5"
+    ///   "${width * 2}" with {width: "0.5"} → "1"
+    fn eval_text(
+        text: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<String, EvalError> {
+        let mut interp = init_interpreter();
+        eval_text_with_interpreter(text, properties, &mut interp)
+    }
+
+    /// Test helper: Evaluate a single expression using the given interpreter and context
+    ///
+    /// # Arguments
+    /// * `interp` - The interpreter instance
+    /// * `expr` - The expression to evaluate
+    /// * `context` - The evaluation context (properties as pyisheval Values)
+    ///
+    /// # Returns
+    /// * `Ok(Some(value))` - Normal expression evaluated successfully
+    /// * `Ok(None)` - Special case that produces no output (e.g., xacro.print_location())
+    /// * `Err(e)` - Evaluation error
+    fn evaluate_expression(
+        interp: &mut Interpreter,
+        expr: &str,
+        context: &HashMap<String, Value>,
+    ) -> Result<Option<Value>, pyisheval::EvalError> {
+        evaluate_expression_impl(
+            interp,
+            expr,
+            context,
+            #[cfg(feature = "yaml")]
+            None,
+        )
+    }
 
     // TEST 1: Backward compatibility - simple property substitution
     #[test]

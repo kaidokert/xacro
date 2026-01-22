@@ -5,12 +5,8 @@ pub mod scope;
 #[cfg(feature = "yaml")]
 pub mod yaml_tag_handler;
 
-pub use interpreter::*;
-pub use lexer::*;
-pub use scope::*;
-
-#[cfg(feature = "yaml")]
-pub use yaml_tag_handler::*;
+pub(crate) use interpreter::*;
+pub(crate) use scope::*;
 #[cfg(test)]
 mod property_tests {
 

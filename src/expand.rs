@@ -55,7 +55,8 @@ impl XacroContext {
     ///
     /// This is a minimal constructor used by unit tests. Production code should use
     /// `new_with_extensions()` which properly integrates with the extension system.
-    pub fn new(
+    #[cfg(test)]
+    pub(crate) fn new(
         base_path: PathBuf,
         xacro_ns: String,
     ) -> Self {
