@@ -48,7 +48,7 @@ pub(crate) struct IncludeGuard<'a> {
 }
 
 impl<'a> IncludeGuard<'a> {
-    /// Creates a new IncludeGuard and pushes to include/namespace stacks
+    /// Creates a new IncludeGuard, capturing current stack lengths for cleanup
     pub(crate) fn new(
         base_path: &'a RefCell<PathBuf>,
         include_stack: &'a RefCell<Vec<PathBuf>>,
