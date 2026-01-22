@@ -8,9 +8,7 @@ pub(crate) use document::*;
 mod macro_tests {
     use std::collections::{HashMap, HashSet};
 
-    use super::document::*;
     use super::macro_def::{Element, MacroDefinition, MacroProcessor, ParamDefault};
-    use super::xml::*;
 
     use crate::XacroError;
     use xmltree::XMLNode;
