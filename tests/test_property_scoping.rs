@@ -228,26 +228,22 @@ fn test_property_cleanup_after_macro_expansion() {
     // The error is wrapped: XacroError::EvalError -> EvalError::PyishEval -> pyisheval::EvalError
     let err = result.unwrap_err();
 
-    assert!(
-        matches!(err, xacro::XacroError::EvalError { .. }),
-        "Expected XacroError::EvalError, got: {:?}",
-        err
-    );
+    match err {
+        xacro::XacroError::EvalError { expr, source } => {
+            assert_eq!(expr, "temp", "Expression should be 'temp'");
 
-    if let xacro::XacroError::EvalError { expr, source } = err {
-        assert_eq!(expr, "temp", "Expression should be 'temp'");
-
-        assert!(
-            matches!(source, EvalError::PyishEval { .. }),
-            "Expected EvalError::PyishEval, got: {:?}",
-            source
-        );
-
-        if let EvalError::PyishEval { expr, .. } = source {
-            assert_eq!(expr, "temp", "Inner expression should be 'temp'");
-            // Can't pattern match deeper into pyisheval::EvalError (external crate)
-            // but we've verified it's a pyisheval error about 'temp'
+            match source {
+                EvalError::PyishEval {
+                    expr: inner_expr, ..
+                } => {
+                    assert_eq!(inner_expr, "temp", "Inner expression should be 'temp'");
+                    // Can't pattern match deeper into pyisheval::EvalError (external crate)
+                    // but we've verified it's a pyisheval error about 'temp'
+                }
+                other => panic!("Expected EvalError::PyishEval, got: {:?}", other),
+            }
         }
+        other => panic!("Expected XacroError::EvalError, got: {:?}", other),
     }
 }
 

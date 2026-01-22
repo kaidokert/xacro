@@ -40,7 +40,7 @@ mod yaml_disabled_tests {
   <xacro:property name="config" value="${load_yaml('tests/data/test_config.yaml')}"/>
 </robot>"#;
 
-        let result = run_xacro(input);
+        let result = test_xacro(input);
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -57,7 +57,7 @@ mod yaml_disabled_tests {
   <xacro:property name="config" value="${xacro.load_yaml('tests/data/test_config.yaml')}"/>
 </robot>"#;
 
-        let result = run_xacro(input);
+        let result = test_xacro(input);
         assert!(result.is_err(), "should error when yaml feature disabled");
         let err_msg = result.unwrap_err().to_string();
         assert!(
