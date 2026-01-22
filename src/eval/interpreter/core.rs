@@ -1675,12 +1675,26 @@ mod tests {
         let value: f64 = result.parse().expect("parse float");
         assert!((value + std::f64::consts::FRAC_PI_2).abs() < 1e-10, "-π/2");
     }
+}
 
-    // ========================================================================
-    // Tests for load_yaml() functionality
-    // ========================================================================
+// ========================================================================
+// YAML-specific tests
+// ========================================================================
 
-    #[cfg(feature = "yaml")]
+#[cfg(all(test, feature = "yaml"))]
+mod yaml_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Test helper: Evaluate text containing ${...} expressions
+    fn eval_text(
+        text: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<String, EvalError> {
+        let mut interp = init_interpreter();
+        eval_text_with_interpreter(text, properties, &mut interp)
+    }
+
     #[test]
     fn test_load_yaml_nested_dict() {
         let props = HashMap::new();
@@ -1695,7 +1709,6 @@ mod tests {
         assert_eq!(value, "0.5", "chassis length should be 0.5");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_with_xacro_prefix() {
         let props = HashMap::new();
@@ -1710,7 +1723,6 @@ mod tests {
         assert_eq!(value, "5", "count should be 5");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_array_access() {
         let props = HashMap::new();
@@ -1725,7 +1737,6 @@ mod tests {
         assert_eq!(value, "joint1", "first joint should be joint1");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_deep_nesting() {
         let props = HashMap::new();
@@ -1740,7 +1751,6 @@ mod tests {
         assert_eq!(value, "deep_value", "deep nested value should match");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_in_arithmetic() {
         let props = HashMap::new();
@@ -1755,7 +1765,6 @@ mod tests {
         assert_eq!(value, "0.2", "radius * 2 should be 0.2");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_multiple_calls() {
         let props = HashMap::new();
@@ -1771,7 +1780,6 @@ mod tests {
         assert_eq!(value, "0.8", "0.5 + 0.3 should be 0.8");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_extract_and_store() {
         let mut props = HashMap::new();
@@ -1795,7 +1803,6 @@ mod tests {
         assert_eq!(value, "0.8", "wheel_base * 2 should be 0.8");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_file_not_found() {
         let props = HashMap::new();
@@ -1812,7 +1819,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_invalid_yaml() {
         use std::io::Write;
@@ -1835,7 +1841,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_with_property_filename() {
         let mut props = HashMap::new();
@@ -1851,7 +1856,6 @@ mod tests {
         assert_eq!(value, "5", "count should be 5");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_argument_with_parentheses_in_string() {
         use std::io::Write;
@@ -1880,7 +1884,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_null_value() {
         use std::io::Write;
@@ -1896,7 +1899,6 @@ mod tests {
         assert_eq!(value, "5", "null (None) + 5 should be 5");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_null_in_dict() {
         use std::io::Write;
@@ -1915,7 +1917,6 @@ mod tests {
         assert_eq!(value, "0", "null value should evaluate to 0 (None)");
     }
 
-    #[cfg(feature = "yaml")]
     #[test]
     fn test_load_yaml_inf_nan_values() {
         let props = HashMap::new();
