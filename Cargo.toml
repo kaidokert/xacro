@@ -14,7 +14,7 @@ yaml = ["dep:saphyr"]  # YAML loading support via load_yaml() function
 
 [dependencies]
 xml = "0.8"
-xmltree = { package = "xmltree-ns", version="0.13.0" }
+xmltree = { package = "xmltree-ns", version="0.13" }
 thiserror = "2.0"
 pyisheval = "0.16"
 regex = "1.12"
