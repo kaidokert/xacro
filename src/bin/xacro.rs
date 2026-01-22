@@ -143,8 +143,8 @@ fn main() -> anyhow::Result<()> {
     let mut builder = xacro::XacroProcessor::builder()
         .with_args(mappings)
         .with_compat_mode(compat_mode)
-        .with_extension(Box::new(xacro::extensions::ros::FindExtension::new()))
-        .with_extension(Box::new(xacro::extensions::ros::OptEnvExtension::new()));
+        .with_extension(Box::new(xacro::extensions::FindExtension::new()))
+        .with_extension(Box::new(xacro::extensions::OptEnvExtension::new()));
 
     #[cfg(feature = "yaml")]
     {

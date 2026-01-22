@@ -4,11 +4,15 @@
 //! substitutions. Extensions can be registered with the processor and
 //! will be called in order when a $(...) expression is encountered.
 
-pub mod core;
-pub mod ros;
+pub(crate) mod core;
+pub(crate) mod ros;
 
 #[cfg(feature = "yaml")]
-pub mod ros_yaml_handlers;
+pub(crate) mod ros_yaml_handlers;
+
+// Re-export types for binary and public API use
+pub use self::core::EnvExtension;
+pub use self::ros::{FindExtension, OptEnvExtension};
 
 // Re-export YAML tag handler types for public API
 #[cfg(feature = "yaml")]
@@ -171,29 +175,15 @@ impl ExtensionHandler for ArgExtension {
     }
 }
 
-/// Utilities for extension handlers.
-pub mod extension_utils {
+/// Utilities for extension handlers (internal use only).
+pub(crate) mod extension_utils {
     use std::error::Error as StdError;
 
     /// Tokenize arguments using simple whitespace splitting.
     ///
     /// Matches Python xacro behavior (string.split(' ') semantics).
     /// Does NOT handle shell-style quoting - see design notes for rationale.
-    ///
-    /// # Examples
-    /// ```
-    /// use xacro::extensions::extension_utils::tokenize_args;
-    ///
-    /// let tokens = tokenize_args("VAR default value");
-    /// assert_eq!(tokens, vec!["VAR", "default", "value"]);
-    ///
-    /// let tokens = tokenize_args("a b c");
-    /// assert_eq!(tokens, vec!["a", "b", "c"]);
-    ///
-    /// let tokens = tokenize_args("");
-    /// assert!(tokens.is_empty());
-    /// ```
-    pub fn tokenize_args(s: &str) -> Vec<String> {
+    pub(crate) fn tokenize_args(s: &str) -> Vec<String> {
         // Simple whitespace splitting to match ROS behavior
         // Python xacro uses: string.split(' ')
         // We use split_whitespace() for slightly better handling of multiple spaces
@@ -201,19 +191,7 @@ pub mod extension_utils {
     }
 
     /// Extract exactly N arguments, error if count mismatches.
-    ///
-    /// # Examples
-    /// ```
-    /// use xacro::extensions::extension_utils::expect_args;
-    ///
-    /// let result = expect_args("pkg_name", "find", 1);
-    /// assert!(result.is_ok());
-    /// assert_eq!(result.unwrap(), vec!["pkg_name"]);
-    ///
-    /// let result = expect_args("a b", "cmd", 1);
-    /// assert!(result.is_err());
-    /// ```
-    pub fn expect_args(
+    pub(crate) fn expect_args(
         raw: &str,
         cmd: &str,
         expected: usize,
@@ -233,21 +211,7 @@ pub mod extension_utils {
     }
 
     /// Extract 1-N arguments (min/max validation).
-    ///
-    /// # Examples
-    /// ```
-    /// use xacro::extensions::extension_utils::expect_args_range;
-    ///
-    /// let result = expect_args_range("VAR", "optenv", 1, 2);
-    /// assert!(result.is_ok());
-    ///
-    /// let result = expect_args_range("VAR default", "optenv", 1, 2);
-    /// assert!(result.is_ok());
-    ///
-    /// let result = expect_args_range("", "cmd", 1, 2);
-    /// assert!(result.is_err());
-    /// ```
-    pub fn expect_args_range(
+    pub(crate) fn expect_args_range(
         raw: &str,
         cmd: &str,
         min: usize,
