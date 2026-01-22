@@ -13,7 +13,7 @@ use super::*;
 ///
 /// Python xacro regex: `re.search('[*[?]+', filename_spec)`
 /// Detects wildcard patterns: *, [, or ?
-pub(super) fn is_glob_pattern(filename: &str) -> bool {
+fn is_glob_pattern(filename: &str) -> bool {
     filename.contains('*') || filename.contains('[') || filename.contains('?')
 }
 
@@ -70,15 +70,12 @@ fn process_single_include(
     new_base_path.pop();
 
     // Create RAII guard BEFORE state mutations to ensure cleanup on panic
-    // Capture current stack lengths to detect partial pushes
-    let _include_guard = IncludeGuard {
-        base_path: &ctx.base_path,
-        include_stack: &ctx.include_stack,
-        namespace_stack: &ctx.namespace_stack,
+    let _include_guard = IncludeGuard::new(
+        &ctx.base_path,
+        &ctx.include_stack,
+        &ctx.namespace_stack,
         old_base_path,
-        include_stack_len: ctx.include_stack.borrow().len(),
-        namespace_stack_len: ctx.namespace_stack.borrow().len(),
-    };
+    );
 
     // Now perform state updates (guard will restore state on panic)
     *ctx.base_path.borrow_mut() = new_base_path;
