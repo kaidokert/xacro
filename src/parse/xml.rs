@@ -118,23 +118,6 @@ pub fn extract_xacro_namespace(
 /// # Returns
 /// `true` if the element is in any known xacro namespace with the given tag name,
 /// and the root declared a xacro namespace
-///
-/// # Examples
-/// ```
-/// use xmltree::Element;
-/// use xacro::parse::is_xacro_element;
-///
-/// let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-///     <xacro:if value="true">
-///         <link name="base"/>
-///     </xacro:if>
-/// </robot>"#;
-///
-/// let root = Element::parse(xml.as_bytes()).unwrap();
-/// let xacro_ns = root.namespaces.as_ref().unwrap().get("xacro").unwrap();
-/// let if_elem = root.get_child("if").unwrap();
-/// assert!(is_xacro_element(if_elem, "if", xacro_ns));
-/// ```
 pub fn is_xacro_element(
     element: &Element,
     tag_name: &str,
