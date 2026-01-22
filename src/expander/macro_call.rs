@@ -14,7 +14,12 @@ use crate::{
 use std::{collections::HashMap, rc::Rc};
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{
+    children::expand_children_list,
+    expand_node,
+    guards::{BlockGuard, ScopeGuard},
+    XacroContext,
+};
 
 /// Check if an element is a macro call
 ///
@@ -27,7 +32,7 @@ use super::*;
 /// * `elem` - The element to check
 /// * `macros` - HashMap of defined macros
 /// * `xacro_ns` - The xacro namespace URI for this document
-pub(crate) fn is_macro_call(
+pub(super) fn is_macro_call(
     elem: &Element,
     macros: &HashMap<String, Rc<crate::parse::macro_def::MacroDefinition>>,
     xacro_ns: &str,
@@ -73,7 +78,7 @@ pub(crate) fn is_macro_call(
 ///
 /// # Returns
 /// Expanded nodes from macro content
-pub(crate) fn expand_macro_call(
+pub(super) fn expand_macro_call(
     call_elem: &Element,
     ctx: &XacroContext,
     parent_scope_depth: usize,

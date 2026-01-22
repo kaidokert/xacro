@@ -17,6 +17,6 @@
 ///
 /// # Returns
 /// Normalized string with whitespace collapsed
-pub(crate) fn normalize_attribute_whitespace(value: &str) -> String {
+pub(super) fn normalize_attribute_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }

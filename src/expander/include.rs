@@ -7,7 +7,7 @@ use crate::{error::XacroError, parse::xml::extract_xacro_namespace};
 use std::path::PathBuf;
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{children::expand_children_list, guards::IncludeGuard, XacroContext};
 
 /// Check if a filename contains glob pattern characters
 ///
@@ -110,7 +110,7 @@ fn process_single_include(
 ///
 /// # Returns
 /// Expanded nodes from included file(s), or empty vec if no match/optional
-pub(crate) fn handle_include_directive(
+pub(super) fn handle_include_directive(
     elem: Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {

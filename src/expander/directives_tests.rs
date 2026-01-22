@@ -6,9 +6,8 @@
 
 #[cfg(test)]
 mod directive_unit_tests {
-    use super::super::*;
+    use super::super::{directives::*, expand_element, XacroContext};
     use crate::error::XacroError;
-    use crate::expand::XacroContext;
     use std::path::PathBuf;
     use xmltree::Element;
 

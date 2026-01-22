@@ -182,7 +182,7 @@ pub fn find_matching_paren(
 ///
 /// Note: `radians()` and `degrees()` are NOT in this list because they are implemented as
 /// lambda functions in pyisheval (see `init_interpreter()`), not as Rust native functions.
-pub(crate) const SUPPORTED_MATH_FUNCS: &[&str] = &[
+pub(super) const SUPPORTED_MATH_FUNCS: &[&str] = &[
     "atan2", "floor", "acos", "asin", "atan", "ceil", "sqrt", "cos", "sin", "tan", "pow", "log",
     "abs",
 ];

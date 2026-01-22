@@ -15,13 +15,13 @@ use xmltree::XMLNode;
 ///
 /// Automatically decrements recursion_depth when dropped, ensuring correct
 /// depth tracking even if expansion panics.
-pub(crate) struct DepthGuard<'a> {
+pub(super) struct DepthGuard<'a> {
     depth: &'a RefCell<usize>,
 }
 
 impl<'a> DepthGuard<'a> {
     /// Creates a new DepthGuard and increments the depth counter
-    pub(crate) fn new(depth: &'a RefCell<usize>) -> Self {
+    pub(super) fn new(depth: &'a RefCell<usize>) -> Self {
         *depth.borrow_mut() += 1;
         Self { depth }
     }
@@ -38,7 +38,7 @@ impl Drop for DepthGuard<'_> {
 ///
 /// Automatically restores base_path and pops include_stack and namespace_stack when dropped,
 /// ensuring correct file context and per-file namespace isolation even if include expansion panics.
-pub(crate) struct IncludeGuard<'a> {
+pub(super) struct IncludeGuard<'a> {
     base_path: &'a RefCell<PathBuf>,
     include_stack: &'a RefCell<Vec<PathBuf>>,
     namespace_stack: &'a RefCell<Vec<(PathBuf, String)>>,
@@ -49,7 +49,7 @@ pub(crate) struct IncludeGuard<'a> {
 
 impl<'a> IncludeGuard<'a> {
     /// Creates a new IncludeGuard, capturing current stack lengths for cleanup
-    pub(crate) fn new(
+    pub(super) fn new(
         base_path: &'a RefCell<PathBuf>,
         include_stack: &'a RefCell<Vec<PathBuf>>,
         namespace_stack: &'a RefCell<Vec<(PathBuf, String)>>,
@@ -89,13 +89,13 @@ impl Drop for IncludeGuard<'_> {
 ///
 /// Automatically pops property scope when dropped, ensuring correct variable
 /// shadowing even if macro expansion panics.
-pub(crate) struct ScopeGuard<'a> {
+pub(super) struct ScopeGuard<'a> {
     properties: &'a EvalContext,
 }
 
 impl<'a> ScopeGuard<'a> {
     /// Creates a new ScopeGuard
-    pub(crate) fn new(properties: &'a EvalContext) -> Self {
+    pub(super) fn new(properties: &'a EvalContext) -> Self {
         Self { properties }
     }
 }
@@ -110,13 +110,13 @@ impl Drop for ScopeGuard<'_> {
 ///
 /// Automatically pops block stack when dropped, ensuring correct block
 /// resolution even if macro expansion panics.
-pub(crate) struct BlockGuard<'a> {
+pub(super) struct BlockGuard<'a> {
     blocks: &'a RefCell<Vec<HashMap<String, Vec<XMLNode>>>>,
 }
 
 impl<'a> BlockGuard<'a> {
     /// Creates a new BlockGuard
-    pub(crate) fn new(blocks: &'a RefCell<Vec<HashMap<String, Vec<XMLNode>>>>) -> Self {
+    pub(super) fn new(blocks: &'a RefCell<Vec<HashMap<String, Vec<XMLNode>>>>) -> Self {
         Self { blocks }
     }
 }
