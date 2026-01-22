@@ -27,7 +27,7 @@ use super::{expand_children_list, XacroContext};
 ///
 /// This enables extensible directive dispatch via a registry pattern.
 /// Each directive (property, arg, macro, if, etc.) implements this trait.
-pub(crate) trait DirectiveHandler: Send + Sync {
+pub(super) trait DirectiveHandler: Send + Sync {
     /// Handle the directive element
     ///
     /// # Arguments
@@ -51,7 +51,7 @@ static DIRECTIVE_REGISTRY: OnceLock<HashMap<&'static str, Box<dyn DirectiveHandl
 ///
 /// Lazily initializes the registry on first call, then returns cached reference.
 /// Uses OnceLock for thread-safe lazy initialization without runtime overhead.
-pub(crate) fn get_directive_registry() -> &'static HashMap<&'static str, Box<dyn DirectiveHandler>>
+pub(super) fn get_directive_registry() -> &'static HashMap<&'static str, Box<dyn DirectiveHandler>>
 {
     DIRECTIVE_REGISTRY.get_or_init(|| {
         let mut registry: HashMap<&'static str, Box<dyn DirectiveHandler>> = HashMap::new();
@@ -164,7 +164,7 @@ impl DirectiveHandler for InsertBlockDirective {
 ///
 /// # Returns
 /// Empty vec (property definitions produce no output)
-pub(crate) fn handle_property_directive(
+pub(super) fn handle_property_directive(
     elem: Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
@@ -267,7 +267,7 @@ pub(crate) fn handle_property_directive(
 ///
 /// # Returns
 /// Empty vec (arg definitions produce no output)
-pub(crate) fn handle_arg_directive(
+pub(super) fn handle_arg_directive(
     elem: Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
@@ -310,7 +310,7 @@ pub(crate) fn handle_arg_directive(
 ///
 /// # Returns
 /// Empty vec (macro definitions produce no output)
-pub(crate) fn handle_macro_directive(
+pub(super) fn handle_macro_directive(
     elem: Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
@@ -366,7 +366,7 @@ pub(crate) fn handle_macro_directive(
 ///
 /// # Returns
 /// Expanded children if condition met, empty vec otherwise
-pub(crate) fn handle_conditional_directive(
+pub(super) fn handle_conditional_directive(
     elem: Element,
     ctx: &XacroContext,
     is_if: bool,
@@ -400,7 +400,7 @@ pub(crate) fn handle_conditional_directive(
 ///
 /// # Returns
 /// Expanded nodes from the block/property
-pub(crate) fn handle_insert_block_directive(
+pub(super) fn handle_insert_block_directive(
     elem: Element,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
@@ -455,7 +455,7 @@ pub(crate) fn handle_insert_block_directive(
 /// # Returns
 /// Ok(()) if not an unimplemented directive
 /// Err if it matches an unimplemented feature
-pub(crate) fn check_unimplemented_directive(
+pub(super) fn check_unimplemented_directive(
     elem: &Element,
     xacro_ns: &str,
 ) -> Result<(), XacroError> {

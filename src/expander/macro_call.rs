@@ -27,7 +27,7 @@ use super::*;
 /// * `elem` - The element to check
 /// * `macros` - HashMap of defined macros
 /// * `xacro_ns` - The xacro namespace URI for this document
-pub(crate) fn is_macro_call(
+pub(super) fn is_macro_call(
     elem: &Element,
     macros: &HashMap<String, Rc<crate::parse::macro_def::MacroDefinition>>,
     xacro_ns: &str,
@@ -73,7 +73,7 @@ pub(crate) fn is_macro_call(
 ///
 /// # Returns
 /// Expanded nodes from macro content
-pub(crate) fn expand_macro_call(
+pub(super) fn expand_macro_call(
     call_elem: &Element,
     ctx: &XacroContext,
     parent_scope_depth: usize,

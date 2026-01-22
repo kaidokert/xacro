@@ -26,12 +26,12 @@ mod macro_call;
 mod utils;
 
 // Internal use of submodules
-pub(crate) use children::*;
-pub(crate) use directives::*;
-pub(crate) use guards::*;
-pub(crate) use include::*;
-pub(crate) use macro_call::*;
-pub(crate) use utils::*;
+use children::*;
+use directives::*;
+use guards::*;
+use include::*;
+use macro_call::*;
+use utils::*;
 
 // Re-export XacroContext from expand module
 pub use crate::expand::XacroContext;

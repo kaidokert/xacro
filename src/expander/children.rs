@@ -19,7 +19,7 @@ use super::{expand_node, XacroContext};
 ///
 /// # Returns
 /// Flattened list of expanded nodes
-pub(crate) fn expand_children_list(
+pub(super) fn expand_children_list(
     children: Vec<XMLNode>,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
