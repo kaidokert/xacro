@@ -4,7 +4,7 @@ pub use xmltree::Element;
 
 /// Default value specification for a macro parameter
 #[derive(Debug, Clone, PartialEq)]
-pub enum ParamDefault {
+pub(crate) enum ParamDefault {
     /// No default: "param"
     None,
     /// Regular default: "param:=5" or "param:=${x*2}"
@@ -18,17 +18,17 @@ pub enum ParamDefault {
 }
 
 // Type aliases to simplify complex return types
-pub type ParamsMap = HashMap<String, ParamDefault>;
-pub type ParamOrder = Vec<String>;
-pub type BlockParamsSet = HashSet<String>;
-pub type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet, BlockParamsSet);
+pub(super) type ParamsMap = HashMap<String, ParamDefault>;
+pub(crate) type ParamOrder = Vec<String>;
+pub(crate) type BlockParamsSet = HashSet<String>;
+pub(crate) type ParsedParams = (ParamsMap, ParamOrder, BlockParamsSet, BlockParamsSet);
 
-pub type MacroArgs = HashMap<String, String>;
-pub type MacroBlocks = HashMap<String, Element>;
-pub type CollectedArgs = (MacroArgs, MacroBlocks);
+pub(super) type MacroArgs = HashMap<String, String>;
+pub(super) type MacroBlocks = HashMap<String, Element>;
+pub(crate) type CollectedArgs = (MacroArgs, MacroBlocks);
 
 #[derive(Debug, Clone)]
-pub struct MacroDefinition {
+pub(crate) struct MacroDefinition {
     pub name: String,            // Macro name from 'name' attribute (for error messages)
     pub params: ParamsMap,       // Regular params with optional defaults
     pub param_order: ParamOrder, // Parameter declaration order (critical for block params!)
@@ -38,7 +38,7 @@ pub struct MacroDefinition {
 }
 
 /// Utility functions for parsing and validating macro definitions
-pub struct MacroProcessor;
+pub(crate) struct MacroProcessor;
 
 impl MacroProcessor {
     /// Helper to unquote a value (removes surrounding quotes if present)

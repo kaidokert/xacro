@@ -148,7 +148,7 @@ impl DelimiterTracker {
 ///
 /// Note: Uses byte-based iteration since delimiters are ASCII characters
 /// and will never appear as continuation bytes in UTF-8.
-pub fn find_matching_paren(
+pub(crate) fn find_matching_paren(
     text: &str,
     start: usize,
 ) -> Option<usize> {
@@ -236,7 +236,7 @@ pub(super) fn escape_python_string(s: &str) -> String {
 }
 
 /// Remove quotes from string values (handles both single and double quotes)
-pub fn remove_quotes(s: &str) -> &str {
+pub(crate) fn remove_quotes(s: &str) -> &str {
     // pyisheval's StringLit to_string() returns strings with single quotes
     if (s.starts_with('\'') && s.ends_with('\'')) || (s.starts_with('"') && s.ends_with('"')) {
         if s.len() >= 2 {

@@ -10,12 +10,12 @@
 // - Action verb naming (run_xacro, not xacro_ok)
 // - Modern Rust idioms (tests/common.rs, not tests/common/mod.rs)
 
+// Allow unused helper functions - not all tests use all utilities
+#![allow(dead_code)]
+
 use std::collections::HashMap;
-use std::sync::Once;
 use xacro::{CompatMode, XacroError, XacroProcessor};
 use xmltree::Element;
-
-static INIT: Once = Once::new();
 
 /// RAII guard for environment variables that automatically restores original value on drop.
 ///
@@ -50,17 +50,6 @@ impl Drop for EnvVarGuard {
     }
 }
 
-/// Initialize test environment (logging, etc.).
-///
-/// Call this at the start of tests that need logging output.
-/// Safe to call multiple times - initialization happens only once.
-#[allow(dead_code)]
-pub fn test_init() {
-    INIT.call_once(|| {
-        let _ = env_logger::builder().is_test(true).try_init();
-    });
-}
-
 // =============================================================================
 // Core Processing Helpers
 // =============================================================================
@@ -69,7 +58,6 @@ pub fn test_init() {
 ///
 /// Use this when you need to check for errors.
 /// For success cases, use `run_xacro()` instead.
-#[allow(dead_code)]
 pub fn test_xacro(input: &str) -> Result<String, XacroError> {
     XacroProcessor::new().run_from_string(input)
 }
@@ -77,7 +65,6 @@ pub fn test_xacro(input: &str) -> Result<String, XacroError> {
 /// Process xacro string with ROS YAML units enabled, return Result.
 ///
 /// Use this for tests that require ROS YAML tag handlers (!degrees, !millimeters, etc.)
-#[allow(dead_code)]
 #[cfg(feature = "yaml")]
 pub fn test_xacro_with_yaml(input: &str) -> Result<String, XacroError> {
     XacroProcessor::builder()
@@ -90,7 +77,6 @@ pub fn test_xacro_with_yaml(input: &str) -> Result<String, XacroError> {
 ///
 /// Panics with a clear message if processing fails.
 /// Use this for tests that expect successful processing.
-#[allow(dead_code)]
 pub fn run_xacro(input: &str) -> String {
     test_xacro(input).expect("Xacro processing should succeed")
 }
@@ -98,7 +84,6 @@ pub fn run_xacro(input: &str) -> String {
 /// Process xacro string with ROS YAML units and expect success.
 ///
 /// Use this for tests that require ROS YAML tag handlers (!degrees, !millimeters, etc.)
-#[allow(dead_code)]
 #[cfg(feature = "yaml")]
 pub fn run_xacro_with_yaml(input: &str) -> String {
     test_xacro_with_yaml(input).expect("Xacro processing with YAML should succeed")
@@ -113,7 +98,6 @@ pub fn run_xacro_with_yaml(input: &str) -> String {
 /// ```ignore
 /// let output = run_xacro_expect(input, "Macro definition should not evaluate parameters");
 /// ```
-#[allow(dead_code)]
 pub fn run_xacro_expect(
     input: &str,
     msg: &str,
@@ -125,35 +109,24 @@ pub fn run_xacro_expect(
 ///
 /// Panics if processing or XML parsing fails.
 /// Use this when you need to inspect the XML structure.
-#[allow(dead_code)]
 pub fn run_xacro_to_xml(input: &str) -> Element {
     let output = run_xacro(input);
     Element::parse(output.as_bytes()).expect("Output should be valid XML")
 }
 
-/// Process xacro with custom CLI arguments.
-#[allow(dead_code)]
-pub fn test_xacro_with_args(
-    input: &str,
-    args: HashMap<String, String>,
-) -> Result<String, XacroError> {
-    XacroProcessor::builder()
-        .with_args(args)
-        .build()
-        .run_from_string(input)
-}
-
 /// Process xacro with custom CLI arguments, expect success.
-#[allow(dead_code)]
 pub fn run_xacro_with_args(
     input: &str,
     args: HashMap<String, String>,
 ) -> String {
-    test_xacro_with_args(input, args).expect("Xacro processing with args should succeed")
+    XacroProcessor::builder()
+        .with_args(args)
+        .build()
+        .run_from_string(input)
+        .expect("Xacro processing with args should succeed")
 }
 
 /// Process xacro with compatibility mode.
-#[allow(dead_code)]
 pub fn test_xacro_with_compat(
     input: &str,
     compat: CompatMode,
@@ -165,7 +138,6 @@ pub fn test_xacro_with_compat(
 }
 
 /// Process xacro with compatibility mode, expect success.
-#[allow(dead_code)]
 pub fn run_xacro_with_compat(
     input: &str,
     compat: CompatMode,
@@ -177,7 +149,6 @@ pub fn run_xacro_with_compat(
 ///
 /// Use this when you need to check for errors.
 /// For success cases, use `run_xacro_file()` instead.
-#[allow(dead_code)]
 pub fn test_xacro_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroError> {
     XacroProcessor::new().run(path)
 }
@@ -186,7 +157,6 @@ pub fn test_xacro_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, Xac
 ///
 /// Panics with a clear message if processing fails.
 /// Use this for tests that expect successful file processing.
-#[allow(dead_code)]
 pub fn run_xacro_file<P: AsRef<std::path::Path>>(path: P) -> String {
     let path_ref = path.as_ref();
     test_xacro_file(path_ref).expect(&format!(
@@ -202,7 +172,6 @@ pub fn run_xacro_file<P: AsRef<std::path::Path>>(path: P) -> String {
 /// Get attribute value by local name.
 ///
 /// Panics if attribute is not found (use `get_attr_opt()` for optional attributes).
-#[allow(dead_code)]
 pub fn get_attr<'a>(
     elem: &'a Element,
     name: &str,
@@ -215,7 +184,6 @@ pub fn get_attr<'a>(
 }
 
 /// Get attribute value by local name, returning None if not found.
-#[allow(dead_code)]
 pub fn get_attr_opt<'a>(
     elem: &'a Element,
     name: &str,
@@ -229,7 +197,6 @@ pub fn get_attr_opt<'a>(
 /// Find child element by name.
 ///
 /// Panics if child is not found (use `find_child_opt()` for optional children).
-#[allow(dead_code)]
 pub fn find_child<'a>(
     parent: &'a Element,
     name: &str,
@@ -241,7 +208,6 @@ pub fn find_child<'a>(
 }
 
 /// Find child element by name, returning None if not found.
-#[allow(dead_code)]
 pub fn find_child_opt<'a>(
     parent: &'a Element,
     name: &str,
@@ -254,7 +220,6 @@ pub fn find_child_opt<'a>(
 /// Example: `find_child_prefixed(root, "xacro", "property")` finds `<xacro:property>`
 ///
 /// Panics if child is not found.
-#[allow(dead_code)]
 pub fn find_child_prefixed<'a>(
     parent: &'a Element,
     prefix: &str,
@@ -276,7 +241,6 @@ pub fn find_child_prefixed<'a>(
 /// Parse XML string to Element.
 ///
 /// Panics if XML is malformed.
-#[allow(dead_code)]
 pub fn parse_xml(xml: &str) -> Element {
     Element::parse(xml.as_bytes()).expect("Should parse valid XML")
 }

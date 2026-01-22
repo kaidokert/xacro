@@ -45,7 +45,7 @@ pub use crate::expand::XacroContext;
 /// - Zero nodes (property definitions)
 /// - One node (regular elements)
 /// - Many nodes (macro expansion)
-pub fn expand_node(
+pub(crate) fn expand_node(
     node: XMLNode,
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {

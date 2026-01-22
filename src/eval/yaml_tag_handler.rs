@@ -68,7 +68,7 @@ pub type DynYamlTagHandler = Box<dyn YamlTagHandler>;
 /// Handlers are tried in registration order. The first handler that returns `Some`
 /// wins. If no handlers match, the value is used as-is.
 #[derive(Default)]
-pub struct YamlTagHandlerRegistry {
+pub(crate) struct YamlTagHandlerRegistry {
     handlers: Vec<DynYamlTagHandler>,
 }
 

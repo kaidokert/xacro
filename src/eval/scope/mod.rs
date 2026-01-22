@@ -64,7 +64,7 @@ pub enum PropertyScope {
     Global,
 }
 
-pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
+pub(crate) struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,
@@ -97,33 +97,6 @@ pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
 }
 
 impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
-    #[cfg(test)]
-    #[allow(clippy::new_without_default)]
-    pub(crate) fn new() -> Self {
-        // Create with empty args map
-        Self::new_with_args(Rc::new(RefCell::new(HashMap::new())))
-    }
-
-    /// Create a new EvalContext with a shared args reference
-    ///
-    /// This constructor is used when args need to be shared with the expander
-    /// (for xacro:arg directive processing). The args map is shared via Rc<RefCell<...>>
-    /// to allow both the expander (to define args) and EvalContext (to resolve $(arg))
-    /// to access it.
-    ///
-    /// # Arguments
-    /// * `args` - Shared reference to the arguments map (CLI + XML args)
-    #[cfg(test)]
-    pub(crate) fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
-        let extensions = Rc::new(default_extensions());
-        Self::new_with_extensions(
-            args,
-            extensions,
-            #[cfg(feature = "yaml")]
-            Rc::new(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new()),
-        )
-    }
-
     /// Create a new EvalContext with custom extensions
     ///
     /// This constructor allows providing custom extension handlers and YAML tag handlers,
@@ -213,42 +186,6 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
 
         self.raw_properties.borrow_mut().insert(name.clone(), value);
         self.evaluated_cache.borrow_mut().remove(&name);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_raw_property(
-        &self,
-        name: String,
-        value: String,
-    ) {
-        #[cfg(feature = "compat")]
-        {
-            let metadata = self.compute_property_metadata(&value);
-            self.add_raw_property_with_metadata(name, value, metadata);
-        }
-
-        #[cfg(not(feature = "compat"))]
-        {
-            self.add_raw_property_with_metadata(name, value, ());
-        }
-    }
-
-    /// Check if a property is defined (in scope stack or global properties)
-    ///
-    /// Used by the single-pass expander to implement the `default` attribute behavior:
-    /// `<xacro:property name="x" default="5"/>` only sets x if x is not already defined.
-    ///
-    /// # Arguments
-    /// * `name` - The property name to check
-    ///
-    /// # Returns
-    /// true if the property is defined (either in a macro scope or globally), false otherwise
-    #[cfg(test)]
-    pub(crate) fn has_property(
-        &self,
-        name: &str,
-    ) -> bool {
-        self.lookup_raw_value(name).is_some()
     }
 
     /// Define a property at a specific scope level
@@ -364,5 +301,73 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 }
             }
         }
+    }
+}
+
+// Test-only constructors and methods
+#[cfg(test)]
+impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
+    /// Create a new EvalContext for testing (with default extensions)
+    #[allow(clippy::new_without_default)]
+    pub(crate) fn new() -> Self {
+        // Create with empty args map
+        Self::new_with_args(Rc::new(RefCell::new(HashMap::new())))
+    }
+
+    /// Create a new EvalContext with a shared args reference for testing
+    ///
+    /// This constructor is used when args need to be shared with the expander
+    /// (for xacro:arg directive processing). The args map is shared via Rc<RefCell<...>>
+    /// to allow both the expander (to define args) and EvalContext (to resolve $(arg))
+    /// to access it.
+    ///
+    /// # Arguments
+    /// * `args` - Shared reference to the arguments map (CLI + XML args)
+    pub(crate) fn new_with_args(args: Rc<RefCell<HashMap<String, String>>>) -> Self {
+        let extensions = Rc::new(default_extensions());
+        Self::new_with_extensions(
+            args,
+            extensions,
+            #[cfg(feature = "yaml")]
+            Rc::new(crate::eval::yaml_tag_handler::YamlTagHandlerRegistry::new()),
+        )
+    }
+
+    /// Add a raw property definition (test helper)
+    ///
+    /// Used by tests to add properties without going through the define_property API.
+    /// In production code, use `define_property` instead.
+    pub(crate) fn add_raw_property(
+        &self,
+        name: String,
+        value: String,
+    ) {
+        #[cfg(feature = "compat")]
+        {
+            let metadata = self.compute_property_metadata(&value);
+            self.add_raw_property_with_metadata(name, value, metadata);
+        }
+
+        #[cfg(not(feature = "compat"))]
+        {
+            self.add_raw_property_with_metadata(name, value, ());
+        }
+    }
+
+    /// Check if a property is defined (test helper)
+    ///
+    /// Used by tests to check property existence.
+    /// In production code, property resolution happens automatically during substitution.
+    ///
+    /// # Arguments
+    /// * `name` - The property name to check
+    ///
+    /// # Returns
+    /// true if the property is defined (either in a macro scope or globally), false otherwise
+    pub(crate) fn has_property(
+        &self,
+        name: &str,
+    ) -> bool {
+        self.lookup_raw_value(name).is_some()
     }
 }

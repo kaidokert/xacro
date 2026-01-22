@@ -8,14 +8,14 @@ use xmltree::{Element, XMLNode};
 /// This is the most common xacro namespace URI. The xacro processor dynamically
 /// extracts the actual namespace from each document's root element (xmlns:xacro="..."),
 /// so this constant serves as a reference value for external crates or testing.
-pub const XACRO_NAMESPACE: &str = "http://www.ros.org/wiki/xacro";
+pub(super) const XACRO_NAMESPACE: &str = "http://www.ros.org/wiki/xacro";
 
 /// Known xacro namespace URIs used in the wild
 ///
 /// Used for fallback namespace detection and validation. The processor will recognize
 /// any of these URIs as valid xacro namespaces, allowing compatibility with different
 /// namespace variants used across the ROS ecosystem.
-pub const KNOWN_XACRO_URIS: &[&str] = &[
+pub(super) const KNOWN_XACRO_URIS: &[&str] = &[
     "http://www.ros.org/wiki/xacro",
     "http://ros.org/wiki/xacro",
     "http://wiki.ros.org/xacro",
@@ -29,7 +29,7 @@ pub const KNOWN_XACRO_URIS: &[&str] = &[
 /// Namespace-aware: identifies xacro namespaces by URI, not prefix.
 /// Used when "xacro" prefix is not found, allowing documents with
 /// non-standard prefixes (e.g., xmlns:foo="http://www.ros.org/wiki/xacro") to be recognized.
-pub fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
+pub(super) fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
     ns.0.values()
         .find(|uri| KNOWN_XACRO_URIS.contains(&uri.as_str()))
         .map(|s| s.to_string())
@@ -38,7 +38,7 @@ pub fn find_xacro_namespace_in_map(ns: &xmltree::Namespace) -> Option<String> {
 /// Check if a namespace URI is a known xacro namespace
 ///
 /// Returns true if the given URI matches any of the known xacro namespace URIs.
-pub fn is_known_xacro_uri(uri: &str) -> bool {
+pub(crate) fn is_known_xacro_uri(uri: &str) -> bool {
     KNOWN_XACRO_URIS.contains(&uri)
 }
 
@@ -56,7 +56,7 @@ pub fn is_known_xacro_uri(uri: &str) -> bool {
 /// # Errors
 /// Returns an error if the "xacro" prefix is bound to an unknown/invalid URI (likely a typo),
 /// unless `lenient_namespace` is true.
-pub fn extract_xacro_namespace(
+pub(crate) fn extract_xacro_namespace(
     element: &Element,
     lenient_namespace: bool,
 ) -> Result<String, XacroError> {
@@ -118,7 +118,7 @@ pub fn extract_xacro_namespace(
 /// # Returns
 /// `true` if the element is in any known xacro namespace with the given tag name,
 /// and the root declared a xacro namespace
-pub fn is_xacro_element(
+pub(crate) fn is_xacro_element(
     element: &Element,
     tag_name: &str,
     xacro_ns: &str,
@@ -152,7 +152,7 @@ pub fn is_xacro_element(
 /// ];
 /// let xml_string = serialize_nodes(&nodes)?;
 /// ```
-pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
+pub(crate) fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
     let mut buffer = Vec::new();
 
     for node in nodes {
@@ -239,7 +239,7 @@ pub fn serialize_nodes(nodes: &[XMLNode]) -> Result<String, XacroError> {
 /// let nodes = parse_xml_fragment(fragment)?;
 /// assert_eq!(nodes.len(), 2);
 /// ```
-pub fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
+pub(crate) fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
     // Edge case: empty string
     let trimmed = fragment.trim();
     if trimmed.is_empty() {
@@ -266,7 +266,7 @@ pub fn parse_xml_fragment(fragment: &str) -> Result<Vec<XMLNode>, XacroError> {
 ///
 /// Returns false if nodes only contain Text or Whitespace nodes.
 /// This is used to distinguish lazy properties (body-based) from value properties (text-only).
-pub fn has_structural_content(nodes: &[XMLNode]) -> bool {
+pub(crate) fn has_structural_content(nodes: &[XMLNode]) -> bool {
     nodes.iter().any(|n| {
         matches!(
             n,
