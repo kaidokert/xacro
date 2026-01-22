@@ -11,7 +11,7 @@ pub(crate) mod ros;
 pub(crate) mod ros_yaml_handlers;
 
 // Re-export types for binary and public API use
-pub use self::core::EnvExtension;
+pub use self::core::{CwdExtension, EnvExtension};
 pub use self::ros::{FindExtension, OptEnvExtension};
 
 // Re-export YAML tag handler types for public API
