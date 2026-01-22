@@ -14,7 +14,7 @@ yaml = ["dep:saphyr"]  # YAML loading support via load_yaml() function
 
 [dependencies]
 xml = "0.8"
-xmltree = "0.12"
+xmltree = { package = "xmltree-ns", version="0.13.0" }
 thiserror = "2.0"
 pyisheval = "0.16"
 regex = "1.12"
@@ -36,4 +36,3 @@ path = "src/bin/xacro.rs"
 
 [patch.crates-io]
 pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.16.0_with_in_operator" }
-xmltree = { git = "https://github.com/kaidokert/xmltree-rs", tag = "v0.12.0_preserve_ns_patch" }
