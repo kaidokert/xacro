@@ -14,7 +14,12 @@ use crate::{
 use std::{collections::HashMap, rc::Rc};
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{
+    children::expand_children_list,
+    expand_node,
+    guards::{BlockGuard, ScopeGuard},
+    XacroContext,
+};
 
 /// Check if an element is a macro call
 ///

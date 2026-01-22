@@ -7,7 +7,7 @@ use crate::{error::XacroError, parse::xml::extract_xacro_namespace};
 use std::path::PathBuf;
 use xmltree::{Element, XMLNode};
 
-use super::*;
+use super::{children::expand_children_list, guards::IncludeGuard, XacroContext};
 
 /// Check if a filename contains glob pattern characters
 ///
