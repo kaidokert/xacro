@@ -34,14 +34,14 @@ fn get_text_regex() -> &'static Regex {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TokenType {
+pub(crate) enum TokenType {
     DollarDollarBrace,
     Expr,
     Extension,
     Text,
 }
 
-pub struct Lexer<'a> {
+pub(crate) struct Lexer<'a> {
     input_str: &'a str,
     regexes: Vec<(TokenType, &'static Regex)>,
     position: usize,

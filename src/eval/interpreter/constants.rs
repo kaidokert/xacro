@@ -14,7 +14,7 @@
 /// fail with "undefined variable" errors because pyisheval cannot create NaN
 /// (0.0/0.0 triggers DivisionByZero). Properties with `inf` values work correctly
 /// (created using 10**400 arithmetic).
-pub const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
+pub(crate) const BUILTIN_CONSTANTS: &[(&str, f64)] = &[
     ("pi", core::f64::consts::PI),
     ("e", core::f64::consts::E),
     ("tau", core::f64::consts::TAU),

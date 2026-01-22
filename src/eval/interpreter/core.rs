@@ -19,7 +19,7 @@ use std::collections::HashMap;
 ///
 /// # Errors
 /// Returns `EvalError` if a lambda expression fails to evaluate.
-pub fn build_pyisheval_context(
+pub(crate) fn build_pyisheval_context(
     properties: &HashMap<String, String>,
     interp: &mut Interpreter,
 ) -> Result<HashMap<String, Value>, EvalError> {
@@ -353,7 +353,7 @@ fn eval_text_with_interpreter_impl(
 ///
 /// Takes a mutable reference to ensure lambdas are created in the same
 /// interpreter context where they'll be evaluated.
-pub fn eval_text_with_interpreter(
+pub(crate) fn eval_text_with_interpreter(
     text: &str,
     properties: &HashMap<String, String>,
     interp: &mut Interpreter,
@@ -417,7 +417,7 @@ fn apply_string_truthiness(
 ///   eval_boolean("${3*0.1}", &props) → Ok(true)  // Float 0.3 != 0.0
 ///   eval_boolean("${0}", &props) → Ok(false)     // Integer 0
 ///   eval_boolean("nonsense", &props) → Err(InvalidBoolean)
-pub fn eval_boolean(
+pub(crate) fn eval_boolean(
     text: &str,
     properties: &HashMap<String, String>,
 ) -> Result<bool, EvalError> {

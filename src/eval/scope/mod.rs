@@ -64,7 +64,7 @@ pub enum PropertyScope {
     Global,
 }
 
-pub struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
+pub(crate) struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Lazy evaluation infrastructure for Python xacro compatibility
     // Store raw, unevaluated property values: "x" -> "${y * 2}"
     raw_properties: RefCell<HashMap<String, String>>,

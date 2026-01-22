@@ -32,7 +32,7 @@ use xmltree::{Element, XMLNode};
 /// // doc.root is the <robot> element
 /// ```
 #[derive(Debug)]
-pub struct XacroDocument {
+pub(crate) struct XacroDocument {
     /// Nodes that appear before the root element (PIs, comments)
     /// Preserves order to maintain document structure
     pub preamble: Vec<XMLNode>,

@@ -16,7 +16,7 @@ use pyisheval::{Interpreter, Value};
 ///
 /// # Returns
 /// A fully initialized Interpreter ready for expression evaluation
-pub fn init_interpreter() -> Interpreter {
+pub(crate) fn init_interpreter() -> Interpreter {
     let mut interp = Interpreter::new();
 
     // Initialize math constants in the interpreter
@@ -84,7 +84,7 @@ pub enum EvalError {
 /// # Arguments
 /// * `value` - The pyisheval Value to format
 /// * `force_float` - Whether to keep .0 for whole numbers (true for float context)
-pub fn format_value_python_style(
+pub(crate) fn format_value_python_style(
     value: &Value,
     force_float: bool,
 ) -> String {
