@@ -142,13 +142,31 @@ impl XacroContext {
             .expect("namespace_stack should never be empty - initialized in XacroContext::new()")
     }
 
+    /// Set the initial source file path
+    ///
+    /// Updates the namespace_stack with the actual file path (instead of directory).
+    /// Should be called immediately after construction when processing a file.
+    pub fn set_source_file(
+        &self,
+        file_path: std::path::PathBuf,
+    ) {
+        let mut ns_stack = self.namespace_stack.borrow_mut();
+        if let Some((path, _)) = ns_stack.first_mut() {
+            *path = file_path;
+        }
+    }
+
     /// Get current location context for error reporting
     ///
     /// Creates a snapshot of location information (file path, macro stack, include stack)
     /// for passing to the evaluation layer. Clones the data to avoid RefCell lifetime issues.
     pub fn get_location_context(&self) -> crate::eval::LocationContext {
+        // Get current file from namespace_stack (stores actual file paths)
+        let ns_stack = self.namespace_stack.borrow();
+        let current_file = ns_stack.last().map(|(path, _ns)| path.clone());
+
         crate::eval::LocationContext {
-            file: Some(self.base_path.borrow().clone()),
+            file: current_file,
             macro_stack: self.macro_call_stack.borrow().clone(),
             include_stack: self.include_stack.borrow().clone(),
         }
