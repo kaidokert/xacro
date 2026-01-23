@@ -105,8 +105,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // First resolve any $(...) extensions in the raw value
         // This allows property values to contain $(arg ...) references
         // Example: <xacro:property name="size" value="${$(arg scale) * 2}"/>
+        // Clone the location to avoid holding a borrow during nested calls
+        let loc_cloned = self.current_location.borrow().clone();
         let value_with_extensions_resolved =
-            self.substitute_extensions_only(&raw_value, self.current_location.borrow().as_ref())?;
+            self.substitute_extensions_only(&raw_value, loc_cloned.as_ref())?;
 
         // Recompute metadata after extension resolution (fixes boolean/float arg tracking)
         // Example: value="$(arg namespace)" with namespace:=true

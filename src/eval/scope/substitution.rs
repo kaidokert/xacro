@@ -8,6 +8,7 @@ use crate::error::XacroError;
 use crate::eval::interpreter::{build_pyisheval_context, eval_boolean, init_interpreter};
 use crate::eval::lexer::{Lexer, TokenType};
 use crate::extensions::extension_utils;
+use core::cell::RefCell;
 use std::collections::HashMap;
 
 impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
@@ -58,6 +59,62 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         }
 
         Ok(result)
+    }
+
+    /// Perform one pass of substitution with metadata-aware formatting and location context
+    ///
+    /// Sets current_location briefly during evaluation for print_location() support.
+    ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} to evaluate
+    /// * `properties` - The property context (pre-resolved)
+    /// * `loc` - Location context to set during evaluation
+    ///
+    /// # Returns
+    /// The text with one level of ${...} expressions resolved
+    fn substitute_one_pass_with_loc(
+        &self,
+        text: &str,
+        properties: &HashMap<String, String>,
+        loc: Option<&crate::eval::LocationContext>,
+    ) -> Result<String, XacroError> {
+        // Check if location context is already set (nested call)
+        let was_set = {
+            let current = self.current_location.borrow();
+            current.is_some()
+        };
+
+        // Set location if not already set
+        if !was_set {
+            *self.current_location.borrow_mut() = loc.cloned();
+        }
+
+        // RAII guard to ensure cleanup even on error
+        struct LocationGuard<'a> {
+            location: &'a RefCell<Option<crate::eval::LocationContext>>,
+            should_clear: bool,
+        }
+
+        impl Drop for LocationGuard<'_> {
+            fn drop(&mut self) {
+                if self.should_clear {
+                    // Only clear if we can borrow - if we can't, it means we're in
+                    // a nested panic/unwind and it's not safe to touch the RefCell
+                    if let Ok(mut loc) = self.location.try_borrow_mut() {
+                        *loc = None;
+                    }
+                }
+            }
+        }
+
+        let _guard = LocationGuard {
+            location: &self.current_location,
+            should_clear: !was_set,
+        };
+
+        // Perform the substitution (may trigger nested calls)
+        // Guard will automatically clear location on drop
+        self.substitute_one_pass(text, properties)
     }
 
     /// Perform one pass of substitution with metadata-aware formatting
@@ -162,30 +219,20 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
-        // Clone location once at the start to avoid re-entrancy issues
+        // Clone location once at the start to pass to substitute_one_pass
         let loc_cloned = loc.cloned();
 
-        let result = self.substitute_iteratively(
+        self.substitute_iteratively(
             text,
             |s| s.contains("${") || s.contains("$("),
             |result| {
-                // Set location context only during expression evaluation
-                // This is needed for print_location() in the interpreter
-                *self.current_location.borrow_mut() = loc_cloned.clone();
-
-                // Build context with only the properties referenced in this iteration
+                // Build context first (may trigger nested calls)
                 let properties = self.build_eval_context(result)?;
-                // Use metadata-aware substitution
-                let pass_result = self.substitute_one_pass(result, &properties);
 
-                // Clear location context after this pass
-                *self.current_location.borrow_mut() = None;
-
-                pass_result
+                // Pass location to substitute_one_pass (it will set current_location briefly)
+                self.substitute_one_pass_with_loc(result, &properties, loc_cloned.as_ref())
             },
-        );
-
-        result
+        )
     }
 
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
