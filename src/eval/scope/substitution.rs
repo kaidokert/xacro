@@ -210,7 +210,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `text` - The text containing ${...} expressions to substitute
-    /// * `_loc` - Optional location context for error reporting (not yet used)
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// The text with all ${...} expressions resolved
@@ -414,14 +414,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// - Iteration 2: No changes (done)
     ///
     /// # Arguments
-    /// * `text` - Text containing any combination of `$()` and `${}`
+    /// * `text` - The text containing ${...} and $(...) to substitute
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// Fully resolved text with all substitutions applied
-    ///
-    /// # Arguments
-    /// * `text` - The text containing ${...} and $(...) to substitute
-    /// * `loc` - Optional location context for error reporting (not yet used)
     ///
     /// # Errors
     /// * `MaxSubstitutionDepth` - Exceeded iteration limit (likely circular refs)
@@ -491,10 +488,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         properties: &HashMap<String, String>,
     ) -> Result<String, XacroError> {
+        // Use location context if available for print_location() support
+        let loc = self.current_location.borrow().clone();
         self.substitute_iteratively(
             text,
             |s| s.contains("${"),
-            |result| self.substitute_one_pass(result, properties),
+            |result| self.substitute_one_pass_with_loc(result, properties, loc.as_ref()),
         )
     }
 }

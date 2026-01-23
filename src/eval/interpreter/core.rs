@@ -222,6 +222,10 @@ pub(crate) fn build_pyisheval_context(
 /// Mimics Python xacro's print_location() behavior:
 /// 1. Print macro stack (most recent first): "when instantiating macro: NAME (FILE)"
 /// 2. Print file/include stack (most recent first): "in file: FILE"
+///
+/// Note: This has a different format from ErrorContext::Display intentionally:
+/// - ErrorContext::Display is for structured error messages (indented, labeled)
+/// - print_location_to_stderr matches Python xacro's debugging output (simpler)
 fn print_location_to_stderr(location_ctx: Option<&crate::eval::LocationContext>) {
     let ctx = match location_ctx {
         Some(c) => c,
@@ -248,12 +252,19 @@ fn print_location_to_stderr(location_ctx: Option<&crate::eval::LocationContext>)
         "in file:"
     };
 
-    let mut first = true;
-    for file_path in ctx.include_stack.iter().rev() {
-        let file_str = file_path.to_str().unwrap_or("???");
-        let msg = if first { file_msg } else { "included from:" };
-        eprintln!("{} {}", msg, file_str);
-        first = false;
+    if !ctx.include_stack.is_empty() {
+        let mut first = true;
+        for file_path in ctx.include_stack.iter().rev() {
+            let file_str = file_path.to_str().unwrap_or("???");
+            let msg = if first { file_msg } else { "included from:" };
+            eprintln!("{} {}", msg, file_str);
+            first = false;
+        }
+    } else if let Some(file) = &ctx.file {
+        // Fallback for single-file, no-include cases
+        // This matches ErrorContext::Display and Python xacro's print_location() behavior
+        let file_str = file.to_str().unwrap_or("???");
+        eprintln!("{} {}", file_msg, file_str);
     }
 }
 

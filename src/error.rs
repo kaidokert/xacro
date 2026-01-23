@@ -14,6 +14,16 @@ pub struct ErrorContext {
     pub include_stack: Vec<PathBuf>,
 }
 
+impl From<crate::eval::LocationContext> for ErrorContext {
+    fn from(loc: crate::eval::LocationContext) -> Self {
+        ErrorContext {
+            file: loc.file,
+            macro_stack: loc.macro_stack,
+            include_stack: loc.include_stack,
+        }
+    }
+}
+
 impl core::fmt::Display for ErrorContext {
     fn fmt(
         &self,
@@ -313,7 +323,7 @@ impl<T> EnrichError<T> for Result<T, XacroError> {
         self,
         loc: &crate::eval::LocationContext,
     ) -> Result<T, XacroError> {
-        self.map_err(|e| e.with_context(loc.to_error_context()))
+        self.map_err(|e| e.with_context(loc.clone().into()))
     }
 }
 

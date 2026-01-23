@@ -17,17 +17,7 @@ pub struct LocationContext {
     pub include_stack: Vec<std::path::PathBuf>,
 }
 
-impl LocationContext {
-    /// Convert to ErrorContext (same structure, just a type alias essentially)
-    #[allow(dead_code)] // Used in next phase of implementation
-    pub fn to_error_context(&self) -> crate::error::ErrorContext {
-        crate::error::ErrorContext {
-            file: self.file.clone(),
-            macro_stack: self.macro_stack.clone(),
-            include_stack: self.include_stack.clone(),
-        }
-    }
-}
+// LocationContext can be converted to ErrorContext via From trait (see error.rs)
 
 pub mod interpreter;
 pub mod lexer;

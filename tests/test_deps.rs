@@ -334,3 +334,32 @@ fn cli_stdin_with_deps_no_arg_errors() {
             "--deps flag is not supported when reading from stdin",
         ));
 }
+
+// xacro.print_location() Tests
+
+#[test]
+fn cli_print_location_outputs_to_stderr() {
+    // Test that xacro.print_location() builtin function outputs location info to stderr
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let assert = cmd
+        .arg("tests/data/print_location_test.xacro")
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone())
+        .expect("stderr should be valid UTF-8");
+
+    // Verify stderr contains location output (at minimum "when processing file:")
+    assert!(
+        stderr.contains("when processing file:"),
+        "Expected 'when processing file:' in stderr from print_location(), got: {:?}",
+        stderr
+    );
+
+    // Verify stderr is not empty (print_location() should print something)
+    assert!(
+        !stderr.trim().is_empty(),
+        "Expected non-empty stderr from print_location(), got empty"
+    );
+}

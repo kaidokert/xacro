@@ -404,11 +404,20 @@ fn test_conditional_missing_value_attribute() {
     assert!(result.is_err(), "Missing value attribute should error");
 
     let err = result.err().unwrap();
-    assert!(
-        matches!(err, xacro::XacroError::MissingAttribute { .. }),
-        "Should be MissingAttribute error, got: {:?}",
-        err
-    );
+    // Error should be enriched with context
+    match err {
+        xacro::XacroError::WithContext { source, .. } => {
+            assert!(
+                matches!(*source, xacro::XacroError::MissingAttribute { .. }),
+                "Should be MissingAttribute error, got: {:?}",
+                source
+            );
+        }
+        other => panic!(
+            "Expected WithContext wrapping MissingAttribute, got: {:?}",
+            other
+        ),
+    }
 }
 
 // ============================================================================
