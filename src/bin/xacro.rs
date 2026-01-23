@@ -3,7 +3,7 @@ use env_logger::{Builder, Env};
 use log::LevelFilter;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -11,8 +11,8 @@ use std::path::PathBuf;
 #[command(about = "XML preprocessor for xacro files to generate URDF", long_about = None)]
 #[command(version)]
 struct Args {
-    /// Input xacro file
-    input: PathBuf,
+    /// Input xacro file (use '-' for stdin, or omit to read from stdin)
+    input: Option<PathBuf>,
 
     /// Write output to FILE instead of stdout
     #[arg(short = 'o', long = "output", value_name = "FILE")]
@@ -153,10 +153,20 @@ fn main() -> anyhow::Result<()> {
 
     let processor = builder.build();
 
+    // Determine if reading from stdin
+    let use_stdin = match &args.input {
+        None => true,
+        Some(path) => path.as_os_str() == "-",
+    };
+
     if args.deps {
+        if use_stdin {
+            anyhow::bail!("--deps flag is not supported when reading from stdin");
+        }
+
         // Process file and get dependencies (already deduplicated and sorted by library)
         let (_, includes) = processor
-            .run_with_deps(&args.input)
+            .run_with_deps(args.input.as_ref().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
 
         // Output space-separated list of included files (matches Python xacro behavior)
@@ -170,9 +180,21 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let result = processor
-        .run(&args.input)
-        .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
+    let result = if use_stdin {
+        // Read from stdin
+        let mut content = String::new();
+        io::stdin()
+            .read_to_string(&mut content)
+            .map_err(|e| anyhow::anyhow!("Failed to read from stdin: {}", e))?;
+
+        processor
+            .run_from_string(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to process xacro from stdin: {}", e))?
+    } else {
+        processor
+            .run(args.input.as_ref().unwrap())
+            .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?
+    };
 
     // Output result
     if let Some(output_path) = &args.output {
