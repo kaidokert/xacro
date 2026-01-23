@@ -340,6 +340,7 @@ fn cli_stdin_with_deps_no_arg_errors() {
 #[test]
 fn cli_print_location_outputs_to_stderr() {
     // Test that xacro.print_location() builtin function outputs location info to stderr
+    // Uses log::info!() which adds timestamps/module prefix via env_logger
     let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
 
     let assert = cmd
@@ -350,10 +351,17 @@ fn cli_print_location_outputs_to_stderr() {
     let stderr = String::from_utf8(assert.get_output().stderr.clone())
         .expect("stderr should be valid UTF-8");
 
-    // Verify stderr contains location output (at minimum "when processing file:")
+    // Verify stderr contains location output (with env_logger decoration)
     assert!(
-        stderr.contains("when processing file:"),
-        "Expected 'when processing file:' in stderr from print_location(), got: {:?}",
+        stderr.contains("when processing file:") && stderr.contains("print_location_test.xacro"),
+        "Expected location info in stderr from print_location(), got: {:?}",
+        stderr
+    );
+
+    // Verify it's logged via xacro module
+    assert!(
+        stderr.contains("xacro::"),
+        "Expected xacro module prefix from logger, got: {:?}",
         stderr
     );
 

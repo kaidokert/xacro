@@ -217,35 +217,41 @@ pub(crate) fn build_pyisheval_context(
     Ok(context)
 }
 
-/// Print current location context to stderr (for xacro.print_location())
+/// Log current location context (for xacro.print_location())
 ///
 /// Mimics Python xacro's print_location() behavior:
-/// 1. Print macro stack (most recent first): "when instantiating macro: NAME (FILE)"
-/// 2. Print file/include stack (most recent first): "in file: FILE"
+/// 1. Log macro stack (most recent first): "when instantiating macro: NAME (FILE)"
+/// 2. Log file/include stack (most recent first): "in file: FILE"
+///
+/// Uses log::info!() to allow library users to control output.
+/// CLI binary should initialize env_logger to route to stderr.
 ///
 /// Note: This has a different format from ErrorContext::Display intentionally:
 /// - ErrorContext::Display is for structured error messages (indented, labeled)
-/// - print_location_to_stderr matches Python xacro's debugging output (simpler)
-fn print_location_to_stderr(location_ctx: Option<&crate::eval::LocationContext>) {
+/// - print_location logs Python xacro's debugging output (simpler)
+fn print_location(location_ctx: Option<&crate::eval::LocationContext>) {
     let ctx = match location_ctx {
         Some(c) => c,
         None => {
-            eprintln!("(unknown location)");
+            log::info!("(unknown location)");
             return;
         }
     };
 
-    // Print macro stack (reversed, most recent first)
+    // Log macro stack (reversed, most recent first)
     if !ctx.macro_stack.is_empty() {
         let mut msg = "when instantiating macro:";
         for macro_name in ctx.macro_stack.iter().rev() {
-            let file_str = ctx.file.as_ref().and_then(|p| p.to_str()).unwrap_or("???");
-            eprintln!("{} {} ({})", msg, macro_name, file_str);
+            if let Some(file) = &ctx.file {
+                log::info!("{} {} ({})", msg, macro_name, file.display());
+            } else {
+                log::info!("{} {} (???)", msg, macro_name);
+            }
             msg = "instantiated from:";
         }
     }
 
-    // Print file/include stack (reversed, most recent first)
+    // Log file/include stack (reversed, most recent first)
     let file_msg = if ctx.macro_stack.is_empty() {
         "when processing file:"
     } else {
@@ -255,16 +261,14 @@ fn print_location_to_stderr(location_ctx: Option<&crate::eval::LocationContext>)
     if !ctx.include_stack.is_empty() {
         let mut first = true;
         for file_path in ctx.include_stack.iter().rev() {
-            let file_str = file_path.to_str().unwrap_or("???");
             let msg = if first { file_msg } else { "included from:" };
-            eprintln!("{} {}", msg, file_str);
+            log::info!("{} {}", msg, file_path.display());
             first = false;
         }
     } else if let Some(file) = &ctx.file {
         // Fallback for single-file, no-include cases
         // This matches ErrorContext::Display and Python xacro's print_location() behavior
-        let file_str = file.to_str().unwrap_or("???");
-        eprintln!("{} {}", file_msg, file_str);
+        log::info!("{} {}", file_msg, file.display());
     }
 }
 
@@ -300,8 +304,9 @@ pub(crate) fn evaluate_expression_impl(
 ) -> Result<Option<Value>, pyisheval::EvalError> {
     let trimmed_expr = expr.trim();
     if trimmed_expr == "xacro.print_location()" {
-        // Print location to stderr (matching Python xacro behavior)
-        print_location_to_stderr(location_ctx);
+        // Log location info (matching Python xacro behavior)
+        // CLI binary should initialize env_logger to route to stderr
+        print_location(location_ctx);
         return Ok(None);
     }
 
