@@ -217,6 +217,46 @@ pub(crate) fn build_pyisheval_context(
     Ok(context)
 }
 
+/// Print current location context to stderr (for xacro.print_location())
+///
+/// Mimics Python xacro's print_location() behavior:
+/// 1. Print macro stack (most recent first): "when instantiating macro: NAME (FILE)"
+/// 2. Print file/include stack (most recent first): "in file: FILE"
+fn print_location_to_stderr(location_ctx: Option<&crate::eval::LocationContext>) {
+    let ctx = match location_ctx {
+        Some(c) => c,
+        None => {
+            eprintln!("(unknown location)");
+            return;
+        }
+    };
+
+    // Print macro stack (reversed, most recent first)
+    if !ctx.macro_stack.is_empty() {
+        let mut msg = "when instantiating macro:";
+        for macro_name in ctx.macro_stack.iter().rev() {
+            let file_str = ctx.file.as_ref().and_then(|p| p.to_str()).unwrap_or("???");
+            eprintln!("{} {} ({})", msg, macro_name, file_str);
+            msg = "instantiated from:";
+        }
+    }
+
+    // Print file/include stack (reversed, most recent first)
+    let file_msg = if ctx.macro_stack.is_empty() {
+        "when processing file:"
+    } else {
+        "in file:"
+    };
+
+    let mut first = true;
+    for file_path in ctx.include_stack.iter().rev() {
+        let file_str = file_path.to_str().unwrap_or("???");
+        let msg = if first { file_msg } else { "included from:" };
+        eprintln!("{} {}", msg, file_str);
+        first = false;
+    }
+}
+
 /// Evaluate a single expression string, handling Xacro-specific special cases
 ///
 /// This centralizes handling of special functions like xacro.print_location()
@@ -245,10 +285,12 @@ pub(crate) fn evaluate_expression_impl(
     #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
         &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
     >,
+    location_ctx: Option<&crate::eval::LocationContext>,
 ) -> Result<Option<Value>, pyisheval::EvalError> {
     let trimmed_expr = expr.trim();
     if trimmed_expr == "xacro.print_location()" {
-        // Special case: stub debug function returns no output
+        // Print location to stderr (matching Python xacro behavior)
+        print_location_to_stderr(location_ctx);
         return Ok(None);
     }
 
@@ -311,6 +353,7 @@ fn eval_text_with_interpreter_impl(
                     &context,
                     #[cfg(feature = "yaml")]
                     yaml_tag_handler_registry,
+                    None, // No location context in this internal helper
                 ) {
                     Ok(Some(value)) => {
                         #[cfg(feature = "compat")]
@@ -504,6 +547,7 @@ mod tests {
             context,
             #[cfg(feature = "yaml")]
             None,
+            None, // No location context in test helper
         )
     }
 

@@ -8,6 +8,7 @@ use crate::error::XacroError;
 use crate::eval::interpreter::{build_pyisheval_context, eval_boolean, init_interpreter};
 use crate::eval::lexer::{Lexer, TokenType};
 use crate::extensions::extension_utils;
+use core::cell::RefCell;
 use std::collections::HashMap;
 
 impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
@@ -60,6 +61,62 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         Ok(result)
     }
 
+    /// Perform one pass of substitution with metadata-aware formatting and location context
+    ///
+    /// Sets current_location briefly during evaluation for print_location() support.
+    ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} to evaluate
+    /// * `properties` - The property context (pre-resolved)
+    /// * `loc` - Location context to set during evaluation
+    ///
+    /// # Returns
+    /// The text with one level of ${...} expressions resolved
+    fn substitute_one_pass_with_loc(
+        &self,
+        text: &str,
+        properties: &HashMap<String, String>,
+        loc: Option<&crate::eval::LocationContext>,
+    ) -> Result<String, XacroError> {
+        // Check if location context is already set (nested call)
+        let was_set = {
+            let current = self.current_location.borrow();
+            current.is_some()
+        };
+
+        // Set location if not already set
+        if !was_set {
+            *self.current_location.borrow_mut() = loc.cloned();
+        }
+
+        // RAII guard to ensure cleanup even on error
+        struct LocationGuard<'a> {
+            location: &'a RefCell<Option<crate::eval::LocationContext>>,
+            should_clear: bool,
+        }
+
+        impl Drop for LocationGuard<'_> {
+            fn drop(&mut self) {
+                if self.should_clear {
+                    // Only clear if we can borrow - if we can't, it means we're in
+                    // a nested panic/unwind and it's not safe to touch the RefCell
+                    if let Ok(mut loc) = self.location.try_borrow_mut() {
+                        *loc = None;
+                    }
+                }
+            }
+        }
+
+        let _guard = LocationGuard {
+            location: &self.current_location,
+            should_clear: !was_set,
+        };
+
+        // Perform the substitution (may trigger nested calls)
+        // Guard will automatically clear location on drop
+        self.substitute_one_pass(text, properties)
+    }
+
     /// Perform one pass of substitution with metadata-aware formatting
     ///
     /// This is similar to eval_text_with_interpreter but uses property metadata
@@ -106,6 +163,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                         &context,
                         #[cfg(feature = "yaml")]
                         Some(&self.yaml_tag_handler_registry),
+                        self.current_location.borrow().as_ref(),
                     )
                     .map_err(|e| XacroError::EvalError {
                         expr: token_value.clone(),
@@ -129,8 +187,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                     }
                 }
                 TokenType::Extension => {
-                    // Resolve extension immediately
-                    let resolved = self.resolve_extension(&token_value)?;
+                    // Resolve extension immediately with current location context
+                    let resolved = self
+                        .resolve_extension(&token_value, self.current_location.borrow().as_ref())?;
                     result.push_str(&resolved);
                 }
                 TokenType::DollarDollarBrace => {
@@ -151,21 +210,27 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `text` - The text containing ${...} expressions to substitute
+    /// * `_loc` - Optional location context for error reporting (not yet used)
     ///
     /// # Returns
     /// The text with all ${...} expressions resolved
     pub fn substitute_text(
         &self,
         text: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
+        // Clone location once at the start to pass to substitute_one_pass
+        let loc_cloned = loc.cloned();
+
         self.substitute_iteratively(
             text,
             |s| s.contains("${") || s.contains("$("),
             |result| {
-                // Build context with only the properties referenced in this iteration
+                // Build context first (may trigger nested calls)
                 let properties = self.build_eval_context(result)?;
-                // Use metadata-aware substitution
-                self.substitute_one_pass(result, &properties)
+
+                // Pass location to substitute_one_pass (it will set current_location briefly)
+                self.substitute_one_pass_with_loc(result, &properties, loc_cloned.as_ref())
             },
         )
     }
@@ -177,6 +242,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `content` - The extension content without `$(` and `)`, e.g., "arg foo"
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// The resolved value from the appropriate extension handler
@@ -189,6 +255,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     fn resolve_extension(
         &self,
         content: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         // Parse extension command and args
         // Format: "command arg1 arg2 ..."
@@ -208,7 +275,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Fully resolve args: both ${...} expressions and nested $(...) extensions
         // This allows patterns like: $(find ${package_name}) and $(arg $(arg inner))
         // MAX_SUBSTITUTION_DEPTH in substitute_all prevents infinite recursion
-        let args_evaluated = self.substitute_all(&args_raw)?;
+        let args_evaluated = self.substitute_all(&args_raw, loc)?;
 
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
@@ -272,8 +339,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub(super) fn substitute_extensions_only(
         &self,
         text: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
-        self.substitute_extensions_only_inner(text, 0)
+        self.substitute_extensions_only_inner(text, 0, loc)
     }
 
     /// Inner recursive implementation of substitute_extensions_only with depth tracking
@@ -281,6 +349,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `text` - Text potentially containing both `$()` and `${}`
     /// * `depth` - Current recursion depth (for overflow protection)
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// Text with `$()` resolved but `${}` preserved
@@ -288,6 +357,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         text: &str,
         depth: usize,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         // Prevent infinite recursion
         if depth >= MAX_SUBSTITUTION_DEPTH {
@@ -304,14 +374,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             match token_type {
                 TokenType::Text => result.push_str(&content),
                 TokenType::Extension => {
-                    let resolved = self.resolve_extension(&content)?;
+                    let resolved = self.resolve_extension(&content, loc)?;
                     result.push_str(&resolved);
                 }
                 TokenType::Expr => {
                     // Don't evaluate expressions - just preserve them
                     // BUT: recursively resolve any $() inside the expression content
                     let content_with_extensions_resolved =
-                        self.substitute_extensions_only_inner(&content, depth + 1)?;
+                        self.substitute_extensions_only_inner(&content, depth + 1, loc)?;
                     result.push_str("${");
                     result.push_str(&content_with_extensions_resolved);
                     result.push('}');
@@ -349,6 +419,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Returns
     /// Fully resolved text with all substitutions applied
     ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} and $(...) to substitute
+    /// * `loc` - Optional location context for error reporting (not yet used)
+    ///
     /// # Errors
     /// * `MaxSubstitutionDepth` - Exceeded iteration limit (likely circular refs)
     /// * `UndefinedArgument` - Referenced arg not found
@@ -356,15 +430,16 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub fn substitute_all(
         &self,
         text: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         self.substitute_iteratively(
             text,
             |s| s.contains("${") || s.contains("$("),
             |s| {
                 // First resolve all extensions
-                let with_extensions = self.substitute_extensions_only(s)?;
+                let with_extensions = self.substitute_extensions_only(s, loc)?;
                 // Then evaluate all expressions
-                self.substitute_text(&with_extensions)
+                self.substitute_text(&with_extensions, loc)
             },
         )
     }
@@ -376,6 +451,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `expr` - The expression to evaluate (e.g., "${x > 5}" or "true")
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// * `Ok(true)` if the expression evaluates to true
@@ -384,10 +460,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub fn eval_boolean(
         &self,
         expr: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<bool, XacroError> {
         // FIRST: Resolve any $(arg ...) extensions in the expression
         // Use substitute_extensions_only to preserve ${...} property refs for eval_boolean
-        let resolved_expr = self.substitute_extensions_only(expr)?;
+        let resolved_expr = self.substitute_extensions_only(expr, loc)?;
 
         // THEN: Build context with properties referenced in the resolved expression
         // This is more efficient than resolving all properties upfront

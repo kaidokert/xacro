@@ -11,7 +11,7 @@
 //! - Scope support: Macro parameters shadow global properties
 
 use crate::{
-    error::XacroError,
+    error::{EnrichError, XacroError},
     parse::xml::{is_known_xacro_uri, is_xacro_element},
 };
 use xmltree::{Element, XMLNode};
@@ -65,7 +65,11 @@ pub(crate) fn expand_node(
         XMLNode::Element(elem) => expand_element(elem, ctx),
         XMLNode::Text(text) => {
             // Resolve both ${...} expressions and $(...) extensions in text
-            let resolved = ctx.properties.substitute_all(&text)?;
+            let loc = ctx.get_location_context();
+            let resolved = ctx
+                .properties
+                .substitute_all(&text, Some(&loc))
+                .with_loc(&loc)?;
             Ok(vec![XMLNode::Text(resolved)])
         }
         other => Ok(vec![other]), // Comments, CDATA, etc. pass through
@@ -127,8 +131,12 @@ fn expand_element(
         // <xacro:macro name="outer" params="prefix">
         //   <xacro:inner prefix="${prefix}"/>  <!-- ${prefix} evaluated here -->
         // </xacro:macro>
+        let loc = ctx.get_location_context();
         for attr_value in elem.attributes.values_mut() {
-            let substituted = ctx.properties.substitute_all(attr_value)?;
+            let substituted = ctx
+                .properties
+                .substitute_all(attr_value, Some(&loc))
+                .with_loc(&loc)?;
             *attr_value = normalize_attribute_whitespace(&substituted);
         }
 
@@ -142,8 +150,12 @@ fn expand_element(
     // 8. Regular elements: Substitute attributes and recurse to children
     // Substitute both ${...} expressions and $(...) extensions in all attributes
     // and normalize whitespace per XML spec (newlines/tabs -> spaces)
+    let loc = ctx.get_location_context();
     for attr_value in elem.attributes.values_mut() {
-        let substituted = ctx.properties.substitute_all(attr_value)?;
+        let substituted = ctx
+            .properties
+            .substitute_all(attr_value, Some(&loc))
+            .with_loc(&loc)?;
         *attr_value = normalize_attribute_whitespace(&substituted);
     }
 
@@ -264,12 +276,14 @@ mod tests {
         let result = expand_node(text_node, &ctx);
 
         let err = result.expect_err("Should error on undefined property reference");
+        // Error should be enriched with context
         assert!(
             matches!(
                 err,
-                XacroError::EvalError { ref expr, .. } if expr.contains("undefined_property")
+                XacroError::WithContext { ref source, .. }
+                if matches!(&**source, XacroError::EvalError { ref expr, .. } if expr.contains("undefined_property"))
             ),
-            "Expected EvalError mentioning 'undefined_property', got: {:?}",
+            "Expected WithContext wrapping EvalError mentioning 'undefined_property', got: {:?}",
             err
         );
     }

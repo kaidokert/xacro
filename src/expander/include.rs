@@ -3,7 +3,10 @@
 //! This module provides functionality for processing `xacro:include` directives,
 //! including glob pattern resolution, optional includes, and circular include detection.
 
-use crate::{error::XacroError, parse::xml::extract_xacro_namespace};
+use crate::{
+    error::{EnrichError, XacroError},
+    parse::xml::extract_xacro_namespace,
+};
 use std::path::PathBuf;
 use xmltree::{Element, XMLNode};
 
@@ -115,14 +118,18 @@ pub(super) fn handle_include_directive(
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Extract filename and substitute expressions
+    let loc = ctx.get_location_context();
     let filename = ctx
         .properties
-        .substitute_text(elem.get_attribute("filename").ok_or_else(|| {
-            XacroError::MissingAttribute {
-                element: "xacro:include".to_string(),
-                attribute: "filename".to_string(),
-            }
-        })?)?;
+        .substitute_text(
+            elem.get_attribute("filename")
+                .ok_or_else(|| XacroError::MissingAttribute {
+                    element: "xacro:include".to_string(),
+                    attribute: "filename".to_string(),
+                })?,
+            Some(&loc),
+        )
+        .with_loc(&loc)?;
 
     // Check for optional attribute (default: false)
     let optional = elem
