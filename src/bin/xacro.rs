@@ -166,7 +166,11 @@ fn main() -> anyhow::Result<()> {
 
         // Process file and get dependencies (already deduplicated and sorted by library)
         let (_, includes) = processor
-            .run_with_deps(args.input.as_ref().unwrap())
+            .run_with_deps(
+                args.input
+                    .as_ref()
+                    .expect("input must be Some when not using stdin"),
+            )
             .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?;
 
         // Output space-separated list of included files (matches Python xacro behavior)
@@ -192,7 +196,11 @@ fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to process xacro from stdin: {}", e))?
     } else {
         processor
-            .run(args.input.as_ref().unwrap())
+            .run(
+                args.input
+                    .as_ref()
+                    .expect("input must be Some when not using stdin"),
+            )
             .map_err(|e| anyhow::anyhow!("Failed to process xacro file: {}", e))?
     };
 
