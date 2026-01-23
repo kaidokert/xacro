@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::*;
 use std::collections::HashSet;
 
 #[test]
@@ -251,4 +252,85 @@ fn cli_deps_output_is_sorted() {
         "Expected sorted output, got unsorted: {:?}",
         parts
     );
+}
+
+// Stdin Integration Tests
+
+#[test]
+fn cli_stdin_with_dash() {
+    // Test reading from stdin using '-' argument
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="value" value="42"/>
+  <link name="base_${value}"/>
+</robot>"#;
+
+    let assert = cmd.arg("-").write_stdin(input).assert().success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone())
+        .expect("stdout should be valid UTF-8");
+
+    assert!(
+        stdout.contains(r#"<link name="base_42"/>"#),
+        "Expected property substitution in output, got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn cli_stdin_no_argument() {
+    // Test reading from stdin when no argument is provided
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let input = r#"<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
+  <xacro:property name="width" value="2.5"/>
+  <box size="${width}"/>
+</robot>"#;
+
+    let assert = cmd.write_stdin(input).assert().success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone())
+        .expect("stdout should be valid UTF-8");
+
+    assert!(
+        stdout.contains(r#"<box size="2.5"/>"#),
+        "Expected property substitution in output, got: {}",
+        stdout
+    );
+}
+
+#[test]
+fn cli_stdin_with_deps_flag_errors() {
+    // Test that --deps with stdin produces an error
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let input = r#"<?xml version="1.0"?><robot name="test"/>"#;
+
+    cmd.arg("--deps")
+        .arg("-")
+        .write_stdin(input)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "--deps flag is not supported when reading from stdin",
+        ));
+}
+
+#[test]
+fn cli_stdin_with_deps_no_arg_errors() {
+    // Test that --deps with no argument (stdin) produces an error
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let input = r#"<?xml version="1.0"?><robot name="test"/>"#;
+
+    cmd.arg("--deps")
+        .write_stdin(input)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "--deps flag is not supported when reading from stdin",
+        ));
 }
