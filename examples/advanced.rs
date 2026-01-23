@@ -1,10 +1,14 @@
 //! Advanced xacro processing with extensions and custom configuration
 //!
 //! This example demonstrates:
-//! - Using ROS extensions ($(find), $(optenv))
-//! - Enabling YAML support
-//! - Compatibility modes
-//! - Getting dependency information
+//! - Using ROS extension $(optenv) to read environment variables
+//! - Passing arguments to xacro files
+//! - Enabling YAML support (feature-gated)
+//! - Compatibility modes for legacy URDFs
+//! - Getting dependency information with run_with_deps()
+//!
+//! The example sets environment variables that are read by $(optenv) in the
+//! xacro file, showing how the OptEnvExtension works.
 //!
 //! Run with:
 //!   cargo run --example advanced --features yaml
@@ -14,6 +18,10 @@ use xacro::extensions::{FindExtension, OptEnvExtension};
 use xacro::{CompatMode, XacroProcessor};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Set some environment variables for the $(optenv) extension to read
+    std::env::set_var("ROBOT_VERSION", "2.5");
+    std::env::set_var("ROBOT_ENV", "development");
+
     // Build a processor with all bells and whistles
     let mut builder = XacroProcessor::builder()
         .with_arg("robot_name", "advanced_robot")
@@ -29,8 +37,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let processor = builder.build();
 
-    // Process a file with arguments and also get its dependencies
-    let (urdf, dependencies) = processor.run_with_deps("examples/robot_with_args.xacro")?;
+    // Process a file that uses ROS extensions and get its dependencies
+    let (urdf, dependencies) = processor.run_with_deps("examples/robot_advanced.xacro")?;
 
     // Print the result
     println!("Generated URDF:");

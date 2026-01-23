@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="$(arg robot_name)">
+  <!-- Arguments that can be set from command line or API -->
+  <xacro:arg name="robot_name" default="default_robot"/>
+  <xacro:arg name="debug_mode" default="false"/>
+
+  <!-- ROS extension: $(optenv) - reads environment variable with default -->
+  <xacro:property name="robot_version" value="$(optenv ROBOT_VERSION 1.0)"/>
+  <xacro:property name="environment" value="$(optenv ROBOT_ENV production)"/>
+
+  <!-- Properties using the environment values -->
+  <xacro:property name="wheel_radius" value="0.05"/>
+
+  <!-- Conditional debug output -->
+  <xacro:if value="$(arg debug_mode)">
+    <link name="debug_marker">
+      <visual>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:if>
+
+  <!-- Base link with metadata from environment -->
+  <link name="base_link_${environment}">
+    <visual>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+      <metadata>
+        <version>${robot_version}</version>
+        <environment>${environment}</environment>
+      </metadata>
+    </visual>
+    <inertial>
+      <mass value="1.0"/>
+    </inertial>
+  </link>
+
+  <!-- Macro for wheels -->
+  <xacro:macro name="wheel" params="side">
+    <link name="${side}_wheel">
+      <visual>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="0.05"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:macro>
+
+  <xacro:wheel side="left"/>
+  <xacro:wheel side="right"/>
+</robot>
