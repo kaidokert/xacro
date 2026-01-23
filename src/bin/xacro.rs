@@ -103,7 +103,7 @@ fn init_logging(verbosity: u8) {
 
     // Override based on verbosity flag
     let level = match verbosity {
-        0 => LevelFilter::Off,
+        0 => LevelFilter::Warn, // Default: warnings only
         1 => LevelFilter::Warn,
         2 => LevelFilter::Info,
         3 => LevelFilter::Debug,
@@ -111,6 +111,10 @@ fn init_logging(verbosity: u8) {
     };
 
     builder.filter_level(level);
+
+    // Always enable Info level for xacro crate to support print_location()
+    // This ensures xacro.print_location() works even without -v flags
+    builder.filter_module("xacro", LevelFilter::Info);
 
     // Avoid panicking if a logger was already initialized
     let _ = builder.try_init();

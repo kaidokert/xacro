@@ -217,6 +217,61 @@ pub(crate) fn build_pyisheval_context(
     Ok(context)
 }
 
+/// Log current location context (for xacro.print_location())
+///
+/// Mimics Python xacro's print_location() behavior:
+/// 1. Log macro stack (most recent first): "when instantiating macro: NAME (FILE)"
+/// 2. Log file/include stack (most recent first): "in file: FILE"
+///
+/// Uses log::info!() to allow library users to control output.
+/// CLI binary should initialize env_logger to route to stderr.
+///
+/// Note: This has a different format from ErrorContext::Display intentionally:
+/// - ErrorContext::Display is for structured error messages (indented, labeled)
+/// - print_location logs Python xacro's debugging output (simpler)
+fn print_location(location_ctx: Option<&crate::eval::LocationContext>) {
+    let ctx = match location_ctx {
+        Some(c) => c,
+        None => {
+            log::info!("(unknown location)");
+            return;
+        }
+    };
+
+    // Log macro stack (reversed, most recent first)
+    if !ctx.macro_stack.is_empty() {
+        let mut msg = "when instantiating macro:";
+        for macro_name in ctx.macro_stack.iter().rev() {
+            if let Some(file) = &ctx.file {
+                log::info!("{} {} ({})", msg, macro_name, file.display());
+            } else {
+                log::info!("{} {} (???)", msg, macro_name);
+            }
+            msg = "instantiated from:";
+        }
+    }
+
+    // Log file/include stack (reversed, most recent first)
+    let file_msg = if ctx.macro_stack.is_empty() {
+        "when processing file:"
+    } else {
+        "in file:"
+    };
+
+    if !ctx.include_stack.is_empty() {
+        let mut first = true;
+        for file_path in ctx.include_stack.iter().rev() {
+            let msg = if first { file_msg } else { "included from:" };
+            log::info!("{} {}", msg, file_path.display());
+            first = false;
+        }
+    } else if let Some(file) = &ctx.file {
+        // Fallback for single-file, no-include cases
+        // This matches ErrorContext::Display and Python xacro's print_location() behavior
+        log::info!("{} {}", file_msg, file.display());
+    }
+}
+
 /// Evaluate a single expression string, handling Xacro-specific special cases
 ///
 /// This centralizes handling of special functions like xacro.print_location()
@@ -245,10 +300,13 @@ pub(crate) fn evaluate_expression_impl(
     #[cfg(feature = "yaml")] yaml_tag_handler_registry: Option<
         &crate::eval::yaml_tag_handler::YamlTagHandlerRegistry,
     >,
+    location_ctx: Option<&crate::eval::LocationContext>,
 ) -> Result<Option<Value>, pyisheval::EvalError> {
     let trimmed_expr = expr.trim();
     if trimmed_expr == "xacro.print_location()" {
-        // Special case: stub debug function returns no output
+        // Log location info (matching Python xacro behavior)
+        // CLI binary should initialize env_logger to route to stderr
+        print_location(location_ctx);
         return Ok(None);
     }
 
@@ -311,6 +369,7 @@ fn eval_text_with_interpreter_impl(
                     &context,
                     #[cfg(feature = "yaml")]
                     yaml_tag_handler_registry,
+                    None, // No location context in this internal helper
                 ) {
                     Ok(Some(value)) => {
                         #[cfg(feature = "compat")]
@@ -504,6 +563,7 @@ mod tests {
             context,
             #[cfg(feature = "yaml")]
             None,
+            None, // No location context in test helper
         )
     }
 

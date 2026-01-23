@@ -126,3 +126,28 @@ impl Drop for BlockGuard<'_> {
         self.blocks.borrow_mut().pop();
     }
 }
+
+/// RAII guard for macro call stack
+///
+/// Automatically pops macro name from call stack when dropped, ensuring
+/// correct error context even if macro expansion panics.
+pub(super) struct MacroCallGuard<'a> {
+    stack: &'a RefCell<Vec<String>>,
+}
+
+impl<'a> MacroCallGuard<'a> {
+    /// Creates a new MacroCallGuard and pushes macro name onto stack
+    pub(super) fn new(
+        stack: &'a RefCell<Vec<String>>,
+        macro_name: String,
+    ) -> Self {
+        stack.borrow_mut().push(macro_name);
+        Self { stack }
+    }
+}
+
+impl Drop for MacroCallGuard<'_> {
+    fn drop(&mut self) {
+        self.stack.borrow_mut().pop();
+    }
+}

@@ -419,12 +419,11 @@ impl XacroProcessor {
         path: P,
     ) -> Result<(String, Vec<PathBuf>), XacroError> {
         let doc = XacroProcessor::parse_file(&path)?;
-        self.run_impl(
-            doc,
-            path.as_ref()
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new(".")),
-        )
+        let file_path = path.as_ref();
+        let base_dir = file_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        self.run_impl(doc, base_dir, Some(file_path))
     }
 
     /// Process xacro content from a string
@@ -456,7 +455,7 @@ impl XacroProcessor {
     ) -> Result<(String, Vec<PathBuf>), XacroError> {
         let doc = crate::parse::document::XacroDocument::parse(content.as_bytes())?;
         // Use current directory as base path for any includes in test content
-        self.run_impl(doc, std::path::Path::new("."))
+        self.run_impl(doc, std::path::Path::new("."), None)
     }
 
     /// Internal implementation
@@ -464,6 +463,7 @@ impl XacroProcessor {
         &self,
         mut doc: crate::parse::document::XacroDocument,
         base_path: &std::path::Path,
+        file_path: Option<&std::path::Path>,
     ) -> Result<(String, Vec<PathBuf>), XacroError> {
         // Extract xacro namespace from document root (if present)
         // Strategy:
@@ -496,6 +496,11 @@ impl XacroProcessor {
             self.yaml_tag_handlers.clone(), // Rc clone is cheap
         );
         ctx.set_max_recursion_depth(self.max_recursion_depth);
+
+        // Set actual source file path if provided (replaces directory in namespace_stack)
+        if let Some(file) = file_path {
+            ctx.set_source_file(file.to_path_buf());
+        }
 
         // Expand the root element itself. This will handle attributes on the root
         // and any xacro directives at the root level (though unlikely).

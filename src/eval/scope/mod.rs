@@ -89,6 +89,9 @@ pub(crate) struct EvalContext<const MAX_SUBSTITUTION_DEPTH: usize = 100> {
     // Wrapped in Rc for efficient sharing without cloning (trait objects can't be cloned)
     #[cfg(feature = "yaml")]
     yaml_tag_handler_registry: Rc<crate::eval::yaml_tag_handler::YamlTagHandlerRegistry>,
+    // Current location context for error reporting and print_location()
+    // Set during substitute_text/substitute_all, accessed by print_location() builtin
+    current_location: RefCell<Option<crate::eval::LocationContext>>,
     // Python-compatible number formatting (compat feature)
     #[cfg(feature = "compat")]
     use_python_compat: bool,
@@ -122,6 +125,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             extensions,
             #[cfg(feature = "yaml")]
             yaml_tag_handler_registry: yaml_tag_handlers,
+            current_location: RefCell::new(None),
             #[cfg(feature = "compat")]
             use_python_compat: true, // Enabled by default when compat feature is active
             #[cfg(feature = "compat")]

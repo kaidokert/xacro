@@ -60,14 +60,24 @@ mod directive_unit_tests {
         let result = handle_property_directive(elem, &ctx);
 
         assert!(result.is_err(), "Property without name should fail");
-        assert!(
-            matches!(
-                result,
-                Err(XacroError::MissingAttribute { element, attribute })
-                if element == "xacro:property" && attribute == "name"
+        // Error should be enriched with context
+        match result {
+            Err(XacroError::WithContext { source, .. }) => {
+                assert!(
+                    matches!(
+                        *source,
+                        XacroError::MissingAttribute { ref element, ref attribute }
+                        if element == "xacro:property" && attribute == "name"
+                    ),
+                    "Should report missing name attribute, got: {:?}",
+                    source
+                );
+            }
+            other => panic!(
+                "Expected WithContext wrapping MissingAttribute, got: {:?}",
+                other
             ),
-            "Should report missing name attribute"
-        );
+        }
     }
 
     #[test]
@@ -249,14 +259,24 @@ mod directive_unit_tests {
         let result = handle_arg_directive(elem, &ctx);
 
         assert!(result.is_err(), "Arg without name should fail");
-        assert!(
-            matches!(
-                result,
-                Err(XacroError::MissingAttribute { element, attribute })
-                if element == "xacro:arg" && attribute == "name"
+        // Error should be enriched with context
+        match result {
+            Err(XacroError::WithContext { source, .. }) => {
+                assert!(
+                    matches!(
+                        *source,
+                        XacroError::MissingAttribute { ref element, ref attribute }
+                        if element == "xacro:arg" && attribute == "name"
+                    ),
+                    "Should report missing name attribute, got: {:?}",
+                    source
+                );
+            }
+            other => panic!(
+                "Expected WithContext wrapping MissingAttribute, got: {:?}",
+                other
             ),
-            "Should report missing name attribute"
-        );
+        }
     }
 
     #[test]
@@ -376,14 +396,24 @@ mod directive_unit_tests {
         let result = handle_macro_directive(elem, &ctx);
 
         assert!(result.is_err(), "Macro without name should fail");
-        assert!(
-            matches!(
-                result,
-                Err(XacroError::MissingAttribute { element, attribute })
-                if element == "xacro:macro" && attribute == "name"
+        // Error should be enriched with context
+        match result {
+            Err(XacroError::WithContext { source, .. }) => {
+                assert!(
+                    matches!(
+                        *source,
+                        XacroError::MissingAttribute { ref element, ref attribute }
+                        if element == "xacro:macro" && attribute == "name"
+                    ),
+                    "Should report missing name attribute, got: {:?}",
+                    source
+                );
+            }
+            other => panic!(
+                "Expected WithContext wrapping MissingAttribute, got: {:?}",
+                other
             ),
-            "Should report missing name attribute"
-        );
+        }
     }
 
     #[test]
@@ -593,14 +623,24 @@ mod directive_unit_tests {
         let result = handle_conditional_directive(elem, &ctx, true);
 
         assert!(result.is_err(), "Conditional without value should fail");
-        assert!(
-            matches!(
-                result,
-                Err(XacroError::MissingAttribute { element, attribute })
-                if element == "xacro:if" && attribute == "value"
+        // Error should be enriched with context
+        match result {
+            Err(XacroError::WithContext { source, .. }) => {
+                assert!(
+                    matches!(
+                        *source,
+                        XacroError::MissingAttribute { ref element, ref attribute }
+                        if element == "xacro:if" && attribute == "value"
+                    ),
+                    "Should report missing value attribute, got: {:?}",
+                    source
+                );
+            }
+            other => panic!(
+                "Expected WithContext wrapping MissingAttribute, got: {:?}",
+                other
             ),
-            "Should report missing value attribute"
-        );
+        }
     }
 
     #[test]
@@ -663,14 +703,24 @@ mod directive_unit_tests {
         let result = handle_insert_block_directive(elem, &ctx);
 
         assert!(result.is_err(), "Insert block without name should fail");
-        assert!(
-            matches!(
-                result,
-                Err(XacroError::MissingAttribute { element, attribute })
-                if element == "xacro:insert_block" && attribute == "name"
+        // Error should be enriched with context
+        match result {
+            Err(XacroError::WithContext { source, .. }) => {
+                assert!(
+                    matches!(
+                        *source,
+                        XacroError::MissingAttribute { ref element, ref attribute }
+                        if element == "xacro:insert_block" && attribute == "name"
+                    ),
+                    "Should report missing name attribute, got: {:?}",
+                    source
+                );
+            }
+            other => panic!(
+                "Expected WithContext wrapping MissingAttribute, got: {:?}",
+                other
             ),
-            "Should report missing name attribute"
-        );
+        }
     }
 
     #[test]

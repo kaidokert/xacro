@@ -8,7 +8,7 @@
 
 use crate::{
     directives::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES},
-    error::XacroError,
+    error::{EnrichError, XacroError},
     parse::{macro_def::MacroProcessor, xml::is_known_xacro_uri},
 };
 use std::{collections::HashMap, rc::Rc};
@@ -17,7 +17,7 @@ use xmltree::{Element, XMLNode};
 use super::{
     children::expand_children_list,
     expand_node,
-    guards::{BlockGuard, ScopeGuard},
+    guards::{BlockGuard, MacroCallGuard, ScopeGuard},
     XacroContext,
 };
 
@@ -93,6 +93,12 @@ pub(super) fn expand_macro_call(
         .get(macro_name)
         .cloned()
         .ok_or_else(|| XacroError::UndefinedMacro(macro_name.to_string()))?;
+
+    // Push macro name onto call stack for error reporting
+    let _macro_guard = MacroCallGuard::new(&ctx.macro_call_stack, macro_name.clone());
+
+    // Get location context AFTER setting up macro guard so errors include this macro in stack
+    let loc = ctx.get_location_context();
 
     // Pre-process macro call children to expand conditionals (xacro:if, xacro:unless)
     // before collecting block parameters. This matches Python xacro's behavior:
@@ -197,7 +203,9 @@ pub(super) fn expand_macro_call(
                 crate::parse::macro_def::ParamDefault::Value(default_expr) => {
                     // Evaluate default expression with cumulative context
                     // Earlier parameters are already in the current scope, so they're visible
-                    ctx.properties.substitute_text(default_expr)?
+                    ctx.properties
+                        .substitute_text(default_expr, Some(&loc))
+                        .with_loc(&loc)?
                 }
                 crate::parse::macro_def::ParamDefault::ForwardRequired(forward_name) => {
                     // Forward from parent scope (required)
@@ -220,7 +228,9 @@ pub(super) fn expand_macro_call(
                     {
                         parent_value
                     } else if let Some(default_expr) = maybe_default.as_ref() {
-                        ctx.properties.substitute_text(default_expr)?
+                        ctx.properties
+                            .substitute_text(default_expr, Some(&loc))
+                            .with_loc(&loc)?
                     } else {
                         String::new()
                     }
