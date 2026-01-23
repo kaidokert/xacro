@@ -8,8 +8,14 @@
   <xacro:property name="robot_version" value="$(optenv ROBOT_VERSION 1.0)"/>
   <xacro:property name="environment" value="$(optenv ROBOT_ENV production)"/>
 
-  <!-- Properties using the environment values -->
-  <xacro:property name="wheel_radius" value="0.05"/>
+  <!-- YAML support: load configuration from YAML file -->
+  <xacro:property name="config" value="${load_yaml('examples/robot_config.yaml')}"/>
+
+  <!-- Use values from YAML -->
+  <xacro:property name="wheel_radius" value="${config['wheel']['radius']}"/>
+  <xacro:property name="wheel_length" value="${config['wheel']['length']}"/>
+  <xacro:property name="base_width" value="${config['dimensions']['base_width']}"/>
+  <xacro:property name="base_mass" value="${config['inertial']['base_mass']}"/>
 
   <!-- Conditional debug output -->
   <xacro:if value="$(arg debug_mode)">
@@ -22,30 +28,34 @@
     </link>
   </xacro:if>
 
-  <!-- Base link with metadata from environment -->
+  <!-- Base link with metadata from environment and dimensions from YAML -->
   <link name="base_link_${environment}">
     <visual>
       <geometry>
-        <box size="0.3 0.3 0.1"/>
+        <box size="${base_width} ${base_width} ${config['dimensions']['base_height']}"/>
       </geometry>
       <metadata>
         <version>${robot_version}</version>
         <environment>${environment}</environment>
+        <config_source>robot_config.yaml</config_source>
       </metadata>
     </visual>
     <inertial>
-      <mass value="1.0"/>
+      <mass value="${base_mass}"/>
     </inertial>
   </link>
 
-  <!-- Macro for wheels -->
+  <!-- Macro for wheels using YAML config -->
   <xacro:macro name="wheel" params="side">
     <link name="${side}_wheel">
       <visual>
         <geometry>
-          <cylinder radius="${wheel_radius}" length="0.05"/>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
         </geometry>
       </visual>
+      <inertial>
+        <mass value="${config['inertial']['wheel_mass']}"/>
+      </inertial>
     </link>
   </xacro:macro>
 

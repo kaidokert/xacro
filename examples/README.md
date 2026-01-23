@@ -72,15 +72,15 @@ cargo run --example advanced --features yaml
 ```
 
 Demonstrates:
-- Registering ROS-specific extensions: `$(optenv)` reads environment variables
-- Passing arguments to xacro files with `with_arg()`
-- Enabling YAML support
-- Using compatibility modes for legacy URDFs
-- Getting dependency information with `run_with_deps()`
+- **ROS extension `$(optenv)`**: Reads `ROBOT_VERSION=2.5` and `ROBOT_ENV=development`
+  from environment variables (see `base_link_development`, version metadata)
+- **YAML support**: Loads `robot_config.yaml` with `load_yaml()` and uses values
+  for dimensions, masses, etc. (see box size `0.35 0.35 0.12`, mass `2.5`)
+- **Arguments**: Passes `robot_name` argument with `with_arg()`
+- **Compatibility modes**: Enables legacy URDF support
+- **Dependencies**: Gets list of included files with `run_with_deps()`
 
-The example sets `ROBOT_VERSION=2.5` and `ROBOT_ENV=development` environment
-variables, which are read by `$(optenv)` in the xacro file and substituted
-into the output (see `base_link_development` and version metadata).
+Compare output values to `robot_config.yaml` to see YAML loading in action.
 
 **Note:** ROS extensions are optional - see `generic_xml.rs` for non-ROS usage.
 
@@ -88,7 +88,8 @@ into the output (see `base_link_development` and version metadata).
 
 - **robot.xacro** - Simple robot with properties and macros (ROS/URDF example)
 - **robot_with_args.xacro** - Robot using `<xacro:arg>` for parameterization (ROS/URDF example)
-- **robot_advanced.xacro** - Robot using ROS extensions like `$(optenv)` to read environment variables
+- **robot_advanced.xacro** - Robot using ROS extensions (`$(optenv)`) and YAML loading (`load_yaml()`)
+- **robot_config.yaml** - Configuration file loaded by `robot_advanced.xacro`
 
 **Note:** The `generic_xml.rs` example has XML inline, demonstrating non-ROS usage.
 

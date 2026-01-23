@@ -2,13 +2,15 @@
 //!
 //! This example demonstrates:
 //! - Using ROS extension $(optenv) to read environment variables
+//! - Loading configuration from YAML files with load_yaml()
 //! - Passing arguments to xacro files
-//! - Enabling YAML support (feature-gated)
+//! - Enabling YAML support with with_ros_yaml_units() (feature-gated)
 //! - Compatibility modes for legacy URDFs
 //! - Getting dependency information with run_with_deps()
 //!
-//! The example sets environment variables that are read by $(optenv) in the
-//! xacro file, showing how the OptEnvExtension works.
+//! The example sets environment variables that are read by $(optenv) and
+//! processes a xacro file that loads robot_config.yaml, demonstrating both
+//! ROS extensions and YAML features working together.
 //!
 //! Run with:
 //!   cargo run --example advanced --features yaml
