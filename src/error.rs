@@ -1,3 +1,19 @@
+use std::path::PathBuf;
+
+/// Context information for error reporting
+///
+/// Provides a snapshot of the processor state when an error occurs,
+/// including the macro call stack and file include hierarchy.
+#[derive(Debug, Clone)]
+pub struct ErrorContext {
+    /// Current file being processed
+    pub file: Option<PathBuf>,
+    /// Macro call stack (most recent last)
+    pub macro_stack: Vec<String>,
+    /// Include stack showing file hierarchy
+    pub include_stack: Vec<PathBuf>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum XacroError {
     #[error("IO error: {0}")]

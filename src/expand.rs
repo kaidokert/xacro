@@ -42,6 +42,11 @@ pub struct XacroContext {
     /// Set conservatively to prevent stack overflow before the check triggers
     pub max_recursion_depth: usize,
 
+    /// Macro call stack for error reporting and debugging (uses RefCell for interior mutability)
+    /// Tracks which macro called which (most recent last)
+    #[allow(dead_code)] // Used in next phase of implementation
+    pub macro_call_stack: RefCell<Vec<String>>,
+
     /// Python xacro compatibility modes
     pub compat_mode: CompatMode,
 }
@@ -79,6 +84,7 @@ impl XacroContext {
             base_path: RefCell::new(base_path),
             recursion_depth: RefCell::new(0),
             max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
+            macro_call_stack: RefCell::new(Vec::new()),
             compat_mode: CompatMode::none(),
         }
     }
@@ -120,6 +126,7 @@ impl XacroContext {
             base_path: RefCell::new(base_path),
             recursion_depth: RefCell::new(0),
             max_recursion_depth: Self::DEFAULT_MAX_DEPTH,
+            macro_call_stack: RefCell::new(Vec::new()),
             compat_mode,
         }
     }
@@ -134,6 +141,19 @@ impl XacroContext {
             .last()
             .map(|(_, ns)| ns.clone())
             .expect("namespace_stack should never be empty - initialized in XacroContext::new()")
+    }
+
+    /// Get current location context for error reporting
+    ///
+    /// Creates a snapshot of location information (file path, macro stack, include stack)
+    /// for passing to the evaluation layer. Clones the data to avoid RefCell lifetime issues.
+    #[allow(dead_code)] // Used in next phase of implementation
+    pub fn get_location_context(&self) -> crate::eval::LocationContext {
+        crate::eval::LocationContext {
+            file: Some(self.base_path.borrow().clone()),
+            macro_stack: self.macro_call_stack.borrow().clone(),
+            include_stack: self.include_stack.borrow().clone(),
+        }
     }
 
     /// Look up a named block from the current macro scope

@@ -1,3 +1,35 @@
+/// Context information for location tracking during evaluation
+///
+/// This owned struct provides the evaluation layer with access to location
+/// context (file paths, macro stacks) without requiring a full reference to
+/// XacroContext. This maintains separation of concerns between the evaluator
+/// and expander layers.
+///
+/// Note: Owns data (rather than borrowing) to avoid lifetime issues with
+/// RefCell borrows in XacroContext.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Used in next phase of implementation
+pub struct LocationContext {
+    /// Current file being processed
+    pub file: Option<std::path::PathBuf>,
+    /// Macro call stack (most recent last)
+    pub macro_stack: Vec<String>,
+    /// Include stack showing file hierarchy
+    pub include_stack: Vec<std::path::PathBuf>,
+}
+
+impl LocationContext {
+    /// Convert to ErrorContext (same structure, just a type alias essentially)
+    #[allow(dead_code)] // Used in next phase of implementation
+    pub fn to_error_context(&self) -> crate::error::ErrorContext {
+        crate::error::ErrorContext {
+            file: self.file.clone(),
+            macro_stack: self.macro_stack.clone(),
+            include_stack: self.include_stack.clone(),
+        }
+    }
+}
+
 pub mod interpreter;
 pub mod lexer;
 pub mod scope;
