@@ -240,10 +240,10 @@ mod property_tests {
     fn test_eval_boolean_literals() {
         let processor: EvalContext = EvalContext::new();
 
-        assert_eq!(processor.eval_boolean("True").unwrap(), true);
-        assert_eq!(processor.eval_boolean("False").unwrap(), false);
-        assert_eq!(processor.eval_boolean("1").unwrap(), true);
-        assert_eq!(processor.eval_boolean("0").unwrap(), false);
+        assert_eq!(processor.eval_boolean("True", None).unwrap(), true);
+        assert_eq!(processor.eval_boolean("False", None).unwrap(), false);
+        assert_eq!(processor.eval_boolean("1", None).unwrap(), true);
+        assert_eq!(processor.eval_boolean("0", None).unwrap(), false);
     }
 
     #[test]
@@ -253,9 +253,9 @@ mod property_tests {
         processor.add_raw_property("x".to_string(), "10".to_string());
         processor.add_raw_property("y".to_string(), "20".to_string());
 
-        assert_eq!(processor.eval_boolean("${x < y}").unwrap(), true);
-        assert_eq!(processor.eval_boolean("${x > y}").unwrap(), false);
-        assert_eq!(processor.eval_boolean("${x == 10}").unwrap(), true);
+        assert_eq!(processor.eval_boolean("${x < y}", None).unwrap(), true);
+        assert_eq!(processor.eval_boolean("${x > y}", None).unwrap(), false);
+        assert_eq!(processor.eval_boolean("${x == 10}", None).unwrap(), true);
     }
 
     // ========== Additional Unit Tests for has_property ==========

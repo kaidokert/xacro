@@ -130,8 +130,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                     }
                 }
                 TokenType::Extension => {
-                    // Resolve extension immediately
-                    let resolved = self.resolve_extension(&token_value)?;
+                    // Resolve extension immediately with current location context
+                    let resolved = self
+                        .resolve_extension(&token_value, self.current_location.borrow().as_ref())?;
                     result.push_str(&resolved);
                 }
                 TokenType::DollarDollarBrace => {
@@ -188,6 +189,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `content` - The extension content without `$(` and `)`, e.g., "arg foo"
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// The resolved value from the appropriate extension handler
@@ -200,6 +202,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     fn resolve_extension(
         &self,
         content: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         // Parse extension command and args
         // Format: "command arg1 arg2 ..."
@@ -219,7 +222,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Fully resolve args: both ${...} expressions and nested $(...) extensions
         // This allows patterns like: $(find ${package_name}) and $(arg $(arg inner))
         // MAX_SUBSTITUTION_DEPTH in substitute_all prevents infinite recursion
-        let args_evaluated = self.substitute_all(&args_raw, None)?;
+        let args_evaluated = self.substitute_all(&args_raw, loc)?;
 
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
@@ -283,8 +286,9 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub(super) fn substitute_extensions_only(
         &self,
         text: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
-        self.substitute_extensions_only_inner(text, 0)
+        self.substitute_extensions_only_inner(text, 0, loc)
     }
 
     /// Inner recursive implementation of substitute_extensions_only with depth tracking
@@ -292,6 +296,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Arguments
     /// * `text` - Text potentially containing both `$()` and `${}`
     /// * `depth` - Current recursion depth (for overflow protection)
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// Text with `$()` resolved but `${}` preserved
@@ -299,6 +304,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         &self,
         text: &str,
         depth: usize,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         // Prevent infinite recursion
         if depth >= MAX_SUBSTITUTION_DEPTH {
@@ -315,14 +321,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             match token_type {
                 TokenType::Text => result.push_str(&content),
                 TokenType::Extension => {
-                    let resolved = self.resolve_extension(&content)?;
+                    let resolved = self.resolve_extension(&content, loc)?;
                     result.push_str(&resolved);
                 }
                 TokenType::Expr => {
                     // Don't evaluate expressions - just preserve them
                     // BUT: recursively resolve any $() inside the expression content
                     let content_with_extensions_resolved =
-                        self.substitute_extensions_only_inner(&content, depth + 1)?;
+                        self.substitute_extensions_only_inner(&content, depth + 1, loc)?;
                     result.push_str("${");
                     result.push_str(&content_with_extensions_resolved);
                     result.push('}');
@@ -378,7 +384,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
             |s| s.contains("${") || s.contains("$("),
             |s| {
                 // First resolve all extensions
-                let with_extensions = self.substitute_extensions_only(s)?;
+                let with_extensions = self.substitute_extensions_only(s, loc)?;
                 // Then evaluate all expressions
                 self.substitute_text(&with_extensions, loc)
             },
@@ -392,6 +398,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `expr` - The expression to evaluate (e.g., "${x > 5}" or "true")
+    /// * `loc` - Optional location context for error reporting
     ///
     /// # Returns
     /// * `Ok(true)` if the expression evaluates to true
@@ -400,10 +407,11 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub fn eval_boolean(
         &self,
         expr: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<bool, XacroError> {
         // FIRST: Resolve any $(arg ...) extensions in the expression
         // Use substitute_extensions_only to preserve ${...} property refs for eval_boolean
-        let resolved_expr = self.substitute_extensions_only(expr)?;
+        let resolved_expr = self.substitute_extensions_only(expr, loc)?;
 
         // THEN: Build context with properties referenced in the resolved expression
         // This is more efficient than resolving all properties upfront

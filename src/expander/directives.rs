@@ -382,8 +382,9 @@ pub(super) fn handle_conditional_directive(
             attribute: "value".to_string(),
         })?;
 
-    // Evaluate condition using scope-aware property resolution
-    let condition = ctx.properties.eval_boolean(value)?;
+    // Evaluate condition using scope-aware property resolution with location context
+    let loc = ctx.get_location_context();
+    let condition = ctx.properties.eval_boolean(value, Some(&loc))?;
 
     // For 'if': expand if true; for 'unless': expand if false
     let should_expand = if is_if { condition } else { !condition };
