@@ -371,3 +371,77 @@ fn cli_print_location_outputs_to_stderr() {
         "Expected non-empty stderr from print_location(), got empty"
     );
 }
+
+#[test]
+fn cli_print_location_macro_stack() {
+    // Test that xacro.print_location() inside nested macros logs macro stack info
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let assert = cmd
+        .arg("tests/data/print_location_macro_test.xacro")
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone())
+        .expect("stderr should be valid UTF-8");
+
+    // Verify macro stack information is present
+    assert!(
+        stderr.contains("when instantiating macro:"),
+        "Expected 'when instantiating macro:' in stderr for nested macros, got: {:?}",
+        stderr
+    );
+
+    // Verify at least one macro name appears
+    assert!(
+        stderr.contains("inner_macro") || stderr.contains("outer_macro"),
+        "Expected macro names in stderr, got: {:?}",
+        stderr
+    );
+
+    // Verify file information is present (when inside macro, uses "in file:")
+    assert!(
+        stderr.contains("in file:") && stderr.contains("print_location_macro_test.xacro"),
+        "Expected 'in file:' with filename in stderr, got: {:?}",
+        stderr
+    );
+}
+
+#[test]
+fn cli_print_location_with_includes() {
+    // Test that xacro.print_location() works with macros defined in included files
+    // Note: By the time the macro is invoked, we're back in the main file context,
+    // so include_stack is empty (include processing is complete)
+    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+
+    let assert = cmd
+        .arg("tests/data/print_location_include_test.xacro")
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone())
+        .expect("stderr should be valid UTF-8");
+
+    // Verify macro instantiation (macro defined in included file, called from main)
+    assert!(
+        stderr.contains("when instantiating macro:") && stderr.contains("included_macro"),
+        "Expected macro instantiation info in stderr, got: {:?}",
+        stderr
+    );
+
+    // Verify file information is present
+    assert!(
+        stderr.contains("in file:") && stderr.contains("print_location_include_test.xacro"),
+        "Expected file info in stderr, got: {:?}",
+        stderr
+    );
+
+    // Processing should succeed
+    let stdout = String::from_utf8(assert.get_output().stdout.clone())
+        .expect("stdout should be valid UTF-8");
+    assert!(
+        stdout.contains("test_link"),
+        "Expected processed output to contain link, got: {:?}",
+        stdout
+    );
+}

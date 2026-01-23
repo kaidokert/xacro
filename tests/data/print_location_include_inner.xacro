@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<robot name="inner" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="included_macro" params="name">
+    <link name="${name}">
+      <!-- Call print_location from inside an included file's macro -->
+      <visual><origin xyz="1 2 ${xacro.print_location()}3"/></visual>
+    </link>
+  </xacro:macro>
+</robot>
