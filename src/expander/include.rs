@@ -115,14 +115,15 @@ pub(super) fn handle_include_directive(
     ctx: &XacroContext,
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Extract filename and substitute expressions
-    let filename = ctx
-        .properties
-        .substitute_text(elem.get_attribute("filename").ok_or_else(|| {
-            XacroError::MissingAttribute {
+    let loc = ctx.get_location_context();
+    let filename = ctx.properties.substitute_text(
+        elem.get_attribute("filename")
+            .ok_or_else(|| XacroError::MissingAttribute {
                 element: "xacro:include".to_string(),
                 attribute: "filename".to_string(),
-            }
-        })?)?;
+            })?,
+        Some(&loc),
+    )?;
 
     // Check for optional attribute (default: false)
     let optional = elem

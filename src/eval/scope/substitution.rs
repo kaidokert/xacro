@@ -151,12 +151,14 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     ///
     /// # Arguments
     /// * `text` - The text containing ${...} expressions to substitute
+    /// * `_loc` - Optional location context for error reporting (not yet used)
     ///
     /// # Returns
     /// The text with all ${...} expressions resolved
     pub fn substitute_text(
         &self,
         text: &str,
+        _loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         self.substitute_iteratively(
             text,
@@ -208,7 +210,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         // Fully resolve args: both ${...} expressions and nested $(...) extensions
         // This allows patterns like: $(find ${package_name}) and $(arg $(arg inner))
         // MAX_SUBSTITUTION_DEPTH in substitute_all prevents infinite recursion
-        let args_evaluated = self.substitute_all(&args_raw)?;
+        let args_evaluated = self.substitute_all(&args_raw, None)?;
 
         // Handle $(arg ...) specially using self.args directly
         // This ensures arg resolution uses the shared args map that gets modified
@@ -349,6 +351,10 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     /// # Returns
     /// Fully resolved text with all substitutions applied
     ///
+    /// # Arguments
+    /// * `text` - The text containing ${...} and $(...) to substitute
+    /// * `loc` - Optional location context for error reporting (not yet used)
+    ///
     /// # Errors
     /// * `MaxSubstitutionDepth` - Exceeded iteration limit (likely circular refs)
     /// * `UndefinedArgument` - Referenced arg not found
@@ -356,6 +362,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub fn substitute_all(
         &self,
         text: &str,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
         self.substitute_iteratively(
             text,
@@ -364,7 +371,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 // First resolve all extensions
                 let with_extensions = self.substitute_extensions_only(s)?;
                 // Then evaluate all expressions
-                self.substitute_text(&with_extensions)
+                self.substitute_text(&with_extensions, loc)
             },
         )
     }

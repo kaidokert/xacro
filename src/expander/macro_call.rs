@@ -83,6 +83,9 @@ pub(super) fn expand_macro_call(
     ctx: &XacroContext,
     parent_scope_depth: usize,
 ) -> Result<Vec<XMLNode>, XacroError> {
+    // Get location context for error reporting
+    let loc = ctx.get_location_context();
+
     // Extract macro name (element name is already the local name without prefix)
     let macro_name = &call_elem.name;
 
@@ -197,7 +200,7 @@ pub(super) fn expand_macro_call(
                 crate::parse::macro_def::ParamDefault::Value(default_expr) => {
                     // Evaluate default expression with cumulative context
                     // Earlier parameters are already in the current scope, so they're visible
-                    ctx.properties.substitute_text(default_expr)?
+                    ctx.properties.substitute_text(default_expr, Some(&loc))?
                 }
                 crate::parse::macro_def::ParamDefault::ForwardRequired(forward_name) => {
                     // Forward from parent scope (required)
@@ -220,7 +223,7 @@ pub(super) fn expand_macro_call(
                     {
                         parent_value
                     } else if let Some(default_expr) = maybe_default.as_ref() {
-                        ctx.properties.substitute_text(default_expr)?
+                        ctx.properties.substitute_text(default_expr, Some(&loc))?
                     } else {
                         String::new()
                     }

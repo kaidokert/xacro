@@ -55,7 +55,7 @@ mod property_tests {
         processor.add_raw_property("x".to_string(), "10".to_string());
 
         // Verify global resolution through substitute_text
-        let result1 = processor.substitute_text("${x}").unwrap();
+        let result1 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result1, "10", "Global x should be 10");
 
         // Push macro scope with shadowing
@@ -64,14 +64,14 @@ mod property_tests {
         processor.push_scope(scope);
 
         // Verify shadowed resolution
-        let result2 = processor.substitute_text("${x}").unwrap();
+        let result2 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result2, "5", "Scoped x should be 5 (shadowing global)");
 
         // Pop scope
         processor.pop_scope();
 
         // Verify global restoration
-        let result3 = processor.substitute_text("${x}").unwrap();
+        let result3 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result3, "10", "After pop, x should be 10 again");
     }
 
@@ -89,8 +89,8 @@ mod property_tests {
         processor.push_scope(scope);
 
         // x should be shadowed, y should fall back to global
-        let result_x = processor.substitute_text("${x}").unwrap();
-        let result_y = processor.substitute_text("${y}").unwrap();
+        let result_x = processor.substitute_text("${x}", None).unwrap();
+        let result_y = processor.substitute_text("${y}", None).unwrap();
         assert_eq!(result_x, "5", "Scoped x should be 5");
         assert_eq!(result_y, "20", "y should fall back to global value 20");
 
@@ -109,7 +109,7 @@ mod property_tests {
         scope1.insert("x".to_string(), "20".to_string());
         processor.push_scope(scope1);
 
-        let result1 = processor.substitute_text("${x}").unwrap();
+        let result1 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result1, "20", "First scope: x should be 20");
 
         // Second scope level (nested)
@@ -117,17 +117,17 @@ mod property_tests {
         scope2.insert("x".to_string(), "30".to_string());
         processor.push_scope(scope2);
 
-        let result2 = processor.substitute_text("${x}").unwrap();
+        let result2 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result2, "30", "Nested scope: x should be 30");
 
         // Pop innermost scope
         processor.pop_scope();
-        let result3 = processor.substitute_text("${x}").unwrap();
+        let result3 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result3, "20", "After pop, x should be 20 again");
 
         // Pop outer scope
         processor.pop_scope();
-        let result4 = processor.substitute_text("${x}").unwrap();
+        let result4 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result4, "10", "After second pop, x should be global 10");
     }
 
@@ -139,7 +139,7 @@ mod property_tests {
         processor.add_raw_property("x".to_string(), "10".to_string());
 
         // Evaluate to populate cache
-        let result1 = processor.substitute_text("${x}").unwrap();
+        let result1 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(result1, "10");
 
         // Push scope with different value
@@ -148,7 +148,7 @@ mod property_tests {
         processor.push_scope(scope);
 
         // Should get scoped value, not cached global value
-        let result2 = processor.substitute_text("${x}").unwrap();
+        let result2 = processor.substitute_text("${x}", None).unwrap();
         assert_eq!(
             result2, "5",
             "Scoped value should bypass cache and return 5, not cached 10"
@@ -170,7 +170,9 @@ mod property_tests {
         processor.push_scope(scope);
 
         // Expression should use both scoped and global properties
-        let result = processor.substitute_text("${base * multiplier}").unwrap();
+        let result = processor
+            .substitute_text("${base * multiplier}", None)
+            .unwrap();
         assert_eq!(result, "30", "Should compute 10 * 3 = 30");
 
         processor.pop_scope();
@@ -186,7 +188,7 @@ mod property_tests {
         processor.push_scope(scope);
 
         // Trying to resolve undefined property should error
-        let result = processor.substitute_text("${y}");
+        let result = processor.substitute_text("${y}", None);
         assert!(
             result.is_err(),
             "Undefined property should error even in scope"
@@ -204,10 +206,10 @@ mod property_tests {
         processor.add_raw_property("x".to_string(), "10".to_string());
         processor.add_raw_property("y".to_string(), "5".to_string());
 
-        let add = processor.substitute_text("${x + y}").unwrap();
+        let add = processor.substitute_text("${x + y}", None).unwrap();
         assert_eq!(add, "15");
 
-        let multiply = processor.substitute_text("${x * y}").unwrap();
+        let multiply = processor.substitute_text("${x * y}", None).unwrap();
         assert_eq!(multiply, "50");
     }
 
@@ -215,10 +217,10 @@ mod property_tests {
     fn test_substitute_text_with_functions() {
         let processor: EvalContext = EvalContext::new();
 
-        let result = processor.substitute_text("${abs(-5)}").unwrap();
+        let result = processor.substitute_text("${abs(-5)}", None).unwrap();
         assert_eq!(result, "5");
 
-        let result2 = processor.substitute_text("${max(10, 20)}").unwrap();
+        let result2 = processor.substitute_text("${max(10, 20)}", None).unwrap();
         assert_eq!(result2, "20");
     }
 
@@ -229,7 +231,7 @@ mod property_tests {
         processor.add_raw_property("prefix".to_string(), "robot_".to_string());
         processor.add_raw_property("name".to_string(), "arm".to_string());
 
-        let result = processor.substitute_text("${prefix}${name}").unwrap();
+        let result = processor.substitute_text("${prefix}${name}", None).unwrap();
         assert_eq!(result, "robot_arm");
     }
 
@@ -292,7 +294,7 @@ mod property_tests {
     fn test_substitute_literal_zero() {
         let processor: EvalContext = EvalContext::new();
 
-        let result = processor.substitute_text("${0}").unwrap();
+        let result = processor.substitute_text("${0}", None).unwrap();
         assert_eq!(result, "0", "Should evaluate literal 0 expression");
     }
 }
