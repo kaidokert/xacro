@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="$(arg robot_name)">
+  <!-- Arguments that can be set from command line or API -->
+  <xacro:arg name="robot_name" default="default_robot"/>
+  <xacro:arg name="debug_mode" default="false"/>
+
+  <!-- ROS extension: $(optenv) - reads environment variable with default -->
+  <xacro:property name="robot_version" value="$(optenv ROBOT_VERSION 1.0)"/>
+  <xacro:property name="environment" value="$(optenv ROBOT_ENV production)"/>
+
+  <!-- YAML support: load configuration from YAML file -->
+  <xacro:property name="config" value="${load_yaml('examples/robot_config.yaml')}"/>
+
+  <!-- Use values from YAML -->
+  <xacro:property name="wheel_radius" value="${config['wheel']['radius']}"/>
+  <xacro:property name="wheel_length" value="${config['wheel']['length']}"/>
+  <xacro:property name="base_width" value="${config['dimensions']['base_width']}"/>
+  <xacro:property name="base_mass" value="${config['inertial']['base_mass']}"/>
+
+  <!-- Conditional debug output -->
+  <xacro:if value="$(arg debug_mode)">
+    <link name="debug_marker">
+      <visual>
+        <geometry>
+          <sphere radius="0.01"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:if>
+
+  <!-- Base link with metadata from environment and dimensions from YAML -->
+  <link name="base_link_${environment}">
+    <visual>
+      <geometry>
+        <box size="${base_width} ${base_width} ${config['dimensions']['base_height']}"/>
+      </geometry>
+      <metadata>
+        <version>${robot_version}</version>
+        <environment>${environment}</environment>
+        <config_source>robot_config.yaml</config_source>
+      </metadata>
+    </visual>
+    <inertial>
+      <mass value="${base_mass}"/>
+    </inertial>
+  </link>
+
+  <!-- Macro for wheels using YAML config -->
+  <xacro:macro name="wheel" params="side">
+    <link name="${side}_wheel">
+      <visual>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_length}"/>
+        </geometry>
+      </visual>
+      <inertial>
+        <mass value="${config['inertial']['wheel_mass']}"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <xacro:wheel side="left"/>
+  <xacro:wheel side="right"/>
+</robot>

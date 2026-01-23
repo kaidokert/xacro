@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<robot name="simple_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Define some properties -->
+  <xacro:property name="width" value="0.2"/>
+  <xacro:property name="height" value="0.1"/>
+  <xacro:property name="mass" value="1.0"/>
+
+  <!-- Base link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${width} ${width} ${height}"/>
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="${mass}"/>
+    </inertial>
+  </link>
+
+  <!-- A simple macro -->
+  <xacro:macro name="wheel" params="name radius">
+    <link name="${name}">
+      <visual>
+        <geometry>
+          <cylinder radius="${radius}" length="0.05"/>
+        </geometry>
+      </visual>
+    </link>
+  </xacro:macro>
+
+  <!-- Instantiate wheels -->
+  <xacro:wheel name="left_wheel" radius="0.05"/>
+  <xacro:wheel name="right_wheel" radius="0.05"/>
+</robot>
