@@ -17,7 +17,7 @@ use xmltree::{Element, XMLNode};
 use super::{
     children::expand_children_list,
     expand_node,
-    guards::{BlockGuard, ScopeGuard},
+    guards::{BlockGuard, MacroCallGuard, ScopeGuard},
     XacroContext,
 };
 
@@ -96,6 +96,9 @@ pub(super) fn expand_macro_call(
         .get(macro_name)
         .cloned()
         .ok_or_else(|| XacroError::UndefinedMacro(macro_name.to_string()))?;
+
+    // Push macro name onto call stack for error reporting
+    let _macro_guard = MacroCallGuard::new(&ctx.macro_call_stack, macro_name.clone());
 
     // Pre-process macro call children to expand conditionals (xacro:if, xacro:unless)
     // before collecting block parameters. This matches Python xacro's behavior:

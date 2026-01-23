@@ -8,7 +8,6 @@
 /// Note: Owns data (rather than borrowing) to avoid lifetime issues with
 /// RefCell borrows in XacroContext.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Used in next phase of implementation
 pub struct LocationContext {
     /// Current file being processed
     pub file: Option<std::path::PathBuf>,

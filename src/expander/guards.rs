@@ -131,14 +131,12 @@ impl Drop for BlockGuard<'_> {
 ///
 /// Automatically pops macro name from call stack when dropped, ensuring
 /// correct error context even if macro expansion panics.
-#[allow(dead_code)] // Used in next phase of implementation
 pub(super) struct MacroCallGuard<'a> {
     stack: &'a RefCell<Vec<String>>,
 }
 
 impl<'a> MacroCallGuard<'a> {
     /// Creates a new MacroCallGuard and pushes macro name onto stack
-    #[allow(dead_code)] // Used in next phase of implementation
     pub(super) fn new(
         stack: &'a RefCell<Vec<String>>,
         macro_name: String,

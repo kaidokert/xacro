@@ -44,7 +44,6 @@ pub struct XacroContext {
 
     /// Macro call stack for error reporting and debugging (uses RefCell for interior mutability)
     /// Tracks which macro called which (most recent last)
-    #[allow(dead_code)] // Used in next phase of implementation
     pub macro_call_stack: RefCell<Vec<String>>,
 
     /// Python xacro compatibility modes
@@ -147,7 +146,6 @@ impl XacroContext {
     ///
     /// Creates a snapshot of location information (file path, macro stack, include stack)
     /// for passing to the evaluation layer. Clones the data to avoid RefCell lifetime issues.
-    #[allow(dead_code)] // Used in next phase of implementation
     pub fn get_location_context(&self) -> crate::eval::LocationContext {
         crate::eval::LocationContext {
             file: Some(self.base_path.borrow().clone()),
