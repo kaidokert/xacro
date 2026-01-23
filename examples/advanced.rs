@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let processor = builder.build();
 
-    // Process a file and also get its dependencies
-    let (urdf, dependencies) = processor.run_with_deps("examples/robot.xacro")?;
+    // Process a file with arguments and also get its dependencies
+    let (urdf, dependencies) = processor.run_with_deps("examples/robot_with_args.xacro")?;
 
     // Print the result
     println!("Generated URDF:");

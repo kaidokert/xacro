@@ -7,6 +7,7 @@ This directory contains examples demonstrating various ways to use the xacro lib
 ## Basic Examples
 
 ### basic.rs
+
 The simplest way to process a xacro file.
 
 ```bash
@@ -18,6 +19,7 @@ Demonstrates:
 - Processing a xacro file with properties and macros
 
 ### stdin.rs
+
 Reading xacro content from standard input.
 
 ```bash
@@ -31,6 +33,7 @@ Demonstrates:
 - Pipeline-friendly processing
 
 ### generic_xml.rs
+
 Using xacro as a general-purpose XML macro processor (no ROS dependencies).
 
 ```bash
@@ -46,6 +49,7 @@ Demonstrates:
 ## Intermediate Examples
 
 ### with_args.rs
+
 Using the builder API to pass arguments to xacro files.
 
 ```bash
@@ -60,6 +64,7 @@ Demonstrates:
 ## Advanced Examples
 
 ### advanced.rs
+
 Full-featured processor configuration with ROS extensions (optional).
 
 ```bash
