@@ -225,10 +225,16 @@ fn test_property_cleanup_after_macro_expansion() {
     );
 
     // Verify we get an error related to undefined 'temp'
-    // The error is wrapped: XacroError::EvalError -> EvalError::PyishEval -> pyisheval::EvalError
+    // The error may be wrapped in WithContext -> EvalError -> PyishEval -> pyisheval::EvalError
     let err = result.unwrap_err();
 
-    match err {
+    // Unwrap WithContext if present
+    let eval_err = match &err {
+        xacro::XacroError::WithContext { source, .. } => &**source,
+        other => other,
+    };
+
+    match eval_err {
         xacro::XacroError::EvalError { expr, source } => {
             assert_eq!(expr, "temp", "Expression should be 'temp'");
 

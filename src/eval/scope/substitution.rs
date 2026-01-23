@@ -162,22 +162,28 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
         text: &str,
         loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
-        // Store location context for the duration of evaluation (for print_location())
-        *self.current_location.borrow_mut() = loc.cloned();
+        // Clone location once at the start to avoid re-entrancy issues
+        let loc_cloned = loc.cloned();
 
         let result = self.substitute_iteratively(
             text,
             |s| s.contains("${") || s.contains("$("),
             |result| {
+                // Set location context only during expression evaluation
+                // This is needed for print_location() in the interpreter
+                *self.current_location.borrow_mut() = loc_cloned.clone();
+
                 // Build context with only the properties referenced in this iteration
                 let properties = self.build_eval_context(result)?;
                 // Use metadata-aware substitution
-                self.substitute_one_pass(result, &properties)
+                let pass_result = self.substitute_one_pass(result, &properties);
+
+                // Clear location context after this pass
+                *self.current_location.borrow_mut() = None;
+
+                pass_result
             },
         );
-
-        // Clear location context after evaluation
-        *self.current_location.borrow_mut() = None;
 
         result
     }

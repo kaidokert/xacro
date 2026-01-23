@@ -8,7 +8,7 @@
 //! - xacro:insert_block - Block parameter insertion
 
 use crate::{
-    error::{XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
+    error::{EnrichError, XacroError, IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES},
     eval::PropertyScope,
     parse::{macro_def::MacroDefinition, macro_def::MacroProcessor},
 };
@@ -170,14 +170,17 @@ pub(super) fn handle_property_directive(
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Extract property name (required) and substitute expressions
     let loc = ctx.get_location_context();
-    let name = ctx.properties.substitute_text(
-        elem.get_attribute("name")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:property".to_string(),
-                attribute: "name".to_string(),
-            })?,
-        Some(&loc),
-    )?;
+    let name = ctx
+        .properties
+        .substitute_text(
+            elem.get_attribute("name")
+                .ok_or_else(|| XacroError::MissingAttribute {
+                    element: "xacro:property".to_string(),
+                    attribute: "name".to_string(),
+                })?,
+            Some(&loc),
+        )
+        .with_loc(&loc)?;
 
     // Parse scope attribute (default: local)
     let scope = match elem.get_attribute("scope").map(|s| s.as_str()) {
@@ -206,7 +209,10 @@ pub(super) fn handle_property_directive(
                 .define_property(name.clone(), raw_value, scope);
         } else {
             // Eagerly evaluate for parent/global scope (both ${...} and $(...))
-            let evaluated = ctx.properties.substitute_all(&raw_value, Some(&loc))?;
+            let evaluated = ctx
+                .properties
+                .substitute_all(&raw_value, Some(&loc))
+                .with_loc(&loc)?;
             ctx.properties
                 .define_property(name.clone(), evaluated, scope);
         }
@@ -283,7 +289,10 @@ pub(super) fn handle_arg_directive(
     // Evaluate name with properties only (no extensions in arg names)
     // This prevents circular dependencies: $(arg ${x}) where x="..."
     let loc = ctx.get_location_context();
-    let name = ctx.properties.substitute_text(raw_name, Some(&loc))?;
+    let name = ctx
+        .properties
+        .substitute_text(raw_name, Some(&loc))
+        .with_loc(&loc)?;
 
     // CLI arguments take precedence over defaults (The "Precedence Rake")
     // Check if CLI provided a value BEFORE evaluating default expression
@@ -293,7 +302,10 @@ pub(super) fn handle_arg_directive(
         if let Some(default_value) = elem.get_attribute("default") {
             // Evaluate default with FULL substitution (may contain $(arg ...))
             // This enables transitive defaults: <xacro:arg name="y" default="$(arg x)"/>
-            let default = ctx.properties.substitute_all(default_value, Some(&loc))?;
+            let default = ctx
+                .properties
+                .substitute_all(default_value, Some(&loc))
+                .with_loc(&loc)?;
             ctx.args.borrow_mut().insert(name.clone(), default);
         }
         // else: No default and no CLI value provided
@@ -409,14 +421,17 @@ pub(super) fn handle_insert_block_directive(
 ) -> Result<Vec<XMLNode>, XacroError> {
     // Extract block name and substitute expressions
     let loc = ctx.get_location_context();
-    let name = ctx.properties.substitute_text(
-        elem.get_attribute("name")
-            .ok_or_else(|| XacroError::MissingAttribute {
-                element: "xacro:insert_block".to_string(),
-                attribute: "name".to_string(),
-            })?,
-        Some(&loc),
-    )?;
+    let name = ctx
+        .properties
+        .substitute_text(
+            elem.get_attribute("name")
+                .ok_or_else(|| XacroError::MissingAttribute {
+                    element: "xacro:insert_block".to_string(),
+                    attribute: "name".to_string(),
+                })?,
+            Some(&loc),
+        )
+        .with_loc(&loc)?;
 
     // PRECEDENCE ORDER (matches Python xacro behavior):
     // 1. LAZY properties FIRST (properties with XML body content)

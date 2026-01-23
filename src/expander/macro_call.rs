@@ -8,7 +8,7 @@
 
 use crate::{
     directives::{IMPLEMENTED_DIRECTIVES, UNIMPLEMENTED_DIRECTIVES},
-    error::XacroError,
+    error::{EnrichError, XacroError},
     parse::{macro_def::MacroProcessor, xml::is_known_xacro_uri},
 };
 use std::{collections::HashMap, rc::Rc};
@@ -203,7 +203,9 @@ pub(super) fn expand_macro_call(
                 crate::parse::macro_def::ParamDefault::Value(default_expr) => {
                     // Evaluate default expression with cumulative context
                     // Earlier parameters are already in the current scope, so they're visible
-                    ctx.properties.substitute_text(default_expr, Some(&loc))?
+                    ctx.properties
+                        .substitute_text(default_expr, Some(&loc))
+                        .with_loc(&loc)?
                 }
                 crate::parse::macro_def::ParamDefault::ForwardRequired(forward_name) => {
                     // Forward from parent scope (required)
@@ -226,7 +228,9 @@ pub(super) fn expand_macro_call(
                     {
                         parent_value
                     } else if let Some(default_expr) = maybe_default.as_ref() {
-                        ctx.properties.substitute_text(default_expr, Some(&loc))?
+                        ctx.properties
+                            .substitute_text(default_expr, Some(&loc))
+                            .with_loc(&loc)?
                     } else {
                         String::new()
                     }

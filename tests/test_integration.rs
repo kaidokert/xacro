@@ -245,13 +245,21 @@ fn test_circular_property_dependency() {
     // Both error types correctly prevent infinite loops
     let err = result.expect_err("Circular dependency should be detected and error");
 
-    assert!(
-        matches!(
-            err,
+    // Error may be enriched with context
+    let is_circular_error = match &err {
+        xacro::XacroError::CircularPropertyDependency { .. } => true,
+        xacro::XacroError::EvalError { .. } => true,
+        xacro::XacroError::WithContext { source, .. } => matches!(
+            &**source,
             xacro::XacroError::CircularPropertyDependency { .. }
                 | xacro::XacroError::EvalError { .. }
         ),
-        "Expected CircularPropertyDependency or EvalError, got: {:?}",
+        _ => false,
+    };
+
+    assert!(
+        is_circular_error,
+        "Expected CircularPropertyDependency or EvalError (possibly with context), got: {:?}",
         err
     )
 }
@@ -2413,9 +2421,20 @@ fn test_cwd_extension_no_args() {
     assert!(result.is_err(), "$(cwd) with arguments should fail");
 
     let err = result.unwrap_err();
+    // Error may be enriched with context
+    let is_invalid_extension = match &err {
+        xacro::XacroError::InvalidExtension { reason, .. } => {
+            reason.contains("does not take arguments")
+        }
+        xacro::XacroError::WithContext { source, .. } => {
+            matches!(&**source, xacro::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments"))
+        }
+        _ => false,
+    };
+
     assert!(
-        matches!(&err, xacro::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments")),
-        "Expected InvalidExtension error for $(cwd) with arguments, got: {:?}",
+        is_invalid_extension,
+        "Expected InvalidExtension error for $(cwd) with arguments (possibly with context), got: {:?}",
         err
     );
 }

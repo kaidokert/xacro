@@ -289,6 +289,34 @@ impl XacroError {
     }
 }
 
+/// Trait extension for enriching errors with location context
+///
+/// Provides a concise `.with_loc(&loc)?` syntax for attaching location context to errors.
+/// Similar to anyhow's `.context()` method but specifically for xacro error context.
+pub trait EnrichError<T> {
+    /// Enrich an error Result with location context
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let loc = ctx.get_location_context();
+    /// let result = ctx.properties.substitute_all(val, Some(&loc)).with_loc(&loc)?;
+    /// ```
+    fn with_loc(
+        self,
+        loc: &crate::eval::LocationContext,
+    ) -> Result<T, XacroError>;
+}
+
+impl<T> EnrichError<T> for Result<T, XacroError> {
+    fn with_loc(
+        self,
+        loc: &crate::eval::LocationContext,
+    ) -> Result<T, XacroError> {
+        self.map_err(|e| e.with_context(loc.to_error_context()))
+    }
+}
+
 // Feature lists for consistent error messages
 // Re-exported from directives module (single source of truth)
 pub use crate::directives::{IMPLEMENTED_FEATURES, UNIMPLEMENTED_FEATURES};
