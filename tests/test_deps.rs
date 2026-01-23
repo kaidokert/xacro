@@ -1,5 +1,4 @@
-use assert_cmd::Command;
-use predicates::prelude::*;
+use assert_cmd::cargo;
 use std::collections::HashSet;
 
 #[test]
@@ -113,7 +112,7 @@ fn test_deps_deduplication() {
 #[test]
 fn cli_deps_with_multiple_includes() {
     // Test CLI --deps flag with multiple includes
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("--deps")
@@ -166,7 +165,7 @@ fn cli_deps_with_multiple_includes() {
 #[test]
 fn cli_deps_with_nested_includes() {
     // Test CLI --deps flag with nested includes
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("--deps")
@@ -208,7 +207,7 @@ fn cli_deps_with_nested_includes() {
 #[test]
 fn cli_deps_no_includes_empty_output() {
     // Test CLI --deps flag with no includes (empty output)
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("--deps")
@@ -230,7 +229,7 @@ fn cli_deps_no_includes_empty_output() {
 #[test]
 fn cli_deps_output_is_sorted() {
     // Test that CLI --deps output is sorted (deterministic)
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("--deps")
@@ -259,7 +258,7 @@ fn cli_deps_output_is_sorted() {
 #[test]
 fn cli_stdin_with_dash() {
     // Test reading from stdin using '-' argument
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -282,7 +281,7 @@ fn cli_stdin_with_dash() {
 #[test]
 fn cli_stdin_no_argument() {
     // Test reading from stdin when no argument is provided
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let input = r#"<?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="test">
@@ -305,7 +304,7 @@ fn cli_stdin_no_argument() {
 #[test]
 fn cli_stdin_with_deps_flag_errors() {
     // Test that --deps with stdin produces an error
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let input = r#"<?xml version="1.0"?><robot name="test"/>"#;
 
@@ -322,7 +321,7 @@ fn cli_stdin_with_deps_flag_errors() {
 #[test]
 fn cli_stdin_with_deps_no_arg_errors() {
     // Test that --deps with no argument (stdin) produces an error
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let input = r#"<?xml version="1.0"?><robot name="test"/>"#;
 
@@ -341,7 +340,7 @@ fn cli_stdin_with_deps_no_arg_errors() {
 fn cli_print_location_outputs_to_stderr() {
     // Test that xacro.print_location() builtin function outputs location info to stderr
     // Uses log::info!() which adds timestamps/module prefix via env_logger
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("tests/data/print_location_test.xacro")
@@ -375,7 +374,7 @@ fn cli_print_location_outputs_to_stderr() {
 #[test]
 fn cli_print_location_macro_stack() {
     // Test that xacro.print_location() inside nested macros logs macro stack info
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("tests/data/print_location_macro_test.xacro")
@@ -392,10 +391,10 @@ fn cli_print_location_macro_stack() {
         stderr
     );
 
-    // Verify at least one macro name appears
+    // Verify both macro names appear in the stack trace
     assert!(
-        stderr.contains("inner_macro") || stderr.contains("outer_macro"),
-        "Expected macro names in stderr, got: {:?}",
+        stderr.contains("inner_macro") && stderr.contains("outer_macro"),
+        "Expected both 'inner_macro' and 'outer_macro' in stderr for nested call, got: {:?}",
         stderr
     );
 
@@ -412,7 +411,7 @@ fn cli_print_location_with_includes() {
     // Test that xacro.print_location() works with macros defined in included files
     // Note: By the time the macro is invoked, we're back in the main file context,
     // so include_stack is empty (include processing is complete)
-    let mut cmd = Command::cargo_bin("xacro").expect("xacro binary not found");
+    let mut cmd = cargo::cargo_bin_cmd!("xacro");
 
     let assert = cmd
         .arg("tests/data/print_location_include_test.xacro")
