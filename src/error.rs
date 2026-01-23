@@ -14,8 +14,54 @@ pub struct ErrorContext {
     pub include_stack: Vec<PathBuf>,
 }
 
+impl core::fmt::Display for ErrorContext {
+    fn fmt(
+        &self,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
+        // Print macro stack (reversed, most recent first)
+        if !self.macro_stack.is_empty() {
+            writeln!(f, "  Macro stack:")?;
+            for (i, macro_name) in self.macro_stack.iter().rev().enumerate() {
+                if i == 0 {
+                    writeln!(f, "    in macro: {}", macro_name)?;
+                } else {
+                    writeln!(f, "    called from: {}", macro_name)?;
+                }
+            }
+        }
+
+        // Print file/include stack (reversed, most recent first)
+        if !self.include_stack.is_empty() {
+            writeln!(f, "  File stack:")?;
+            for (i, file_path) in self.include_stack.iter().rev().enumerate() {
+                let file_str = file_path.to_str().unwrap_or("???");
+                if i == 0 {
+                    writeln!(f, "    in file: {}", file_str)?;
+                } else {
+                    writeln!(f, "    included from: {}", file_str)?;
+                }
+            }
+        } else if let Some(file) = &self.file {
+            writeln!(f, "  File: {}", file.display())?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum XacroError {
+    /// Error with added location context
+    ///
+    /// Wraps any other XacroError variant with location information (file, macro stack,
+    /// include stack). This allows errors to be enriched with context as they bubble up.
+    #[error("{source}\n\nContext:\n{context}")]
+    WithContext {
+        #[source]
+        source: Box<XacroError>,
+        context: ErrorContext,
+    },
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -211,6 +257,34 @@ impl From<crate::eval::EvalError> for XacroError {
                 crate::eval::EvalError::InvalidBoolean { condition, .. } => condition.clone(),
             },
             source: e,
+        }
+    }
+}
+
+impl XacroError {
+    /// Enrich this error with location context
+    ///
+    /// Wraps the error in a WithContext variant that adds file, macro stack, and include
+    /// stack information. This is useful for providing better error messages that show
+    /// where the error occurred.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let err = XacroError::UndefinedProperty("foo".to_string());
+    /// let enriched = err.with_context(location_ctx.to_error_context());
+    /// ```
+    pub fn with_context(
+        self,
+        context: ErrorContext,
+    ) -> Self {
+        // Don't double-wrap WithContext errors
+        if matches!(self, XacroError::WithContext { .. }) {
+            return self;
+        }
+        XacroError::WithContext {
+            source: Box::new(self),
+            context,
         }
     }
 }
