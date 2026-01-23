@@ -106,6 +106,7 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                         &context,
                         #[cfg(feature = "yaml")]
                         Some(&self.yaml_tag_handler_registry),
+                        self.current_location.borrow().as_ref(),
                     )
                     .map_err(|e| XacroError::EvalError {
                         expr: token_value.clone(),
@@ -158,9 +159,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
     pub fn substitute_text(
         &self,
         text: &str,
-        _loc: Option<&crate::eval::LocationContext>,
+        loc: Option<&crate::eval::LocationContext>,
     ) -> Result<String, XacroError> {
-        self.substitute_iteratively(
+        // Store location context for the duration of evaluation (for print_location())
+        *self.current_location.borrow_mut() = loc.cloned();
+
+        let result = self.substitute_iteratively(
             text,
             |s| s.contains("${") || s.contains("$("),
             |result| {
@@ -169,7 +173,12 @@ impl<const MAX_SUBSTITUTION_DEPTH: usize> EvalContext<MAX_SUBSTITUTION_DEPTH> {
                 // Use metadata-aware substitution
                 self.substitute_one_pass(result, &properties)
             },
-        )
+        );
+
+        // Clear location context after evaluation
+        *self.current_location.borrow_mut() = None;
+
+        result
     }
 
     /// Parse and resolve an extension like `$(arg foo)`, `$(find pkg)`, `$(env VAR)`
