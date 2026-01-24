@@ -76,6 +76,9 @@ impl FindExtension {
     ///
     /// Looks for package.xml in ancestor directories and checks if the package
     /// name matches. Stops at the first package.xml found (doesn't traverse siblings).
+    ///
+    /// Returns an absolute path to avoid relative path resolution issues when
+    /// the result is used in include directives.
     fn find_ancestor_package(
         &self,
         package_name: &str,
@@ -94,7 +97,12 @@ impl FindExtension {
                         if let Some(name_elem) = element.get_child("name") {
                             if let Some(name_text) = name_elem.get_text() {
                                 if name_text.as_ref() == package_name {
-                                    return Some(ancestor.to_path_buf());
+                                    // Convert to absolute path to avoid relative path resolution issues
+                                    // when the result is used in include directives
+                                    let abs_path = ancestor
+                                        .canonicalize()
+                                        .unwrap_or_else(|_| ancestor.to_path_buf());
+                                    return Some(abs_path);
                                 }
                             }
                         }
