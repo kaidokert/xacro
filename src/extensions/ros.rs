@@ -93,16 +93,17 @@ impl FindExtension {
                 // Use existing helper to read package name from package.xml or manifest.xml
                 if Self::read_package_name(ancestor).as_deref() == Some(package_name) {
                     // Convert to absolute path to avoid relative path resolution issues
-                    // If canonicalize fails, manually make absolute via current directory
-                    let abs_path = ancestor.canonicalize().unwrap_or_else(|_| {
-                        if ancestor.is_absolute() {
-                            ancestor.to_path_buf()
-                        } else {
-                            std::env::current_dir()
-                                .unwrap_or_else(|_| PathBuf::from("."))
-                                .join(ancestor)
-                        }
-                    });
+                    // If we can't make an absolute path, return None (better than relative path)
+                    let abs_path = if let Ok(canonical) = ancestor.canonicalize() {
+                        canonical
+                    } else if ancestor.is_absolute() {
+                        ancestor.to_path_buf()
+                    } else if let Ok(cwd) = std::env::current_dir() {
+                        cwd.join(ancestor)
+                    } else {
+                        // Can't determine absolute path - return None
+                        return None;
+                    };
                     return Some(abs_path);
                 }
                 // Stop at first package boundary - don't search beyond
@@ -377,25 +378,7 @@ impl FindExtension {
         package_name: &str,
         search_paths: &[PathBuf],
     ) -> Option<PathBuf> {
-        // FIRST: Check explicit package map (override semantics for hermetic builds)
-        // Trust the explicit mapping without ROS package validation.
-        // Accepts any existing directory, including:
-        // - Data-only directories (no package.xml)
-        // - Custom hermetic build layouts
-        // - Test fixtures
-        if let Some(path) = self.get_package_from_map(package_name) {
-            if path.is_dir() {
-                return Some(path);
-            }
-            // Warn on misconfiguration: mapped path doesn't exist or isn't a directory
-            log::warn!(
-                "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
-                package_name,
-                path.display()
-            );
-        }
-
-        // THEN: Standard ROS discovery (ROS_PACKAGE_PATH, etc.)
+        // Search ROS_PACKAGE_PATH and workspace directories
         for search_path in search_paths {
             // Check if search_path itself is the package (self-match)
             // Verify package name from metadata to ensure correctness
