@@ -14,7 +14,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use xacro::{CompatMode, XacroError, XacroProcessor};
+use xacro_rs::{CompatMode, XacroError, XacroProcessor};
 use xmltree::Element;
 
 /// RAII guard for environment variables that automatically restores original value on drop.

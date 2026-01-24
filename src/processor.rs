@@ -104,7 +104,7 @@ pub struct XacroProcessor {
 ///
 /// # Example
 /// ```
-/// use xacro::XacroProcessor;
+/// use xacro_rs::XacroProcessor;
 ///
 /// let processor = XacroProcessor::builder()
 ///     .with_arg("robot_name", "my_robot")
@@ -138,7 +138,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_arg("scale", "0.5")
@@ -157,7 +157,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     /// use std::collections::HashMap;
     ///
     /// let mut args = HashMap::new();
@@ -180,7 +180,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_max_depth(100)
@@ -198,7 +198,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_compat_all()
@@ -213,7 +213,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```
-    /// use xacro::{XacroProcessor, CompatMode};
+    /// use xacro_rs::{XacroProcessor, CompatMode};
     ///
     /// let compat = "namespace,duplicate_params".parse().unwrap();
     /// let processor = XacroProcessor::builder()
@@ -236,8 +236,8 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```ignore
-    /// use xacro::XacroProcessor;
-    /// use xacro::extensions::ExtensionHandler;
+    /// use xacro_rs::XacroProcessor;
+    /// use xacro_rs::extensions::ExtensionHandler;
     ///
     /// struct MyExtension;
     /// impl ExtensionHandler for MyExtension {
@@ -272,7 +272,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```ignore
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .clear_extensions()
@@ -291,7 +291,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```ignore
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_yaml_tag_handler(Box::new(MyHandler))
@@ -315,7 +315,7 @@ impl XacroBuilder {
     ///
     /// # Example
     /// ```ignore
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_ros_yaml_units()
@@ -367,7 +367,7 @@ impl XacroProcessor {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::builder()
     ///     .with_arg("robot_name", "my_robot")
@@ -384,7 +384,7 @@ impl XacroProcessor {
     ///
     /// # Example
     /// ```
-    /// use xacro::XacroProcessor;
+    /// use xacro_rs::XacroProcessor;
     ///
     /// let processor = XacroProcessor::new();
     /// let input = r#"<?xml version="1.0"?>
@@ -394,7 +394,7 @@ impl XacroProcessor {
     /// </robot>"#;
     /// let output = processor.run_from_string(input)?;
     /// assert!(output.contains("mass value=\"42\""));
-    /// # Ok::<(), xacro::XacroError>(())
+    /// # Ok::<(), xacro_rs::XacroError>(())
     /// ```
     pub fn new() -> Self {
         Self::default()
@@ -408,7 +408,7 @@ impl XacroProcessor {
     ///
     /// # Example
     /// ```ignore
-    /// use xacro::{XacroProcessor, FindExtension};
+    /// use xacro_rs::{XacroProcessor, FindExtension};
     ///
     /// let processor = XacroProcessor::new();
     /// processor.run("robot.xacro")?;
@@ -420,7 +420,7 @@ impl XacroProcessor {
     ///         println!("Found packages: {:?}", packages);
     ///     }
     /// }
-    /// # Ok::<(), xacro::XacroError>(())
+    /// # Ok::<(), xacro_rs::XacroError>(())
     /// ```
     pub fn extensions(&self) -> &[Box<dyn ExtensionHandler>] {
         &self.extensions

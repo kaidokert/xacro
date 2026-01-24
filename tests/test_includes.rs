@@ -6,7 +6,7 @@ mod common;
 use crate::common::*;
 use std::fs;
 use std::path::PathBuf;
-use xacro::XacroProcessor;
+use xacro_rs::XacroProcessor;
 
 // ============================================================================
 // Nested Include Tests

@@ -3,9 +3,9 @@
 //! These tests verify that errors occurring in nested macros, includes,
 //! extensions, and conditionals are properly enriched with location context.
 
-use xacro::error::ErrorContext;
-use xacro::XacroError;
-use xacro::XacroProcessor;
+use xacro_rs::error::ErrorContext;
+use xacro_rs::XacroError;
+use xacro_rs::XacroProcessor;
 
 /// Helper to process xacro input and return Result
 fn test_xacro(input: &str) -> Result<String, XacroError> {

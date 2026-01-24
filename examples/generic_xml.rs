@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 </config>"#;
 
     // Process the XML with xacro
-    let expanded = xacro::process_string(config_template)?;
+    let expanded = xacro_rs::process_string(config_template)?;
 
     println!("Expanded XML configuration:");
     println!("{}", expanded);

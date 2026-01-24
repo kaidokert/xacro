@@ -9,8 +9,8 @@
 //! Process a xacro file:
 //!
 //! ```no_run
-//! # fn main() -> Result<(), xacro::XacroError> {
-//! let urdf = xacro::process_file("robot.xacro")?;
+//! # fn main() -> Result<(), xacro_rs::XacroError> {
+//! let urdf = xacro_rs::process_file("robot.xacro")?;
 //! # Ok(())
 //! # }
 //! ```
@@ -18,8 +18,8 @@
 //! Use [`process_string`] for string content. For more control (arguments, extensions, compatibility modes):
 //!
 //! ```no_run
-//! # fn main() -> Result<(), xacro::XacroError> {
-//! let processor = xacro::XacroProcessor::builder()
+//! # fn main() -> Result<(), xacro_rs::XacroError> {
+//! let processor = xacro_rs::XacroProcessor::builder()
 //!     .with_arg("robot_name", "my_robot")
 //!     .build();
 //! let urdf = processor.run("robot.xacro")?;
@@ -79,8 +79,8 @@ pub use processor::{CompatMode, XacroBuilder, XacroProcessor};
 /// # Examples
 ///
 /// ```no_run
-/// # fn main() -> Result<(), xacro::XacroError> {
-/// let urdf = xacro::process_file("robot.xacro")?;
+/// # fn main() -> Result<(), xacro_rs::XacroError> {
+/// let urdf = xacro_rs::process_file("robot.xacro")?;
 /// println!("{}", urdf);
 /// # Ok(())
 /// # }
@@ -101,7 +101,7 @@ pub fn process_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroE
 /// # Examples
 ///
 /// ```
-/// # fn main() -> Result<(), xacro::XacroError> {
+/// # fn main() -> Result<(), xacro_rs::XacroError> {
 /// let xacro_content = r#"<?xml version="1.0"?>
 /// <robot name="test" xmlns:xacro="http://www.ros.org/wiki/xacro">
 ///   <xacro:property name="width" value="0.5"/>
@@ -114,7 +114,7 @@ pub fn process_file<P: AsRef<std::path::Path>>(path: P) -> Result<String, XacroE
 ///   </link>
 /// </robot>"#;
 ///
-/// let urdf = xacro::process_string(xacro_content)?;
+/// let urdf = xacro_rs::process_string(xacro_content)?;
 /// assert!(urdf.contains("0.5 0.5 0.5"));
 /// # Ok(())
 /// # }

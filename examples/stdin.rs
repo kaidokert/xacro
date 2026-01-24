@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_to_string(&mut input)?;
 
     // Process the xacro string
-    let urdf = xacro::process_string(&input)?;
+    let urdf = xacro_rs::process_string(&input)?;
 
     // Print the result
     println!("{}", urdf);

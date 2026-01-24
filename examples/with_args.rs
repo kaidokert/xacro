@@ -7,7 +7,7 @@
 //!   cargo run --example with_args
 
 use std::error::Error;
-use xacro::XacroProcessor;
+use xacro_rs::XacroProcessor;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Build a processor with custom arguments

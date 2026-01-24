@@ -9,7 +9,7 @@
 
 mod common;
 use crate::common::*;
-use xacro::error::EvalError;
+use xacro_rs::error::EvalError;
 
 // ============================================================================
 // Test 1: Local properties should NOT leak outside macro
@@ -230,12 +230,12 @@ fn test_property_cleanup_after_macro_expansion() {
 
     // Unwrap WithContext if present
     let eval_err = match &err {
-        xacro::XacroError::WithContext { source, .. } => &**source,
+        xacro_rs::XacroError::WithContext { source, .. } => &**source,
         other => other,
     };
 
     match eval_err {
-        xacro::XacroError::EvalError { expr, source } => {
+        xacro_rs::XacroError::EvalError { expr, source } => {
             assert_eq!(expr, "temp", "Expression should be 'temp'");
 
             match source {
@@ -476,7 +476,7 @@ fn test_lazy_property_cleanup_after_macro() {
     // Verify we get an UndefinedBlock error
     let err = result.unwrap_err();
     match err {
-        xacro::XacroError::UndefinedBlock { name } => {
+        xacro_rs::XacroError::UndefinedBlock { name } => {
             assert_eq!(name, "temp_block", "Error should be about 'temp_block'");
         }
         other => panic!("Expected UndefinedBlock error, got: {:?}", other),
