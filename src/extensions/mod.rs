@@ -18,6 +18,7 @@ pub use self::ros::{FindExtension, OptEnvExtension};
 #[cfg(feature = "yaml")]
 pub use crate::eval::yaml_tag_handler::{DynYamlTagHandler, YamlTagHandler};
 
+use ::core::any::Any;
 use ::core::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error as StdError;
@@ -31,7 +32,7 @@ use std::rc::Rc;
 ///
 /// NOTE: This trait does NOT require Send + Sync because xacro processing
 /// is single-threaded. Extensions may use Rc<RefCell<>> for shared state.
-pub trait ExtensionHandler {
+pub trait ExtensionHandler: Any {
     /// Attempt to resolve an extension.
     ///
     /// # Parameters
@@ -77,6 +78,12 @@ pub trait ExtensionHandler {
     ) {
         // Default implementation does nothing
     }
+
+    /// Cast to Any to support downcasting to concrete extension types.
+    ///
+    /// This allows the processor to access extension-specific methods for
+    /// reporting and observability without polluting the generic trait.
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// Shared argument registry with encapsulated interior mutability.
@@ -187,6 +194,10 @@ impl ExtensionHandler for ArgExtension {
             .get(arg_name)
             .ok_or_else(|| format!("Undefined argument: '{}'", arg_name).into())
             .map(Some)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

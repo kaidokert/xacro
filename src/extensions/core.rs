@@ -45,6 +45,10 @@ impl ExtensionHandler for CwdExtension {
             .map(|p| Some(p.display().to_string()))
             .map_err(|e| Box::new(e) as Box<dyn StdError>)
     }
+
+    fn as_any(&self) -> &dyn ::core::any::Any {
+        self
+    }
 }
 
 /// Handles $(env VAR) - returns environment variable.
@@ -74,6 +78,10 @@ impl ExtensionHandler for EnvExtension {
         std::env::var(var_name)
             .map(Some)
             .map_err(|e| Box::new(e) as Box<dyn StdError>)
+    }
+
+    fn as_any(&self) -> &dyn ::core::any::Any {
+        self
     }
 }
 

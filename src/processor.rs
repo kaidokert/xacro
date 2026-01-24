@@ -400,6 +400,32 @@ impl XacroProcessor {
         Self::default()
     }
 
+    /// Get a reference to the registered extension handlers.
+    ///
+    /// This allows callers to inspect or downcast extensions for
+    /// observability purposes (e.g., extracting package resolution info
+    /// from FindExtension).
+    ///
+    /// # Example
+    /// ```ignore
+    /// use xacro::{XacroProcessor, FindExtension};
+    ///
+    /// let processor = XacroProcessor::new();
+    /// processor.run("robot.xacro")?;
+    ///
+    /// // Extract package info from FindExtension
+    /// for ext in processor.extensions().iter() {
+    ///     if let Some(find_ext) = ext.as_any().downcast_ref::<FindExtension>() {
+    ///         let packages = find_ext.get_found_packages();
+    ///         println!("Found packages: {:?}", packages);
+    ///     }
+    /// }
+    /// # Ok::<(), xacro::XacroError>(())
+    /// ```
+    pub fn extensions(&self) -> &[Box<dyn ExtensionHandler>] {
+        &self.extensions
+    }
+
     /// Process xacro content from a file path
     pub fn run<P: AsRef<std::path::Path>>(
         &self,

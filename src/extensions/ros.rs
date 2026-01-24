@@ -64,6 +64,17 @@ impl FindExtension {
         }
     }
 
+    /// Get all packages that were resolved during processing.
+    ///
+    /// Returns a map of package names to their absolute paths. This includes
+    /// all packages that were successfully resolved via $(find package_name).
+    ///
+    /// This is useful for dependency tracking and reporting which ROS packages
+    /// were used during xacro processing.
+    pub fn get_found_packages(&self) -> HashMap<String, PathBuf> {
+        self.cache.borrow().clone()
+    }
+
     /// Set the current file being processed (for ancestor package detection)
     fn set_current_file(
         &self,
@@ -505,6 +516,10 @@ impl ExtensionHandler for FindExtension {
     ) {
         self.set_current_file(current_file.map(|p| p.to_path_buf()));
     }
+
+    fn as_any(&self) -> &dyn ::core::any::Any {
+        self
+    }
 }
 
 /// Extension for $(optenv VAR [default value])
@@ -555,6 +570,10 @@ impl ExtensionHandler for OptEnvExtension {
                 }
             }
         }
+    }
+
+    fn as_any(&self) -> &dyn ::core::any::Any {
+        self
     }
 }
 
