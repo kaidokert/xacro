@@ -93,9 +93,16 @@ impl FindExtension {
                 // Use existing helper to read package name from package.xml or manifest.xml
                 if Self::read_package_name(ancestor).as_deref() == Some(package_name) {
                     // Convert to absolute path to avoid relative path resolution issues
-                    let abs_path = ancestor
-                        .canonicalize()
-                        .unwrap_or_else(|_| ancestor.to_path_buf());
+                    // If canonicalize fails, manually make absolute via current directory
+                    let abs_path = ancestor.canonicalize().unwrap_or_else(|_| {
+                        if ancestor.is_absolute() {
+                            ancestor.to_path_buf()
+                        } else {
+                            std::env::current_dir()
+                                .unwrap_or_else(|_| PathBuf::from("."))
+                                .join(ancestor)
+                        }
+                    });
                     return Some(abs_path);
                 }
                 // Stop at first package boundary - don't search beyond
