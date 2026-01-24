@@ -7,7 +7,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "xacro")]
+#[command(name = "xacro-rs")]
 #[command(about = "XML preprocessor for xacro files to generate URDF", long_about = None)]
 #[command(version)]
 struct Args {
@@ -112,9 +112,9 @@ fn init_logging(verbosity: u8) {
 
     builder.filter_level(level);
 
-    // Always enable Info level for xacro crate to support print_location()
+    // Always enable Info level for xacro_rs crate to support print_location()
     // This ensures xacro.print_location() works even without -v flags
-    builder.filter_module("xacro", LevelFilter::Info);
+    builder.filter_module("xacro_rs", LevelFilter::Info);
 
     // Avoid panicking if a logger was already initialized
     let _ = builder.try_init();
