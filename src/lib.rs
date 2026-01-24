@@ -1,25 +1,30 @@
 //! [Xacro](https://wiki.ros.org/xacro) processor in Rust.
 //!
 //! `xacro` is an XML macro processor, that expands properties, macros, and conditionals.
-//! The crate provides ROS specific extensions as a default, but can be used without.
+//! The crate provides core extensions by default (cwd, env); ROS-specific extensions
+//! are available via the builder when needed.
 //!
 //! # Quick Start
 //!
 //! Process a xacro file:
 //!
 //! ```no_run
+//! # fn main() -> Result<(), xacro::XacroError> {
 //! let urdf = xacro::process_file("robot.xacro")?;
-//! # Ok::<(), xacro::XacroError>(())
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! Use [`process_string`] for string content. For more control (arguments, extensions, compatibility modes):
 //!
 //! ```no_run
+//! # fn main() -> Result<(), xacro::XacroError> {
 //! let processor = xacro::XacroProcessor::builder()
 //!     .with_arg("robot_name", "my_robot")
 //!     .build();
 //! let urdf = processor.run("robot.xacro")?;
-//! # Ok::<(), xacro::XacroError>(())
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Examples
