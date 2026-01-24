@@ -516,15 +516,9 @@ impl ExtensionHandler for FindExtension {
 
     fn on_file_change(
         &self,
-        current_file: &std::path::Path,
+        current_file: Option<&std::path::Path>,
     ) {
-        // Only set file context if path is an actual file (not directory)
-        // This prevents stale context when run_from_string passes base_path
-        if current_file.is_file() {
-            self.set_current_file(Some(current_file.to_path_buf()));
-        } else {
-            self.set_current_file(None);
-        }
+        self.set_current_file(current_file.map(|p| p.to_path_buf()));
     }
 }
 
@@ -902,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn test_on_file_change_clears_context_for_directory() {
+    fn test_on_file_change_sets_and_clears_context() {
         use tempfile::TempDir;
 
         let tmpdir = TempDir::new().expect("Failed to create temp dir");
@@ -911,18 +905,18 @@ mod tests {
 
         let ext = FindExtension::new();
 
-        // Set file context
-        ext.on_file_change(&test_file);
+        // Set file context with Some
+        ext.on_file_change(Some(&test_file));
         assert!(
             ext.current_file.borrow().is_some(),
             "Should set file context"
         );
 
-        // Pass directory path - should clear context
-        ext.on_file_change(tmpdir.path());
+        // Clear context with None
+        ext.on_file_change(None);
         assert!(
             ext.current_file.borrow().is_none(),
-            "Should clear context for directory"
+            "Should clear context when passed None"
         );
     }
 }
