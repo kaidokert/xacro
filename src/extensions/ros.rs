@@ -437,40 +437,42 @@ impl FindExtension {
             return Ok(cached_path.clone());
         }
 
-        // Check explicit package map first (hermetic mode takes precedence)
-        // This ensures RUST_XACRO_PACKAGE_MAP overrides all filesystem discovery
-        if let Some(pkg_path) = self.get_package_from_map(package_name) {
-            if pkg_path.is_dir() {
-                self.cache
-                    .borrow_mut()
-                    .insert(package_name.to_string(), pkg_path.clone());
-                return Ok(pkg_path);
+        // Try resolution strategies in order, storing result once found
+        let pkg_path = {
+            // 1. Check explicit package map first (hermetic mode takes precedence)
+            if let Some(path) = self.get_package_from_map(package_name) {
+                if path.is_dir() {
+                    Some(path)
+                } else {
+                    // Warn on misconfiguration but continue to other strategies
+                    log::warn!(
+                        "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
+                        package_name,
+                        path.display()
+                    );
+                    None
+                }
+            } else {
+                None
             }
         }
+        // 2. Check ancestor directories from current file
+        .or_else(|| self.find_ancestor_package(package_name))
+        // 3. Search ROS_PACKAGE_PATH and workspace discovery
+        .or_else(|| {
+            let search_paths = self.get_search_paths();
+            self.search_package(package_name, &search_paths)
+        });
 
-        // Check ancestor directories from current file
-        // This handles the common case: xacro files referencing their own package
-        if let Some(pkg_path) = self.find_ancestor_package(package_name) {
-            // Cache the result
+        // Cache and return result, or error if not found
+        if let Some(path) = pkg_path {
             self.cache
                 .borrow_mut()
-                .insert(package_name.to_string(), pkg_path.clone());
-            return Ok(pkg_path);
+                .insert(package_name.to_string(), path.clone());
+            Ok(path)
+        } else {
+            Err(format!("Package not found: '{}'", package_name).into())
         }
-
-        // Get search paths (lazy init)
-        let search_paths = self.get_search_paths();
-
-        // Search ROS_PACKAGE_PATH and workspace discovery
-        if let Some(pkg_path) = self.search_package(package_name, &search_paths) {
-            // Cache the result
-            self.cache
-                .borrow_mut()
-                .insert(package_name.to_string(), pkg_path.clone());
-            return Ok(pkg_path);
-        }
-
-        Err(format!("Package not found: '{}'", package_name).into())
     }
 }
 
