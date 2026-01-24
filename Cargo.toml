@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.70"
 description = "A xml preprocessor for xacro files to generate URDF files"
 license = "MIT"
-repository = "https://github.com/deniz-hofmeister/xacro"
+repository = "https://github.com/kaidokert/xacro"
 
 [features]
 default = ["compat" , "yaml" ]
