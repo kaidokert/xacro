@@ -4,7 +4,7 @@ mod common;
 use common::parse_xml;
 use std::fs;
 use tempfile::TempDir;
-use xacro::{extensions::FindExtension, XacroProcessor};
+use xacro_rs::{extensions::FindExtension, XacroProcessor};
 
 #[test]
 fn test_package_tracking_via_extensions_accessor() {

@@ -1,6 +1,6 @@
 mod common;
 use crate::common::*;
-use xacro::XacroProcessor;
+use xacro_rs::XacroProcessor;
 use xmltree::Element;
 
 #[test]
@@ -247,12 +247,12 @@ fn test_circular_property_dependency() {
 
     // Error may be enriched with context
     let is_circular_error = match &err {
-        xacro::XacroError::CircularPropertyDependency { .. } => true,
-        xacro::XacroError::EvalError { .. } => true,
-        xacro::XacroError::WithContext { source, .. } => matches!(
+        xacro_rs::XacroError::CircularPropertyDependency { .. } => true,
+        xacro_rs::XacroError::EvalError { .. } => true,
+        xacro_rs::XacroError::WithContext { source, .. } => matches!(
             &**source,
-            xacro::XacroError::CircularPropertyDependency { .. }
-                | xacro::XacroError::EvalError { .. }
+            xacro_rs::XacroError::CircularPropertyDependency { .. }
+                | xacro_rs::XacroError::EvalError { .. }
         ),
         _ => false,
     };
@@ -406,9 +406,9 @@ fn test_conditional_missing_value_attribute() {
     let err = result.err().unwrap();
     // Error should be enriched with context
     match err {
-        xacro::XacroError::WithContext { source, .. } => {
+        xacro_rs::XacroError::WithContext { source, .. } => {
             assert!(
-                matches!(*source, xacro::XacroError::MissingAttribute { .. }),
+                matches!(*source, xacro_rs::XacroError::MissingAttribute { .. }),
                 "Should be MissingAttribute error, got: {:?}",
                 source
             );
@@ -625,7 +625,7 @@ fn test_insert_block_undefined_name() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::UndefinedBlock { .. }),
+        matches!(err, xacro_rs::XacroError::UndefinedBlock { .. }),
         "Should be UndefinedBlock error, got: {:?}",
         err
     );
@@ -660,7 +660,7 @@ fn test_custom_max_recursion_depth() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 5),
+        matches!(err, xacro_rs::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 5),
         "Should be MacroRecursionLimit with limit=5, got: {:?}",
         err
     );
@@ -715,7 +715,7 @@ fn test_recursion_depth_boundary() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 10),
+        matches!(err, xacro_rs::XacroError::MacroRecursionLimit { depth: _, limit } if limit == 10),
         "Should be MacroRecursionLimit with limit=10, got: {:?}",
         err
     );
@@ -754,7 +754,7 @@ fn test_circular_block_references() {
     // the macro. When expanding block1, it tries to insert block2 which hasn't
     // been collected yet.
     let undefined_block_name = match &err {
-        xacro::XacroError::UndefinedBlock { name, .. } => name,
+        xacro_rs::XacroError::UndefinedBlock { name, .. } => name,
         other => panic!("Should be UndefinedBlock error, got: {:?}", other),
     };
     assert_eq!(
@@ -878,7 +878,7 @@ fn test_insert_block_missing_block() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::MissingBlockParameter { .. }),
+        matches!(err, xacro_rs::XacroError::MissingBlockParameter { .. }),
         "Should be MissingBlockParameter error, got: {:?}",
         err
     );
@@ -904,7 +904,10 @@ fn test_insert_block_extra_children() {
 
     let err = result.err().unwrap();
     assert!(
-        matches!(err, xacro::XacroError::UnusedBlock { extra_count: 1, .. }),
+        matches!(
+            err,
+            xacro_rs::XacroError::UnusedBlock { extra_count: 1, .. }
+        ),
         "Should be UnusedBlock error, got: {:?}",
         err
     );
@@ -2432,11 +2435,11 @@ fn test_cwd_extension_no_args() {
     let err = result.unwrap_err();
     // Error may be enriched with context
     let is_invalid_extension = match &err {
-        xacro::XacroError::InvalidExtension { reason, .. } => {
+        xacro_rs::XacroError::InvalidExtension { reason, .. } => {
             reason.contains("does not take arguments")
         }
-        xacro::XacroError::WithContext { source, .. } => {
-            matches!(&**source, xacro::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments"))
+        xacro_rs::XacroError::WithContext { source, .. } => {
+            matches!(&**source, xacro_rs::XacroError::InvalidExtension { reason, .. } if reason.contains("does not take arguments"))
         }
         _ => false,
     };

@@ -1,7 +1,7 @@
 mod common;
 use common::*;
 use core::any::Any;
-use xacro::{extensions::ExtensionHandler, XacroProcessor};
+use xacro_rs::{extensions::ExtensionHandler, XacroProcessor};
 
 /// Test extension that returns a fixed value
 struct TestExtension;

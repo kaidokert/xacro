@@ -11,7 +11,7 @@
 
 mod common;
 use crate::common::*;
-use xacro::{CompatMode, XacroError};
+use xacro_rs::{CompatMode, XacroError};
 
 #[test]
 fn test_namespace_typo_error_by_default() {

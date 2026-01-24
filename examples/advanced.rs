@@ -16,8 +16,8 @@
 //!   cargo run --example advanced --features yaml
 
 use std::error::Error;
-use xacro::extensions::{FindExtension, OptEnvExtension};
-use xacro::{CompatMode, XacroProcessor};
+use xacro_rs::extensions::{FindExtension, OptEnvExtension};
+use xacro_rs::{CompatMode, XacroProcessor};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Set some environment variables for the $(optenv) extension to read

@@ -1,6 +1,6 @@
 mod common;
 use crate::common::*;
-use xacro::XacroError;
+use xacro_rs::XacroError;
 
 #[test]
 fn test_xacro_namespace_removed() {

@@ -4,7 +4,7 @@
 
 mod common;
 use crate::common::*;
-use xacro::error::XacroError;
+use xacro_rs::error::XacroError;
 
 // ============================================================================
 // Macro Definition Tests

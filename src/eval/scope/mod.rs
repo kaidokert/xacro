@@ -24,7 +24,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use xacro::eval::scope::EvalContext;
+//! use xacro_rs::eval::scope::EvalContext;
 //!
 //! let ctx = EvalContext::new();
 //! ctx.add_raw_property("width".to_string(), "100".to_string());

@@ -144,11 +144,11 @@ fn main() -> anyhow::Result<()> {
 
     // Build processor with mappings, compat mode, ROS extensions, and ROS YAML units
     // ROS features are enabled by default in CLI for user convenience
-    let mut builder = xacro::XacroProcessor::builder()
+    let mut builder = xacro_rs::XacroProcessor::builder()
         .with_args(mappings)
         .with_compat_mode(compat_mode)
-        .with_extension(Box::new(xacro::extensions::FindExtension::new()))
-        .with_extension(Box::new(xacro::extensions::OptEnvExtension::new()));
+        .with_extension(Box::new(xacro_rs::extensions::FindExtension::new()))
+        .with_extension(Box::new(xacro_rs::extensions::OptEnvExtension::new()));
 
     #[cfg(feature = "yaml")]
     {
