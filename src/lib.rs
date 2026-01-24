@@ -1,3 +1,47 @@
+//! [Xacro](https://wiki.ros.org/xacro) processor in Rust.
+//!
+//! `xacro` is an XML macro processor, that expands properties, macros, and conditionals.
+//! The crate provides ROS specific extensions as a default, but can be used without.
+//!
+//! # Quick Start
+//!
+//! Process a xacro file:
+//!
+//! ```no_run
+//! let urdf = xacro::process_file("robot.xacro")?;
+//! # Ok::<(), xacro::XacroError>(())
+//! ```
+//!
+//! Use [`process_string`] for string content. For more control (arguments, extensions, compatibility modes):
+//!
+//! ```no_run
+//! let processor = xacro::XacroProcessor::builder()
+//!     .with_arg("robot_name", "my_robot")
+//!     .build();
+//! let urdf = processor.run("robot.xacro")?;
+//! # Ok::<(), xacro::XacroError>(())
+//! ```
+//!
+//! # Examples
+//!
+//! See the [`examples/`](https://github.com/kaidokert/xacro/tree/main/examples)
+//! directory for complete examples including:
+//! - Basic file processing
+//! - Processing from stdin
+//! - Using arguments and the builder API
+//! - ROS extensions and YAML support
+//! - Generic XML macros (non-ROS usage)
+//!
+//! # Feature Flags
+//!
+//! - `yaml` (default): Enable YAML loading with `load_yaml()`
+//! - `compat` (default): Python Xacro compatibility mode.
+//!
+//! # Compatibility
+//!
+//! This crate aims for feature parity with [Python xacro](http://wiki.ros.org/xacro).
+//! See the [README](https://github.com/kaidokert/xacro#readme) for status and limitations.
+
 #![forbid(unsafe_code)]
 // #![warn(clippy::pedantic)]
 #![warn(clippy::alloc_instead_of_core)]

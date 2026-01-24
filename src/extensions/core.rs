@@ -18,12 +18,12 @@ pub fn default_extensions() -> Vec<Box<dyn ExtensionHandler>> {
 /// Handles $(cwd) - returns current working directory.
 ///
 /// # Examples
-/// ```
-/// // In xacro file:
-/// // <path>$(cwd)/models/robot.urdf</path>
-/// //
-/// // Resolves to something like:
-/// // <path>/home/user/project/models/robot.urdf</path>
+/// ```text
+/// In xacro file:
+/// <path>$(cwd)/models/robot.urdf</path>
+///
+/// Resolves to something like:
+/// <path>/home/user/project/models/robot.urdf</path>
 /// ```
 pub struct CwdExtension;
 
@@ -50,11 +50,11 @@ impl ExtensionHandler for CwdExtension {
 /// Handles $(env VAR) - returns environment variable.
 ///
 /// # Examples
-/// ```
-/// // In xacro file:
-/// // <user>$(env USER)</user>
-/// //
-/// // Resolves to the USER environment variable value
+/// ```text
+/// In xacro file:
+/// <user>$(env USER)</user>
+///
+/// Resolves to the USER environment variable value
 /// ```
 pub struct EnvExtension;
 

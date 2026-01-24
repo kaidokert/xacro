@@ -44,18 +44,18 @@ pub trait ExtensionHandler {
     /// - `Err(e)`: Command recognized but resolution failed
     ///
     /// # Examples
-    /// ```
-    /// // Input: "$(env HOME)"
-    /// // command = "env"
-    /// // args_raw = "HOME"
+    /// ```text
+    /// Input: "$(env HOME)"
+    /// command = "env"
+    /// args_raw = "HOME"
     ///
-    /// // Input: "$(optenv VAR default value)"
-    /// // command = "optenv"
-    /// // args_raw = "VAR default value"
+    /// Input: "$(optenv VAR default value)"
+    /// command = "optenv"
+    /// args_raw = "VAR default value"
     ///
-    /// // Input: "$(cwd)"
-    /// // command = "cwd"
-    /// // args_raw = ""
+    /// Input: "$(cwd)"
+    /// command = "cwd"
+    /// args_raw = ""
     /// ```
     fn resolve(
         &self,
@@ -89,12 +89,12 @@ impl ArgRegistry {
         Self(Rc::new(RefCell::new(HashMap::new())))
     }
 
-    /// Create from existing Rc<RefCell<HashMap>> (for compatibility with existing code).
+    /// Create from existing `Rc<RefCell<HashMap>>` (for compatibility with existing code).
     pub fn from_rc(inner: Rc<RefCell<HashMap<String, String>>>) -> Self {
         Self(inner)
     }
 
-    /// Get the inner Rc<RefCell<HashMap>> (for compatibility with existing code).
+    /// Get the inner `Rc<RefCell<HashMap>>` (for compatibility with existing code).
     pub fn inner(&self) -> Rc<RefCell<HashMap<String, String>>> {
         self.0.clone()
     }
