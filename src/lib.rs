@@ -44,7 +44,7 @@
 //!
 //! # Compatibility
 //!
-//! This crate aims for feature parity with [Python xacro](http://wiki.ros.org/xacro).
+//! This crate aims for feature parity with [Python xacro](https://wiki.ros.org/xacro).
 //! See the [README](https://github.com/kaidokert/xacro#readme) for status and limitations.
 
 #![forbid(unsafe_code)]
