@@ -34,6 +34,8 @@ pub struct FindExtension {
     search_paths: RefCell<Option<Vec<PathBuf>>>,
     /// Package map from RUST_XACRO_PACKAGE_MAP environment variable (lazy-loaded)
     package_map: RefCell<Option<HashMap<String, PathBuf>>>,
+    /// Current file being processed (for ancestor package detection)
+    current_file: RefCell<Option<PathBuf>>,
 }
 
 impl FindExtension {
@@ -45,6 +47,7 @@ impl FindExtension {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(None),
             package_map: RefCell::new(None),
+            current_file: RefCell::new(None),
         }
     }
 
@@ -57,7 +60,52 @@ impl FindExtension {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(Some(search_paths)),
             package_map: RefCell::new(None),
+            current_file: RefCell::new(None),
         }
+    }
+
+    /// Set the current file being processed (for ancestor package detection)
+    fn set_current_file(
+        &self,
+        file: Option<PathBuf>,
+    ) {
+        *self.current_file.borrow_mut() = file;
+    }
+
+    /// Find a package by walking up ancestor directories from current file
+    ///
+    /// Looks for package.xml in ancestor directories and checks if the package
+    /// name matches. Stops at the first package.xml found (doesn't traverse siblings).
+    fn find_ancestor_package(
+        &self,
+        package_name: &str,
+    ) -> Option<PathBuf> {
+        let current_file = self.current_file.borrow();
+        let file_path = current_file.as_ref()?;
+
+        // Walk up from the file looking for package.xml
+        for ancestor in file_path.ancestors().skip(1) {
+            // skip(1) to skip the file itself
+            let pkg_xml = ancestor.join("package.xml");
+            if pkg_xml.exists() {
+                // Try to read the package name from package.xml
+                if let Ok(content) = fs::read_to_string(&pkg_xml) {
+                    if let Ok(element) = Element::parse(content.as_bytes()) {
+                        if let Some(name_elem) = element.get_child("name") {
+                            if let Some(name_text) = name_elem.get_text() {
+                                if name_text.as_ref() == package_name {
+                                    return Some(ancestor.to_path_buf());
+                                }
+                            }
+                        }
+                    }
+                }
+                // Stop at first package.xml - don't search beyond package boundary
+                break;
+            }
+        }
+
+        None
     }
 
     /// Get search paths (lazy initialization)
@@ -401,10 +449,31 @@ impl FindExtension {
             return Ok(cached_path.clone());
         }
 
+        // Check explicit package map first (hermetic mode takes precedence)
+        // This ensures RUST_XACRO_PACKAGE_MAP overrides all filesystem discovery
+        if let Some(pkg_path) = self.get_package_from_map(package_name) {
+            if pkg_path.is_dir() {
+                self.cache
+                    .borrow_mut()
+                    .insert(package_name.to_string(), pkg_path.clone());
+                return Ok(pkg_path);
+            }
+        }
+
+        // Check ancestor directories from current file
+        // This handles the common case: xacro files referencing their own package
+        if let Some(pkg_path) = self.find_ancestor_package(package_name) {
+            // Cache the result
+            self.cache
+                .borrow_mut()
+                .insert(package_name.to_string(), pkg_path.clone());
+            return Ok(pkg_path);
+        }
+
         // Get search paths (lazy init)
         let search_paths = self.get_search_paths();
 
-        // Search for package
+        // Search for package (but skip package_map check since we already did it)
         if let Some(pkg_path) = self.search_package(package_name, &search_paths) {
             // Cache the result
             self.cache
@@ -438,6 +507,13 @@ impl ExtensionHandler for FindExtension {
 
         let pkg_path = self.find_package(package_name)?;
         Ok(Some(pkg_path.display().to_string()))
+    }
+
+    fn on_file_change(
+        &self,
+        current_file: &std::path::Path,
+    ) {
+        self.set_current_file(Some(current_file.to_path_buf()));
     }
 }
 
