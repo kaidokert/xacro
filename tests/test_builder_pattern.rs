@@ -1,5 +1,6 @@
 mod common;
 use common::*;
+use core::any::Any;
 use xacro::{extensions::ExtensionHandler, XacroProcessor};
 
 /// Test extension that returns a fixed value
@@ -17,6 +18,10 @@ impl ExtensionHandler for TestExtension {
             Ok(None)
         }
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 /// Test extension that attempts to override the "arg" command
@@ -33,6 +38,10 @@ impl ExtensionHandler for ArgOverrideExtension {
         } else {
             Ok(None)
         }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
