@@ -62,6 +62,21 @@ pub trait ExtensionHandler {
         command: &str,
         args_raw: &str,
     ) -> Result<Option<String>, Box<dyn StdError>>;
+
+    /// Lifecycle hook: Called when the processor enters or clears a file context.
+    ///
+    /// Extensions that need to track the current file being processed can
+    /// override this method. The default implementation does nothing.
+    ///
+    /// # Parameters
+    /// - `current_file`: `Some(path)` when entering a specific file context,
+    ///   `None` when clearing or resetting the current file context
+    fn on_file_change(
+        &self,
+        _current_file: Option<&std::path::Path>,
+    ) {
+        // Default implementation does nothing
+    }
 }
 
 /// Shared argument registry with encapsulated interior mutability.

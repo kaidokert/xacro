@@ -458,6 +458,22 @@ impl XacroProcessor {
         self.run_impl(doc, std::path::Path::new("."), None)
     }
 
+    /// Notify all extension handlers of file context change
+    ///
+    /// Calls the lifecycle hook on_file_change() for all registered extensions.
+    /// Extensions that need file context (e.g., FindExtension for ancestor package
+    /// detection) can implement this hook to update their state.
+    ///
+    /// Pass Some(path) when entering a file context, None when clearing.
+    fn notify_file_change(
+        extensions: &Rc<Vec<Box<dyn ExtensionHandler>>>,
+        file_path: Option<&std::path::Path>,
+    ) {
+        for handler in extensions.iter() {
+            handler.on_file_change(file_path);
+        }
+    }
+
     /// Internal implementation
     fn run_impl(
         &self,
@@ -498,8 +514,13 @@ impl XacroProcessor {
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 
         // Set actual source file path if provided (replaces directory in namespace_stack)
+        // Always notify extensions to prevent stale file context
         if let Some(file) = file_path {
             ctx.set_source_file(file.to_path_buf());
+            Self::notify_file_change(&self.extensions, Some(file));
+        } else {
+            // For run_from_string, clear file context in extensions
+            Self::notify_file_change(&self.extensions, None);
         }
 
         // Expand the root element itself. This will handle attributes on the root

@@ -34,6 +34,8 @@ pub struct FindExtension {
     search_paths: RefCell<Option<Vec<PathBuf>>>,
     /// Package map from RUST_XACRO_PACKAGE_MAP environment variable (lazy-loaded)
     package_map: RefCell<Option<HashMap<String, PathBuf>>>,
+    /// Current file being processed (for ancestor package detection)
+    current_file: RefCell<Option<PathBuf>>,
 }
 
 impl FindExtension {
@@ -45,6 +47,7 @@ impl FindExtension {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(None),
             package_map: RefCell::new(None),
+            current_file: RefCell::new(None),
         }
     }
 
@@ -57,7 +60,58 @@ impl FindExtension {
             cache: RefCell::new(HashMap::new()),
             search_paths: RefCell::new(Some(search_paths)),
             package_map: RefCell::new(None),
+            current_file: RefCell::new(None),
         }
+    }
+
+    /// Set the current file being processed (for ancestor package detection)
+    fn set_current_file(
+        &self,
+        file: Option<PathBuf>,
+    ) {
+        *self.current_file.borrow_mut() = file;
+    }
+
+    /// Find a package by walking up ancestor directories from current file
+    ///
+    /// Looks for package.xml or manifest.xml in ancestor directories and checks
+    /// if the package name matches. Stops at the first package boundary found.
+    ///
+    /// Returns an absolute path to avoid relative path resolution issues when
+    /// the result is used in include directives.
+    fn find_ancestor_package(
+        &self,
+        package_name: &str,
+    ) -> Option<PathBuf> {
+        let current_file = self.current_file.borrow();
+        let file_path = current_file.as_ref()?;
+
+        // Walk up from the file looking for package boundaries
+        for ancestor in file_path.ancestors().skip(1) {
+            // skip(1) to skip the file itself
+            if Self::is_ros_package(ancestor) {
+                // Use existing helper to read package name from package.xml or manifest.xml
+                if Self::read_package_name(ancestor).as_deref() == Some(package_name) {
+                    // Convert to absolute path to avoid relative path resolution issues
+                    // If we can't make an absolute path, return None (better than relative path)
+                    let abs_path = if let Ok(canonical) = ancestor.canonicalize() {
+                        canonical
+                    } else if ancestor.is_absolute() {
+                        ancestor.to_path_buf()
+                    } else if let Ok(cwd) = std::env::current_dir() {
+                        cwd.join(ancestor)
+                    } else {
+                        // Can't determine absolute path - return None
+                        return None;
+                    };
+                    return Some(abs_path);
+                }
+                // Stop at first package boundary - don't search beyond
+                break;
+            }
+        }
+
+        None
     }
 
     /// Get search paths (lazy initialization)
@@ -324,25 +378,7 @@ impl FindExtension {
         package_name: &str,
         search_paths: &[PathBuf],
     ) -> Option<PathBuf> {
-        // FIRST: Check explicit package map (override semantics for hermetic builds)
-        // Trust the explicit mapping without ROS package validation.
-        // Accepts any existing directory, including:
-        // - Data-only directories (no package.xml)
-        // - Custom hermetic build layouts
-        // - Test fixtures
-        if let Some(path) = self.get_package_from_map(package_name) {
-            if path.is_dir() {
-                return Some(path);
-            }
-            // Warn on misconfiguration: mapped path doesn't exist or isn't a directory
-            log::warn!(
-                "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
-                package_name,
-                path.display()
-            );
-        }
-
-        // THEN: Standard ROS discovery (ROS_PACKAGE_PATH, etc.)
+        // Search ROS_PACKAGE_PATH and workspace directories
         for search_path in search_paths {
             // Check if search_path itself is the package (self-match)
             // Verify package name from metadata to ensure correctness
@@ -401,19 +437,42 @@ impl FindExtension {
             return Ok(cached_path.clone());
         }
 
-        // Get search paths (lazy init)
-        let search_paths = self.get_search_paths();
+        // Try resolution strategies in order, storing result once found
+        let pkg_path = {
+            // 1. Check explicit package map first (hermetic mode takes precedence)
+            if let Some(path) = self.get_package_from_map(package_name) {
+                if path.is_dir() {
+                    Some(path)
+                } else {
+                    // Warn on misconfiguration but continue to other strategies
+                    log::warn!(
+                        "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
+                        package_name,
+                        path.display()
+                    );
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        // 2. Check ancestor directories from current file
+        .or_else(|| self.find_ancestor_package(package_name))
+        // 3. Search ROS_PACKAGE_PATH and workspace discovery
+        .or_else(|| {
+            let search_paths = self.get_search_paths();
+            self.search_package(package_name, &search_paths)
+        });
 
-        // Search for package
-        if let Some(pkg_path) = self.search_package(package_name, &search_paths) {
-            // Cache the result
+        // Cache and return result, or error if not found
+        if let Some(path) = pkg_path {
             self.cache
                 .borrow_mut()
-                .insert(package_name.to_string(), pkg_path.clone());
-            return Ok(pkg_path);
+                .insert(package_name.to_string(), path.clone());
+            Ok(path)
+        } else {
+            Err(format!("Package not found: '{}'", package_name).into())
         }
-
-        Err(format!("Package not found: '{}'", package_name).into())
     }
 }
 
@@ -438,6 +497,13 @@ impl ExtensionHandler for FindExtension {
 
         let pkg_path = self.find_package(package_name)?;
         Ok(Some(pkg_path.display().to_string()))
+    }
+
+    fn on_file_change(
+        &self,
+        current_file: Option<&std::path::Path>,
+    ) {
+        self.set_current_file(current_file.map(|p| p.to_path_buf()));
     }
 }
 
@@ -638,5 +704,204 @@ mod tests {
         assert!(!FindExtension::is_valid_package_name("foo.bar")); // dot not allowed
         assert!(!FindExtension::is_valid_package_name("foo bar")); // space not allowed
         assert!(!FindExtension::is_valid_package_name("_foo")); // starts with underscore
+    }
+
+    #[test]
+    fn test_ancestor_package_detection_with_package_xml() {
+        use tempfile::TempDir;
+
+        let tmpdir = TempDir::new().expect("Failed to create temp dir");
+        let package_root = tmpdir.path().join("my_package");
+        let urdf_dir = package_root.join("urdf");
+
+        fs::create_dir_all(&urdf_dir).expect("Failed to create urdf dir");
+
+        // Create package.xml
+        let package_xml = package_root.join("package.xml");
+        fs::write(
+            &package_xml,
+            r#"<?xml version="1.0"?>
+<package format="2">
+  <name>my_package</name>
+  <version>1.0.0</version>
+  <description>Test package</description>
+  <maintainer email="test@test.com">Test</maintainer>
+  <license>BSD</license>
+</package>"#,
+        )
+        .expect("Failed to write package.xml");
+
+        // Create a dummy xacro file
+        let xacro_file = urdf_dir.join("robot.xacro");
+        fs::write(&xacro_file, "<robot/>").expect("Failed to write xacro");
+
+        // Test ancestor detection
+        let ext = FindExtension::new();
+        ext.set_current_file(Some(xacro_file));
+
+        let result = ext.find_ancestor_package("my_package");
+        assert!(result.is_some(), "Should find ancestor package");
+        let found_path = result.unwrap();
+        assert!(
+            found_path.ends_with("my_package"),
+            "Should return package root"
+        );
+        assert!(found_path.is_absolute(), "Should return absolute path");
+    }
+
+    #[test]
+    fn test_ancestor_package_detection_with_manifest_xml() {
+        use tempfile::TempDir;
+
+        let tmpdir = TempDir::new().expect("Failed to create temp dir");
+        let package_root = tmpdir.path().join("rosbuild_package");
+        let src_dir = package_root.join("src");
+
+        fs::create_dir_all(&src_dir).expect("Failed to create src dir");
+
+        // Create manifest.xml (ROS1 rosbuild format)
+        let manifest_xml = package_root.join("manifest.xml");
+        fs::write(
+            &manifest_xml,
+            r#"<package name="rosbuild_package">
+  <description>ROS1 test package</description>
+  <author>Test</author>
+  <license>BSD</license>
+  <depend package="rospy"/>
+</package>"#,
+        )
+        .expect("Failed to write manifest.xml");
+
+        // Create a dummy xacro file
+        let xacro_file = src_dir.join("robot.xacro");
+        fs::write(&xacro_file, "<robot/>").expect("Failed to write xacro");
+
+        // Test ancestor detection - should work with manifest.xml too
+        let ext = FindExtension::new();
+        ext.set_current_file(Some(xacro_file));
+
+        let result = ext.find_ancestor_package("rosbuild_package");
+        assert!(
+            result.is_some(),
+            "Should find ancestor package with manifest.xml"
+        );
+        let found_path = result.unwrap();
+        assert!(
+            found_path.ends_with("rosbuild_package"),
+            "Should return package root"
+        );
+        assert!(found_path.is_absolute(), "Should return absolute path");
+    }
+
+    #[test]
+    fn test_ancestor_package_detection_stops_at_first_boundary() {
+        use tempfile::TempDir;
+
+        let tmpdir = TempDir::new().expect("Failed to create temp dir");
+        let outer_pkg = tmpdir.path().join("outer_package");
+        let inner_pkg = outer_pkg.join("nested").join("inner_package");
+        let urdf_dir = inner_pkg.join("urdf");
+
+        fs::create_dir_all(&urdf_dir).expect("Failed to create urdf dir");
+
+        // Create outer package.xml
+        let outer_pkg_xml = outer_pkg.join("package.xml");
+        fs::write(
+            &outer_pkg_xml,
+            r#"<?xml version="1.0"?>
+<package><name>outer_package</name></package>"#,
+        )
+        .expect("Failed to write outer package.xml");
+
+        // Create inner package.xml
+        let inner_pkg_xml = inner_pkg.join("package.xml");
+        fs::write(
+            &inner_pkg_xml,
+            r#"<?xml version="1.0"?>
+<package><name>inner_package</name></package>"#,
+        )
+        .expect("Failed to write inner package.xml");
+
+        // Create a dummy xacro file in inner package
+        let xacro_file = urdf_dir.join("robot.xacro");
+        fs::write(&xacro_file, "<robot/>").expect("Failed to write xacro");
+
+        // Test: should find inner_package first, not outer_package
+        let ext = FindExtension::new();
+        ext.set_current_file(Some(xacro_file.clone()));
+
+        let result = ext.find_ancestor_package("inner_package");
+        assert!(result.is_some(), "Should find inner package");
+        assert!(result.unwrap().ends_with("inner_package"));
+
+        // Should NOT find outer_package (stops at first boundary)
+        ext.set_current_file(Some(xacro_file));
+        let result = ext.find_ancestor_package("outer_package");
+        assert!(
+            result.is_none(),
+            "Should not find outer package (stops at first boundary)"
+        );
+    }
+
+    #[test]
+    fn test_ancestor_package_detection_whitespace_trimming() {
+        use tempfile::TempDir;
+
+        let tmpdir = TempDir::new().expect("Failed to create temp dir");
+        let package_root = tmpdir.path().join("whitespace_pkg");
+        let urdf_dir = package_root.join("urdf");
+
+        fs::create_dir_all(&urdf_dir).expect("Failed to create urdf dir");
+
+        // Create package.xml with whitespace in name element
+        let package_xml = package_root.join("package.xml");
+        fs::write(
+            &package_xml,
+            r#"<?xml version="1.0"?>
+<package>
+  <name>
+    whitespace_pkg
+  </name>
+</package>"#,
+        )
+        .expect("Failed to write package.xml");
+
+        let xacro_file = urdf_dir.join("robot.xacro");
+        fs::write(&xacro_file, "<robot/>").expect("Failed to write xacro");
+
+        // Test: should match despite whitespace
+        let ext = FindExtension::new();
+        ext.set_current_file(Some(xacro_file));
+
+        let result = ext.find_ancestor_package("whitespace_pkg");
+        assert!(
+            result.is_some(),
+            "Should find package despite whitespace in name"
+        );
+    }
+
+    #[test]
+    fn test_on_file_change_sets_and_clears_context() {
+        use tempfile::TempDir;
+
+        let tmpdir = TempDir::new().expect("Failed to create temp dir");
+        let test_file = tmpdir.path().join("test.xacro");
+        fs::write(&test_file, "<robot/>").expect("Failed to write test file");
+
+        let ext = FindExtension::new();
+
+        // Set file context with Some
+        ext.on_file_change(Some(&test_file));
+        assert!(
+            ext.current_file.borrow().is_some(),
+            "Should set file context"
+        );
+
+        // Clear context with None
+        ext.on_file_change(None);
+        assert!(
+            ext.current_file.borrow().is_none(),
+            "Should clear context when passed None"
+        );
     }
 }
