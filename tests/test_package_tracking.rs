@@ -2,20 +2,16 @@
 mod common;
 
 use common::parse_xml;
-use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use tempfile::TempDir;
 use xacro::{extensions::FindExtension, XacroProcessor};
 
 #[test]
 fn test_package_tracking_via_extensions_accessor() {
-    // Create temporary package structure
-    let temp_dir = std::env::temp_dir().join("xacro_test_pkg_tracking");
-    let pkg1_dir = temp_dir.join("robot_description");
-    let pkg2_dir = temp_dir.join("sensor_description");
-
-    // Clean up from any previous test runs
-    let _ = fs::remove_dir_all(&temp_dir);
+    // Create uniquely-scoped temporary package structure
+    let temp_dir = TempDir::new().expect("Failed to create temporary test directory");
+    let pkg1_dir = temp_dir.path().join("robot_description");
+    let pkg2_dir = temp_dir.path().join("sensor_description");
 
     // Create package directories with proper package.xml files
     fs::create_dir_all(&pkg1_dir).expect("Failed to create robot_description dir");
@@ -61,9 +57,9 @@ fn test_package_tracking_via_extensions_accessor() {
     // Build processor with FindExtension
     let processor = XacroProcessor::builder()
         .clear_extensions()
-        .with_extension(Box::new(FindExtension::with_search_paths(vec![
-            temp_dir.clone()
-        ])))
+        .with_extension(Box::new(FindExtension::with_search_paths(vec![temp_dir
+            .path()
+            .to_path_buf()])))
         .build();
 
     // Process xacro file
@@ -82,21 +78,12 @@ fn test_package_tracking_via_extensions_accessor() {
     // Now use the extensions() accessor to get package tracking info
     let extensions = processor.extensions();
 
-    // Downcast to FindExtension
-    let mut found_packages: Option<HashMap<String, PathBuf>> = None;
-    for ext in extensions.iter() {
-        if let Some(find_ext) = ext.as_any().downcast_ref::<FindExtension>() {
-            found_packages = Some(find_ext.get_found_packages());
-            break;
-        }
-    }
-
-    // Verify we got the packages
-    assert!(
-        found_packages.is_some(),
-        "Should be able to downcast to FindExtension"
-    );
-    let packages = found_packages.unwrap();
+    // Downcast to FindExtension and get packages
+    let find_ext = extensions
+        .iter()
+        .find_map(|ext| ext.as_any().downcast_ref::<FindExtension>())
+        .expect("Should be able to downcast to FindExtension");
+    let packages = find_ext.get_found_packages();
 
     // Verify both packages were tracked
     assert_eq!(
@@ -125,9 +112,7 @@ fn test_package_tracking_via_extensions_accessor() {
         &pkg2_dir,
         "sensor_description path should match"
     );
-
-    // Clean up
-    let _ = fs::remove_dir_all(&temp_dir);
+    // TempDir automatically cleans up on drop
 }
 
 #[test]
@@ -145,13 +130,9 @@ fn test_package_tracking_no_find_extension() {
 
     // Try to get FindExtension - should not find one
     let extensions = processor.extensions();
-    let mut found_find_ext = false;
-    for ext in extensions.iter() {
-        if ext.as_any().downcast_ref::<FindExtension>().is_some() {
-            found_find_ext = true;
-            break;
-        }
-    }
+    let found_find_ext = extensions
+        .iter()
+        .any(|ext| ext.as_any().downcast_ref::<FindExtension>().is_some());
 
     assert!(
         !found_find_ext,
@@ -169,14 +150,14 @@ fn test_package_tracking_empty_initially() {
 
     // Before processing, the package map should be empty
     let extensions = processor.extensions();
-    for ext in extensions.iter() {
-        if let Some(find_ext) = ext.as_any().downcast_ref::<FindExtension>() {
-            let packages = find_ext.get_found_packages();
-            assert_eq!(
-                packages.len(),
-                0,
-                "Package map should be empty before processing"
-            );
-        }
-    }
+    let find_ext = extensions
+        .iter()
+        .find_map(|ext| ext.as_any().downcast_ref::<FindExtension>())
+        .expect("FindExtension should be registered");
+
+    let packages = find_ext.get_found_packages();
+    assert!(
+        packages.is_empty(),
+        "Package map should be empty before processing"
+    );
 }
