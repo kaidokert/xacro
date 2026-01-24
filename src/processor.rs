@@ -512,13 +512,13 @@ impl XacroProcessor {
         ctx.set_max_recursion_depth(self.max_recursion_depth);
 
         // Set actual source file path if provided (replaces directory in namespace_stack)
+        // Always notify extensions to prevent stale file context
         if let Some(file) = file_path {
             ctx.set_source_file(file.to_path_buf());
-
-            // Notify extensions of file context change (lifecycle hook)
-            // Extensions that need file context (e.g., FindExtension for ancestor
-            // package detection) can implement on_file_change() to track it
             Self::notify_file_change(&self.extensions, file);
+        } else {
+            // For run_from_string, pass base_path to clear file context in extensions
+            Self::notify_file_change(&self.extensions, base_path);
         }
 
         // Expand the root element itself. This will handle attributes on the root

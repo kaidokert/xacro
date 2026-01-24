@@ -96,7 +96,8 @@ impl FindExtension {
                     if let Ok(element) = Element::parse(content.as_bytes()) {
                         if let Some(name_elem) = element.get_child("name") {
                             if let Some(name_text) = name_elem.get_text() {
-                                if name_text.as_ref() == package_name {
+                                // Trim whitespace to match read_name_from_package_xml behavior
+                                if name_text.trim() == package_name {
                                     // Convert to absolute path to avoid relative path resolution issues
                                     // when the result is used in include directives
                                     let abs_path = ancestor
@@ -481,7 +482,7 @@ impl FindExtension {
         // Get search paths (lazy init)
         let search_paths = self.get_search_paths();
 
-        // Search for package (but skip package_map check since we already did it)
+        // Search ROS_PACKAGE_PATH and workspace discovery
         if let Some(pkg_path) = self.search_package(package_name, &search_paths) {
             // Cache the result
             self.cache
@@ -521,7 +522,13 @@ impl ExtensionHandler for FindExtension {
         &self,
         current_file: &std::path::Path,
     ) {
-        self.set_current_file(Some(current_file.to_path_buf()));
+        // Only set file context if path is an actual file (not directory)
+        // This prevents stale context when run_from_string passes base_path
+        if current_file.is_file() {
+            self.set_current_file(Some(current_file.to_path_buf()));
+        } else {
+            self.set_current_file(None);
+        }
     }
 }
 
