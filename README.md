@@ -1,9 +1,7 @@
 # xacro-rs
 
-<!-- Badges to add after publication:
 [![crate](https://img.shields.io/crates/v/xacro-rs.svg)](https://crates.io/crates/xacro-rs)
 [![documentation](https://docs.rs/xacro-rs/badge.svg)](https://docs.rs/xacro-rs/)
--->
 [![Build and test](https://github.com/kaidokert/xacro/actions/workflows/rust.yaml/badge.svg)](https://github.com/kaidokert/xacro/actions/workflows/rust.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/kaidokert/xacro/badge.svg?branch=main)](https://coveralls.io/github/kaidokert/xacro?branch=main)
 
