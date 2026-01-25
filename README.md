@@ -4,6 +4,7 @@
 [![documentation](https://docs.rs/xacro-rs/badge.svg)](https://docs.rs/xacro-rs/)
 [![Build and test](https://github.com/kaidokert/xacro/actions/workflows/rust.yaml/badge.svg)](https://github.com/kaidokert/xacro/actions/workflows/rust.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/kaidokert/xacro/badge.svg?branch=main)](https://coveralls.io/github/kaidokert/xacro?branch=main)
+[![License: MIT](https://img.shields.io/crates/l/xacro-rs)](https://github.com/kaidokert/xacro/blob/main/LICENSE)
 
 An XML preprocessor for xacro files to generate URDF files
 
