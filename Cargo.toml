@@ -6,6 +6,15 @@ rust-version = "1.70"
 description = "A xml preprocessor for xacro files to generate URDF files"
 license = "MIT"
 repository = "https://github.com/kaidokert/xacro"
+homepage = "https://github.com/kaidokert/xacro"
+documentation = "https://docs.rs/xacro-rs"
+readme = "README.md"
+keywords = ["xacro", "urdf", "ros", "xml", "robotics"]
+categories = ["parser-implementations", "template-engine"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["compat" , "yaml" ]
