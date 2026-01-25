@@ -1,6 +1,6 @@
 [package]
 name = "xacro-rs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.70"
 description = "A xml preprocessor for xacro files to generate URDF files"
@@ -25,7 +25,7 @@ yaml = ["dep:saphyr"]  # YAML loading support via load_yaml() function
 xml = "0.8"
 xmltree = { package = "xmltree-ns", version="0.13" }
 thiserror = "2.0"
-pyisheval = "0.16"
+pyisheval = "0.17"
 regex = "1.12"
 log = "0.4"
 clap = { version = "4.5", features = ["derive"] }
@@ -43,6 +43,3 @@ predicates = "3"
 [[bin]]
 name = "xacro-rs"
 path = "src/bin/xacro.rs"
-
-[patch.crates-io]
-pyisheval = { git = "https://github.com/kaidokert/pyisheval", tag = "v0.16.0_with_in_operator" }
