@@ -103,11 +103,10 @@ impl FindExtension {
             if Self::is_ros_package(ancestor) {
                 // Use existing helper to read package name from package.xml or manifest.xml
                 if Self::read_package_name(ancestor).as_deref() == Some(package_name) {
-                    // Convert to absolute path to avoid relative path resolution issues
-                    // If we can't make an absolute path, return None (better than relative path)
-                    let abs_path = if let Ok(canonical) = ancestor.canonicalize() {
-                        canonical
-                    } else if ancestor.is_absolute() {
+                    // Convert to absolute path without using canonicalize()
+                    // canonicalize() adds \\?\ prefix on Windows which makes file system operations
+                    // strict about path separators, causing issues with mixed separators
+                    let abs_path = if ancestor.is_absolute() {
                         ancestor.to_path_buf()
                     } else if let Ok(cwd) = std::env::current_dir() {
                         cwd.join(ancestor)
