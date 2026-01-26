@@ -132,7 +132,7 @@ impl FindExtension {
                 "{} entry for '{}' points to non-existent path: {}",
                 PACKAGE_MAP_ENV_VAR,
                 pkg_name,
-                path.display()
+                abs_path.display()
             );
             None
         }
