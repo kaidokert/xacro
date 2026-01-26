@@ -11,6 +11,9 @@ use std::{
 };
 use xmltree::Element;
 
+// Environment variable name for package path overrides
+const PACKAGE_MAP_ENV_VAR: &str = "RUST_XACRO_PACKAGE_MAP";
+
 // Platform-specific path separator for RUST_XACRO_PACKAGE_MAP
 #[cfg(windows)]
 const PATH_LIST_SEPARATOR: char = ';';
@@ -66,13 +69,99 @@ impl FindExtension {
 
     /// Get all packages that were resolved during processing.
     ///
-    /// Returns a map of package names to their absolute paths. This includes
-    /// all packages that were successfully resolved via $(find package_name).
+    /// Returns a map of package names to their absolute paths. This includes:
+    /// - All packages resolved via $(find package_name)
+    /// - All valid packages declared in RUST_XACRO_PACKAGE_MAP
+    ///
+    /// Resolution priority: RUST_XACRO_PACKAGE_MAP entries override discovered
+    /// packages when both exist for the same package name.
+    ///
+    /// Note: Invalid entries in RUST_XACRO_PACKAGE_MAP (non-existent or
+    /// non-directory paths) are filtered out at load time with warnings logged.
     ///
     /// This is useful for dependency tracking and reporting which ROS packages
     /// were used during xacro processing.
     pub fn get_found_packages(&self) -> HashMap<String, PathBuf> {
-        self.cache.borrow().clone()
+        let mut result = self.cache.borrow().clone();
+
+        // Merge in packages from RUST_XACRO_PACKAGE_MAP
+        // These override discovered packages (env var takes precedence)
+        // Paths are already normalized and validated at load time
+        self.ensure_package_map_loaded();
+
+        if let Some(ref pkg_map) = *self.package_map.borrow() {
+            for (pkg, path) in pkg_map.iter() {
+                result.insert(pkg.clone(), path.clone());
+            }
+        }
+
+        result
+    }
+
+    /// Convert a path to absolute and validate it exists.
+    /// Returns None with a warning if the path can't be resolved or doesn't exist.
+    fn normalize_and_validate_path(
+        pkg_name: &str,
+        path: &Path,
+    ) -> Option<PathBuf> {
+        // Convert to absolute without canonicalize() to avoid Windows \\?\ prefix issues
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            match env::current_dir() {
+                Ok(cwd) => cwd.join(path),
+                Err(e) => {
+                    log::warn!(
+                        "{} entry for '{}' has relative path but current_dir unavailable ({}): {}",
+                        PACKAGE_MAP_ENV_VAR,
+                        pkg_name,
+                        e,
+                        path.display()
+                    );
+                    return None;
+                }
+            }
+        };
+
+        // Validate the path exists and is a directory
+        if abs_path.is_dir() {
+            Some(abs_path)
+        } else if !abs_path.exists() {
+            log::warn!(
+                "{} entry for '{}' does not exist: {}",
+                PACKAGE_MAP_ENV_VAR,
+                pkg_name,
+                abs_path.display()
+            );
+            None
+        } else {
+            log::warn!(
+                "{} entry for '{}' is not a directory: {}",
+                PACKAGE_MAP_ENV_VAR,
+                pkg_name,
+                abs_path.display()
+            );
+            None
+        }
+    }
+
+    /// Ensures the package map is loaded from environment variable (lazy initialization)
+    /// Normalizes paths to absolute and filters out invalid entries at load time.
+    fn ensure_package_map_loaded(&self) {
+        if self.package_map.borrow().is_none() {
+            let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
+            let raw_map = Self::parse_package_map(&map_str);
+
+            // Normalize and validate all paths at load time
+            let validated_map: HashMap<String, PathBuf> = raw_map
+                .into_iter()
+                .filter_map(|(pkg, path)| {
+                    Self::normalize_and_validate_path(&pkg, &path).map(|abs| (pkg, abs))
+                })
+                .collect();
+
+            *self.package_map.borrow_mut() = Some(validated_map);
+        }
     }
 
     /// Set the current file being processed (for ancestor package detection)
@@ -176,21 +265,11 @@ impl FindExtension {
         &self,
         package_name: &str,
     ) -> Option<PathBuf> {
-        // Check cache first
-        {
-            let map_ref = self.package_map.borrow();
-            if let Some(ref map) = *map_ref {
-                return map.get(package_name).cloned();
-            }
-        }
-
-        // Parse environment variable and cache
-        let map_str = env::var("RUST_XACRO_PACKAGE_MAP").unwrap_or_default();
-        let map = Self::parse_package_map(&map_str);
-
-        let result = map.get(package_name).cloned();
-        *self.package_map.borrow_mut() = Some(map);
-        result
+        self.ensure_package_map_loaded();
+        self.package_map
+            .borrow()
+            .as_ref()
+            .and_then(|map| map.get(package_name).cloned())
     }
 
     /// Parse package map string, handling paths with colons correctly.
@@ -448,31 +527,16 @@ impl FindExtension {
         }
 
         // Try resolution strategies in order, storing result once found
-        let pkg_path = {
-            // 1. Check explicit package map first (hermetic mode takes precedence)
-            if let Some(path) = self.get_package_from_map(package_name) {
-                if path.is_dir() {
-                    Some(path)
-                } else {
-                    // Warn on misconfiguration but continue to other strategies
-                    log::warn!(
-                        "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
-                        package_name,
-                        path.display()
-                    );
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        // 2. Check ancestor directories from current file
-        .or_else(|| self.find_ancestor_package(package_name))
-        // 3. Search ROS_PACKAGE_PATH and workspace discovery
-        .or_else(|| {
-            let search_paths = self.get_search_paths();
-            self.search_package(package_name, &search_paths)
-        });
+        // Note: get_package_from_map() returns pre-validated absolute paths
+        let pkg_path = self
+            .get_package_from_map(package_name)
+            // 2. Check ancestor directories from current file
+            .or_else(|| self.find_ancestor_package(package_name))
+            // 3. Search ROS_PACKAGE_PATH and workspace discovery
+            .or_else(|| {
+                let search_paths = self.get_search_paths();
+                self.search_package(package_name, &search_paths)
+            });
 
         // Cache and return result, or error if not found
         if let Some(path) = pkg_path {
