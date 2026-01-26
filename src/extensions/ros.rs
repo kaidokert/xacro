@@ -69,12 +69,15 @@ impl FindExtension {
 
     /// Get all packages that were resolved during processing.
     ///
-    /// Returns a map of package names to their paths. This includes:
-    /// - All packages resolved via $(find package_name) - these are absolute paths
-    /// - All packages declared in RUST_XACRO_PACKAGE_MAP - returned as provided
+    /// Returns a map of package names to their absolute paths. This includes:
+    /// - All packages resolved via $(find package_name)
+    /// - All packages declared in RUST_XACRO_PACKAGE_MAP (converted to absolute)
     ///
     /// Resolution priority: RUST_XACRO_PACKAGE_MAP entries override discovered
     /// packages when both exist for the same package name.
+    ///
+    /// Entries from RUST_XACRO_PACKAGE_MAP that point to non-existent paths
+    /// are excluded with a warning logged.
     ///
     /// This is useful for dependency tracking and reporting which ROS packages
     /// were used during xacro processing.
@@ -87,11 +90,43 @@ impl FindExtension {
 
         if let Some(ref pkg_map) = *self.package_map.borrow() {
             for (pkg, path) in pkg_map.iter() {
-                result.insert(pkg.clone(), path.clone());
+                // Validate path exists and convert to absolute
+                if let Some(abs_path) = Self::normalize_and_validate_path(pkg, path) {
+                    result.insert(pkg.clone(), abs_path);
+                }
             }
         }
 
         result
+    }
+
+    /// Convert a path to absolute and validate it exists.
+    /// Returns None with a warning if the path doesn't exist.
+    fn normalize_and_validate_path(
+        pkg_name: &str,
+        path: &Path,
+    ) -> Option<PathBuf> {
+        // Convert to absolute without canonicalize() to avoid Windows \\?\ prefix issues
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else if let Ok(cwd) = env::current_dir() {
+            cwd.join(path)
+        } else {
+            path.to_path_buf()
+        };
+
+        // Validate the path exists
+        if abs_path.is_dir() {
+            Some(abs_path)
+        } else {
+            log::warn!(
+                "{} entry for '{}' points to non-existent path: {}",
+                PACKAGE_MAP_ENV_VAR,
+                pkg_name,
+                path.display()
+            );
+            None
+        }
     }
 
     /// Ensures the package map is loaded from environment variable (lazy initialization)
