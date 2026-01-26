@@ -71,13 +71,13 @@ impl FindExtension {
     ///
     /// Returns a map of package names to their absolute paths. This includes:
     /// - All packages resolved via $(find package_name)
-    /// - All packages declared in RUST_XACRO_PACKAGE_MAP (converted to absolute)
+    /// - All valid packages declared in RUST_XACRO_PACKAGE_MAP
     ///
     /// Resolution priority: RUST_XACRO_PACKAGE_MAP entries override discovered
     /// packages when both exist for the same package name.
     ///
-    /// Entries from RUST_XACRO_PACKAGE_MAP that point to non-existent paths
-    /// are excluded with a warning logged.
+    /// Note: Invalid entries in RUST_XACRO_PACKAGE_MAP (non-existent or
+    /// non-directory paths) are filtered out at load time with warnings logged.
     ///
     /// This is useful for dependency tracking and reporting which ROS packages
     /// were used during xacro processing.
@@ -86,14 +86,12 @@ impl FindExtension {
 
         // Merge in packages from RUST_XACRO_PACKAGE_MAP
         // These override discovered packages (env var takes precedence)
+        // Paths are already normalized and validated at load time
         self.ensure_package_map_loaded();
 
         if let Some(ref pkg_map) = *self.package_map.borrow() {
             for (pkg, path) in pkg_map.iter() {
-                // Validate path exists and convert to absolute
-                if let Some(abs_path) = Self::normalize_and_validate_path(pkg, path) {
-                    result.insert(pkg.clone(), abs_path);
-                }
+                result.insert(pkg.clone(), path.clone());
             }
         }
 
@@ -139,11 +137,21 @@ impl FindExtension {
     }
 
     /// Ensures the package map is loaded from environment variable (lazy initialization)
+    /// Normalizes paths to absolute and filters out invalid entries at load time.
     fn ensure_package_map_loaded(&self) {
         if self.package_map.borrow().is_none() {
             let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
-            let map = Self::parse_package_map(&map_str);
-            *self.package_map.borrow_mut() = Some(map);
+            let raw_map = Self::parse_package_map(&map_str);
+
+            // Normalize and validate all paths at load time
+            let validated_map: HashMap<String, PathBuf> = raw_map
+                .iter()
+                .filter_map(|(pkg, path)| {
+                    Self::normalize_and_validate_path(pkg, path).map(|abs| (pkg.clone(), abs))
+                })
+                .collect();
+
+            *self.package_map.borrow_mut() = Some(validated_map);
         }
     }
 
