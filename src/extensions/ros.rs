@@ -80,12 +80,7 @@ impl FindExtension {
 
         // Merge in all packages from RUST_XACRO_PACKAGE_MAP
         // These are treated as ground truth even if they weren't actively used
-        if self.package_map.borrow().is_none() {
-            // Lazy load the package map if not already loaded
-            let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
-            let map = Self::parse_package_map(&map_str);
-            *self.package_map.borrow_mut() = Some(map);
-        }
+        self.ensure_package_map_loaded();
 
         if let Some(ref pkg_map) = *self.package_map.borrow() {
             for (pkg, path) in pkg_map.iter() {
@@ -94,6 +89,15 @@ impl FindExtension {
         }
 
         result
+    }
+
+    /// Ensures the package map is loaded from environment variable (lazy initialization)
+    fn ensure_package_map_loaded(&self) {
+        if self.package_map.borrow().is_none() {
+            let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
+            let map = Self::parse_package_map(&map_str);
+            *self.package_map.borrow_mut() = Some(map);
+        }
     }
 
     /// Set the current file being processed (for ancestor package detection)
@@ -197,21 +201,11 @@ impl FindExtension {
         &self,
         package_name: &str,
     ) -> Option<PathBuf> {
-        // Check cache first
-        {
-            let map_ref = self.package_map.borrow();
-            if let Some(ref map) = *map_ref {
-                return map.get(package_name).cloned();
-            }
-        }
-
-        // Parse environment variable and cache
-        let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
-        let map = Self::parse_package_map(&map_str);
-
-        let result = map.get(package_name).cloned();
-        *self.package_map.borrow_mut() = Some(map);
-        result
+        self.ensure_package_map_loaded();
+        self.package_map
+            .borrow()
+            .as_ref()
+            .and_then(|map| map.get(package_name).cloned())
     }
 
     /// Parse package map string, handling paths with colons correctly.
