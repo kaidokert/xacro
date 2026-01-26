@@ -110,11 +110,12 @@ impl FindExtension {
         } else {
             match env::current_dir() {
                 Ok(cwd) => cwd.join(path),
-                Err(_) => {
+                Err(e) => {
                     log::warn!(
-                        "{} entry for '{}' has relative path but current_dir unavailable: {}",
+                        "{} entry for '{}' has relative path but current_dir unavailable ({}): {}",
                         PACKAGE_MAP_ENV_VAR,
                         pkg_name,
+                        e,
                         path.display()
                     );
                     return None;
@@ -125,9 +126,17 @@ impl FindExtension {
         // Validate the path exists and is a directory
         if abs_path.is_dir() {
             Some(abs_path)
+        } else if !abs_path.exists() {
+            log::warn!(
+                "{} entry for '{}' does not exist: {}",
+                PACKAGE_MAP_ENV_VAR,
+                pkg_name,
+                abs_path.display()
+            );
+            None
         } else {
             log::warn!(
-                "{} entry for '{}' is not a valid directory: {}",
+                "{} entry for '{}' is not a directory: {}",
                 PACKAGE_MAP_ENV_VAR,
                 pkg_name,
                 abs_path.display()
@@ -145,9 +154,9 @@ impl FindExtension {
 
             // Normalize and validate all paths at load time
             let validated_map: HashMap<String, PathBuf> = raw_map
-                .iter()
+                .into_iter()
                 .filter_map(|(pkg, path)| {
-                    Self::normalize_and_validate_path(pkg, path).map(|abs| (pkg.clone(), abs))
+                    Self::normalize_and_validate_path(&pkg, &path).map(|abs| (pkg, abs))
                 })
                 .collect();
 
@@ -518,32 +527,16 @@ impl FindExtension {
         }
 
         // Try resolution strategies in order, storing result once found
-        let pkg_path = {
-            // 1. Check explicit package map first (hermetic mode takes precedence)
-            if let Some(path) = self.get_package_from_map(package_name) {
-                if path.is_dir() {
-                    Some(path)
-                } else {
-                    // Warn on misconfiguration but continue to other strategies
-                    log::warn!(
-                        "{} entry for '{}' points to non-existent or non-directory path: {}",
-                        PACKAGE_MAP_ENV_VAR,
-                        package_name,
-                        path.display()
-                    );
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        // 2. Check ancestor directories from current file
-        .or_else(|| self.find_ancestor_package(package_name))
-        // 3. Search ROS_PACKAGE_PATH and workspace discovery
-        .or_else(|| {
-            let search_paths = self.get_search_paths();
-            self.search_package(package_name, &search_paths)
-        });
+        // Note: get_package_from_map() returns pre-validated absolute paths
+        let pkg_path = self
+            .get_package_from_map(package_name)
+            // 2. Check ancestor directories from current file
+            .or_else(|| self.find_ancestor_package(package_name))
+            // 3. Search ROS_PACKAGE_PATH and workspace discovery
+            .or_else(|| {
+                let search_paths = self.get_search_paths();
+                self.search_package(package_name, &search_paths)
+            });
 
         // Cache and return result, or error if not found
         if let Some(path) = pkg_path {
