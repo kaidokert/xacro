@@ -69,22 +69,25 @@ impl FindExtension {
 
     /// Get all packages that were resolved during processing.
     ///
-    /// Returns a map of package names to their absolute paths. This includes:
-    /// - All packages that were successfully resolved via $(find package_name)
-    /// - All packages declared in RUST_XACRO_PACKAGE_MAP (treated as ground truth)
+    /// Returns a map of package names to their paths. This includes:
+    /// - All packages resolved via $(find package_name) - these are absolute paths
+    /// - All packages declared in RUST_XACRO_PACKAGE_MAP - returned as provided
+    ///
+    /// Resolution priority: RUST_XACRO_PACKAGE_MAP entries override discovered
+    /// packages when both exist for the same package name.
     ///
     /// This is useful for dependency tracking and reporting which ROS packages
     /// were used during xacro processing.
     pub fn get_found_packages(&self) -> HashMap<String, PathBuf> {
         let mut result = self.cache.borrow().clone();
 
-        // Merge in all packages from RUST_XACRO_PACKAGE_MAP
-        // These are treated as ground truth even if they weren't actively used
+        // Merge in packages from RUST_XACRO_PACKAGE_MAP
+        // These override discovered packages (env var takes precedence)
         self.ensure_package_map_loaded();
 
         if let Some(ref pkg_map) = *self.package_map.borrow() {
             for (pkg, path) in pkg_map.iter() {
-                result.entry(pkg.clone()).or_insert_with(|| path.clone());
+                result.insert(pkg.clone(), path.clone());
             }
         }
 
