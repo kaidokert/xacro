@@ -101,7 +101,7 @@ impl FindExtension {
     }
 
     /// Convert a path to absolute and validate it exists.
-    /// Returns None with a warning if the path doesn't exist.
+    /// Returns None with a warning if the path can't be resolved or doesn't exist.
     fn normalize_and_validate_path(
         pkg_name: &str,
         path: &Path,
@@ -109,10 +109,19 @@ impl FindExtension {
         // Convert to absolute without canonicalize() to avoid Windows \\?\ prefix issues
         let abs_path = if path.is_absolute() {
             path.to_path_buf()
-        } else if let Ok(cwd) = env::current_dir() {
-            cwd.join(path)
         } else {
-            path.to_path_buf()
+            match env::current_dir() {
+                Ok(cwd) => cwd.join(path),
+                Err(_) => {
+                    log::warn!(
+                        "{} entry for '{}' has relative path but current_dir unavailable: {}",
+                        PACKAGE_MAP_ENV_VAR,
+                        pkg_name,
+                        path.display()
+                    );
+                    return None;
+                }
+            }
         };
 
         // Validate the path exists
