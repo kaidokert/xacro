@@ -124,12 +124,12 @@ impl FindExtension {
             }
         };
 
-        // Validate the path exists
+        // Validate the path exists and is a directory
         if abs_path.is_dir() {
             Some(abs_path)
         } else {
             log::warn!(
-                "{} entry for '{}' points to non-existent path: {}",
+                "{} entry for '{}' is not a valid directory: {}",
                 PACKAGE_MAP_ENV_VAR,
                 pkg_name,
                 abs_path.display()
