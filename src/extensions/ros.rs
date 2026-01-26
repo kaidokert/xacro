@@ -11,6 +11,9 @@ use std::{
 };
 use xmltree::Element;
 
+// Environment variable name for package path overrides
+const PACKAGE_MAP_ENV_VAR: &str = "RUST_XACRO_PACKAGE_MAP";
+
 // Platform-specific path separator for RUST_XACRO_PACKAGE_MAP
 #[cfg(windows)]
 const PATH_LIST_SEPARATOR: char = ';';
@@ -66,13 +69,31 @@ impl FindExtension {
 
     /// Get all packages that were resolved during processing.
     ///
-    /// Returns a map of package names to their absolute paths. This includes
-    /// all packages that were successfully resolved via $(find package_name).
+    /// Returns a map of package names to their absolute paths. This includes:
+    /// - All packages that were successfully resolved via $(find package_name)
+    /// - All packages declared in RUST_XACRO_PACKAGE_MAP (treated as ground truth)
     ///
     /// This is useful for dependency tracking and reporting which ROS packages
     /// were used during xacro processing.
     pub fn get_found_packages(&self) -> HashMap<String, PathBuf> {
-        self.cache.borrow().clone()
+        let mut result = self.cache.borrow().clone();
+
+        // Merge in all packages from RUST_XACRO_PACKAGE_MAP
+        // These are treated as ground truth even if they weren't actively used
+        if self.package_map.borrow().is_none() {
+            // Lazy load the package map if not already loaded
+            let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
+            let map = Self::parse_package_map(&map_str);
+            *self.package_map.borrow_mut() = Some(map);
+        }
+
+        if let Some(ref pkg_map) = *self.package_map.borrow() {
+            for (pkg, path) in pkg_map.iter() {
+                result.entry(pkg.clone()).or_insert_with(|| path.clone());
+            }
+        }
+
+        result
     }
 
     /// Set the current file being processed (for ancestor package detection)
@@ -185,7 +206,7 @@ impl FindExtension {
         }
 
         // Parse environment variable and cache
-        let map_str = env::var("RUST_XACRO_PACKAGE_MAP").unwrap_or_default();
+        let map_str = env::var(PACKAGE_MAP_ENV_VAR).unwrap_or_default();
         let map = Self::parse_package_map(&map_str);
 
         let result = map.get(package_name).cloned();
@@ -456,7 +477,8 @@ impl FindExtension {
                 } else {
                     // Warn on misconfiguration but continue to other strategies
                     log::warn!(
-                        "RUST_XACRO_PACKAGE_MAP entry for '{}' points to non-existent or non-directory path: {}",
+                        "{} entry for '{}' points to non-existent or non-directory path: {}",
+                        PACKAGE_MAP_ENV_VAR,
                         package_name,
                         path.display()
                     );
